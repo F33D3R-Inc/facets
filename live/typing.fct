@@ -1,0 +1,47 @@
+# TypingIndicator — the three dots that say someone is composing a reply.
+#
+# The animation is CSS and not state. A component that animated by writing a cell
+# on a timer would send a re-render through the reactive engine three times a
+# second, for every visible indicator, forever — and would do it on the client
+# that is READING, which is not the one typing. Keyframes cost nothing and stop
+# when the element is removed.
+#
+# ── WHAT THE CALLER OWNS ────────────────────────────────────────────────────
+#
+# Whether anyone is typing. Same shape as presence, same reason: a heartbeat
+# timestamp, not a flag. `now() - t.at < 5` is someone who typed in the last five
+# seconds; a stored `typing: bool` is a dot that never goes away when a tab
+# closes mid-sentence.
+#
+#     if exists(t in Typing where t.thread == id && t.who != actor && asOf - t.at < 5):
+#         use TypingIndicator("Ada")
+#
+# `asOf` is supplied by the caller — a view cannot read the clock (see
+# live/timeago.fct).
+app FacetLive:
+    css:
+        [data-fa-mount] .x-typing { display: flex; align-items: center; gap: 8px;
+                     padding: 8px 16px; color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-typing-dots { display: inline-flex; gap: 3px; }
+        [data-fa-mount] .x-typing-dots span { width: 6px; height: 6px; border-radius: 9999px;
+                               background: var(--fa-muted); display: inline-block;
+                               animation: x-typing-bounce 1.2s infinite ease-in-out; }
+        # The stagger is what reads as typing rather than as a loading spinner.
+        [data-fa-mount] .x-typing-dots span:nth-child(2) { animation-delay: .18s; }
+        [data-fa-mount] .x-typing-dots span:nth-child(3) { animation-delay: .36s; }
+        @keyframes x-typing-bounce {
+          0%, 80%, 100% { transform: translateY(0); opacity: .45; }
+          40%           { transform: translateY(-3px); opacity: 1; }
+        }
+        # Motion is a preference the browser already knows. An indicator that
+        # keeps moving after the reader asked everything to stop is a bug.
+        @media (prefers-reduced-motion: reduce) {
+          [data-fa-mount] .x-typing-dots span { animation: none; opacity: .7; }
+        }
+    component TypingIndicator(who: text):
+        row class "x-typing":
+            box class "x-typing-dots":
+                box
+                box
+                box
+            text "{who} is typing…"

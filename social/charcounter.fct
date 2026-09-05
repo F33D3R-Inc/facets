@@ -1,0 +1,27 @@
+# CharCounter — how much of a composer's budget is spent, and whether it has been
+# overspent.
+#
+# It reads the caller's cell (`v: cell text`) rather than taking a number, so it
+# stays correct without the call site recomputing `len(draft)` beside every
+# composer. The cell parameter substitutes the NAME, so `len(v)` becomes
+# `len(draft)` before anything is checked, and the count updates as the cell does.
+#
+# ── IT DOES NOT ENFORCE THE LIMIT ───────────────────────────────────────────
+#
+# Deliberately. A counter that also blocked the button would be two facets in one,
+# and the wrong two: the limit is a rule about the DATA, so it belongs in the
+# action that writes it (`check len(body) <= 280 "too long"`), where it is enforced
+# for every caller including one that never rendered this counter. A client-side
+# component cannot be the enforcement point for anything, and a component that
+# looks like it is will eventually be trusted as one.
+#
+# What it does is tell the truth early, so the refusal is never a surprise.
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-count { color: var(--fa-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-count-over { color: #f4212e; font-weight: 700; }
+    component CharCounter(limit: int, v: cell text):
+        if len(v) <= limit:
+            text "{len(v)}/{limit}" class "x-count"
+        if len(v) > limit:
+            text "{len(v)}/{limit}" class "x-count x-count-over"

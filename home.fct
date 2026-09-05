@@ -14,6 +14,17 @@ import "social/composebox.fct"
 import "social/whotofollow.fct"
 import "social/followbutton.fct"
 import "social/engagementbar.fct"
+import "social/focusedpost.fct"
+import "social/poststats.fct"
+import "social/replycomposer.fct"
+import "social/replyrow.fct"
+import "social/quotecard.fct"
+import "social/repostbanner.fct"
+import "social/charcounter.fct"
+import "live/timeago.fct"
+import "live/presencedot.fct"
+import "live/typing.fct"
+import "live/newposts.fct"
 import "forms/searchbox.fct"
 import "profile/profileheader.fct"
 import "notify/notificationitem.fct"
@@ -345,26 +356,21 @@ app F33D3RHome:
         meta description "{Tweet(id).body}"
         box:
             for t in Tweet where t.id == id by id desc limit 1:
-                box:
-                    use UserChip(t.author, t.handle, t.verified)
-                    match t.kind:
-                        case "richtext":
-                            richtext "{t.body}"
-                        case "video":
-                            video "{t.media}"
-                        else:
-                            text "{t.body}"
-                    use EngagementBar(t.id, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id))
-                    row:
-                        input bind replyDraft placeholder "Post your reply"
-                        button "Reply" -> reply(t.id, replyDraft)
+                use FocusedPost(t.author, t.handle, t.verified, t.kind, t.body, t.media)
+                use PostStats(count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), count(l in Like where l.tweet == t.id))
+                use EngagementBar(t.id, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id))
+                # The button lives here and not inside ReplyComposer because
+                # `reply(t.id, replyDraft)` takes an argument, and only a call site
+                # can write a call that does.
+                use ReplyComposer("Post your reply", replyDraft):
+                    use CharCounter(280, replyDraft)
+                    button "Reply" -> reply(t.id, replyDraft)
             if !exists(t in Tweet where t.id == id):
                 text "This post no longer exists." class "x-empty"
             text "Replies" class "x-section"
             for r in Reply where r.tweet == id by created desc limit 50:
-                box:
-                    use UserChip(r.author, r.author, false)
-                    text "{r.body}"
+                use ReplyRow(r.author, r.author, false, r.body):
+                    text ""
 
     # Notifications — the notify/ atoms over the rows the like/repost/follow/reply
     # actions fanned out. The ✓ marks one read; "Clear all" empties the inbox.

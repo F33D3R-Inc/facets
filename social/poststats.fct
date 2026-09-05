@@ -1,0 +1,30 @@
+# PostStats — the counts line under a focused post: "12 Replies · 4 Reposts ·
+# 87 Likes".
+#
+# The same three numbers EngagementBar shows, and deliberately not the same
+# component. The bar's numbers sit on the buttons that change them, so they are
+# controls with a count on them; these are the record, stated in words, on the one
+# page that has room to state it. Showing both is normal — a post page has the
+# stats line and the action bar underneath it — and merging them would mean the
+# detail page either loses the wording or the feed grows it.
+#
+# Each figure is a link, because a count of likes is a list of people who liked it
+# and that is a real destination. The routes are the caller's, passed in, so this
+# facet does not decide what an app's URLs look like.
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-stats { display: flex; flex-wrap: wrap; gap: 16px;
+                    padding: 12px 16px; border-top: 1px solid var(--x-line, #2f3336);
+                    border-bottom: 1px solid var(--x-line, #2f3336);
+                    color: var(--fa-muted); font-size: 14px; }
+        # The number is the thing being reported; the noun beside it is the label.
+        # Weighting them the same makes the row read as prose rather than as data.
+        [data-fa-mount] .x-stat-n { color: var(--fa-fg); font-weight: 700; }
+    component PostStats(replies: int, reposts: int, likes: int):
+        row class "x-stats":
+            text "{replies}" class "x-stat-n"
+            text "Replies"
+            text "{reposts}" class "x-stat-n"
+            text "Reposts"
+            text "{likes}" class "x-stat-n"
+            text "Likes"

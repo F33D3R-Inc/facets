@@ -1,0 +1,37 @@
+# PresenceDot — is this person here right now.
+#
+# A dot and nothing else. The name beside it is the caller's — `UserChip`,
+# `PersonRow`, a message header — and a presence component that carried a name
+# would be a second, worse identity line competing with the one already there.
+#
+# ── ONLINE IS A FACT ABOUT TIME, NOT A FLAG ─────────────────────────────────
+#
+# The caller passes a bool, and the bool it should pass is derived from a
+# heartbeat: `now() - u.seenAt < 60`. A stored `online: bool` column is the
+# version that breaks, and it breaks in the one way users notice — a browser that
+# closes without saying goodbye leaves the flag true forever, so the list fills
+# with people who are permanently "online" and the indicator stops meaning
+# anything. A timestamp cannot lie about that; it just goes stale on its own.
+#
+#     use PresenceDot(asOf - u.seenAt < 60)
+#
+# `asOf` is an instant the caller supplies, for the reason live/timeago.fct sets
+# out at length: a view cannot read the clock.
+#
+# `title` is not a parameter because this library has `ui/Tooltip` for the case
+# where the dot needs words, and two ways to attach a label to one mark is one
+# too many.
+app FacetLive:
+    css:
+        [data-fa-mount] .x-presence { display: inline-block; width: 8px; height: 8px;
+                       border-radius: 9999px; flex: none;
+                       /* the ring separates the dot from whatever it sits on,
+                          including an avatar it may overlap */
+                       box-shadow: 0 0 0 2px var(--fa-bg); }
+        [data-fa-mount] .x-presence-on { background: #00ba7c; }
+        [data-fa-mount] .x-presence-off { background: var(--fa-muted); opacity: .5; }
+    component PresenceDot(online: bool):
+        if online:
+            box class "x-presence x-presence-on"
+        if !online:
+            box class "x-presence x-presence-off"

@@ -1,0 +1,38 @@
+# QuoteCard — a post embedded inside another post: the thing a quote-repost adds
+# its own words above.
+#
+# This is the one place in the social set where a post SHOULD look like a bordered
+# box. Everywhere else a border is wrong — a timeline is a list of things
+# separated by hairlines, and PostCard/ReplyRow both say so. Here the border is
+# doing real work: it is the boundary between what the quoting author wrote and
+# what they are quoting, and without it the two bodies run together into one post
+# by the wrong person.
+#
+# It carries no engagement bar. The actions on a quoted post belong to the quoted
+# post, and putting them here would give a reader two like buttons a few pixels
+# apart that like different things. The whole card is a link to the original,
+# which is where those actions live.
+#
+# The body is truncated rather than scrolled: a quote is a reference, and a
+# reference that is longer than the thing referring to it has stopped being one.
+import "../ui/avatar.fct"
+import "../ui/userchip.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-quote { border: 1px solid var(--x-line, #2f3336); border-radius: 12px;
+                    padding: 12px; margin: 8px 0; }
+        [data-fa-mount] .x-quote:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-quote-head { display: flex; align-items: center; gap: 8px; }
+        # The quoted avatar is a mark, not a portrait — it identifies the author
+        # at a glance without competing with the quoting post's own avatar.
+        [data-fa-mount] .x-quote .fa-image { width: 20px; height: 20px; }
+        [data-fa-mount] .x-quote-body { font-size: 15px; line-height: 1.35; margin-top: 4px;
+                         overflow-wrap: anywhere;
+                         display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+                         overflow: hidden; }
+    component QuoteCard(id: int, author: text, handle: text, verified: bool, body: text):
+        box class "x-quote":
+            row class "x-quote-head":
+                use Avatar(author)
+                use UserChip(author, handle, verified)
+            link "{body}" -> "/post/{id}" class "x-quote-body"

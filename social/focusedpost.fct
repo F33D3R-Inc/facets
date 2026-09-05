@@ -1,0 +1,42 @@
+# FocusedPost — the post a detail page is ABOUT, rendered at the size that says so.
+#
+# A timeline row and the post you opened are not the same object at two sizes;
+# they are two objects. The row is a link — its body is the click target, because
+# that is how a timeline opens (see PostCard). The focused post is already open,
+# so its body must NOT be a link: a body that navigates to the page you are on is
+# a dead control, and a reader who clicks it and watches nothing happen has been
+# told the page is broken.
+#
+# That single difference is the whole reason this is a separate facet rather than
+# a `focused: bool` on PostCard. The flag would have to switch the body between a
+# `link` and a `text`, the identity line between one row and two, the type scale,
+# and the presence of the stats line — which is not a variant, it is a different
+# component wearing the same name.
+#
+# The avatar and identity stack ABOVE the body here rather than beside it. A feed
+# indents every body under its author's name so the eye can run down one column of
+# text; a detail page has one post and no column to keep, and the full width is
+# worth more than the alignment.
+import "../ui/avatar.fct"
+import "../ui/userchip.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-focus { padding: 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-focus-head { display: flex; align-items: center; gap: 12px; }
+        # 23px is the one place this library sets a body size larger than the
+        # reading size. It is the signal that this post is the subject of the page
+        # rather than an entry in a list of them.
+        [data-fa-mount] .x-focus-body { font-size: 23px; line-height: 1.3; margin: 12px 0;
+                        overflow-wrap: anywhere; }
+    component FocusedPost(author: text, handle: text, verified: bool, kind: text, body: text, media: text):
+        box class "x-focus":
+            row class "x-focus-head":
+                use Avatar(author)
+                use UserChip(author, handle, verified)
+            match kind:
+                case "richtext":
+                    richtext "{body}" class "x-focus-body"
+                case "video":
+                    video "{media}" class "x-focus-body"
+                else:
+                    text "{body}" class "x-focus-body"

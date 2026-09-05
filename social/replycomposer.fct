@@ -1,0 +1,50 @@
+# ReplyComposer — the "post your reply" box under a post.
+#
+# ── WHY THE BUTTON IS IN THE SLOT ───────────────────────────────────────────
+#
+# ComposeBox owns its own button because the action it calls takes exactly one
+# argument and that argument is its own cell: `post(draft)`. A reply cannot work
+# that way. It calls `reply(id, draft)` — the post being replied to, and the text —
+# and a component cannot make that call. An `action` reference parameter is
+# invoked with no arguments (the rule forms/form.fct states, and the reason
+# `SubmitButton` was removed from this library); a `text` parameter carrying the
+# id would give the component the value but not the ability to name the action.
+#
+# So the component owns what is structural — the avatar column, the borderless
+# input, the rule above the actions, the pending and error lines — and the caller
+# writes the button in the slot, at the call site, WHERE THE ID IS IN SCOPE:
+#
+#     for t in Tweet where t.id == id by id desc limit 1:
+#         use ReplyComposer("Post your reply", replyDraft):
+#             button "Reply" -> reply(t.id, replyDraft)
+#
+# This is the same conclusion content/comments.fct reached for a comment's delete
+# control, and it is worth stating twice: the shape of a reusable facet is decided
+# by which of its calls carry arguments.
+#
+# ── THE CELL IS THE CALLER'S ────────────────────────────────────────────────
+#
+# `v: cell text` rather than a `draft` this file names. A page with a composer at
+# the top and a reply box under a post has two independent drafts, and a facet
+# that hard-coded one cell would silently make them the same box: typing a reply
+# would rewrite the post you were composing.
+import "../ui/avatar.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-reply-c { display: grid; grid-template-columns: 40px minmax(0,1fr);
+                      gap: 12px; padding: 12px 16px;
+                      border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-reply-c input { border: none; background: none; font-size: 17px;
+                            padding: 12px 0; width: 100%; color: var(--fa-fg); }
+        [data-fa-mount] .x-reply-c input::placeholder { color: var(--fa-muted); }
+        [data-fa-mount] .x-reply-actions { display: flex; justify-content: flex-end; align-items: center;
+                            gap: 12px; border-top: 1px solid var(--x-line, #2f3336); padding-top: 12px; }
+        [data-fa-mount] .x-reply-actions button { background: var(--fa-accent); color: #fff; font-weight: 700;
+                                   padding: 8px 16px; border-radius: 9999px; }
+    component ReplyComposer(placeholder: text, v: cell text):
+        box class "x-reply-c":
+            use Avatar(actor)
+            box:
+                input bind v placeholder "{placeholder}"
+                row class "x-reply-actions":
+                    slot

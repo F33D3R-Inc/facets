@@ -1,0 +1,26 @@
+# RepostBanner — the "Ada reposted" line above a post that reached your timeline
+# through someone else.
+#
+# It exists because without it a repost is indistinguishable from a post by
+# somebody you do not follow, which reads as the feed being broken. The banner is
+# the entire explanation of why this post is here.
+#
+# It sits ABOVE the post and inside the same row, not beside the author's name.
+# Attaching it to the byline makes the reposter look like a co-author; putting it
+# on its own line above makes it what it is — provenance, in smaller, quieter type
+# than anything it introduces.
+#
+# The indent matches PostCard's avatar column so the words start where the
+# author's name starts rather than where the avatar does. That alignment is the
+# difference between a caption and a stray line of text.
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-repost-of { display: flex; align-items: center; gap: 8px;
+                        padding: 8px 16px 0 68px;
+                        color: var(--fa-muted); font-size: 13px; font-weight: 600; }
+        [data-fa-mount] .x-repost-of .fa-link { color: var(--fa-muted); }
+        [data-fa-mount] .x-repost-of .fa-link:hover { text-decoration: underline; }
+    component RepostBanner(who: text):
+        row class "x-repost-of":
+            text "🔁"
+            link "{who} reposted" -> "/profile/{who}"

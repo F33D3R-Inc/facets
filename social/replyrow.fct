@@ -1,0 +1,40 @@
+# ReplyRow — one reply in a conversation.
+#
+# The same two-column grid as PostCard, one size down. A reply is a post — it has
+# an author, a body, and its own engagement — so making it look like a different
+# kind of object would be a lie about the data model. What distinguishes it is
+# position: it is under something, in a list, at a smaller avatar.
+#
+# The controls are a slot for the reason ReplyComposer's button is: deleting a
+# reply is `removeReply(r.id)`, an action call with an argument, which only the
+# call site can write. A reply with nothing to offer passes an empty block and
+# gets a row with no action area, which is the common case:
+#
+#     for r in Reply where r.tweet == id by created desc limit 50:
+#         use ReplyRow(r.author, r.author, false, r.body):
+#             if r.author == actor:
+#                 button "Delete" -> removeReply(r.id)
+import "../ui/avatar.fct"
+import "../ui/userchip.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-reply { display: grid; grid-template-columns: 32px minmax(0,1fr);
+                    gap: 12px; padding: 12px 16px; align-items: start;
+                    border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-reply:hover { background: rgba(255,255,255,.02); }
+        # A conversation is a list of remarks; a 40px disc per remark turns the
+        # page into a column of faces with some text beside it.
+        [data-fa-mount] .x-reply .fa-image { width: 32px; height: 32px; }
+        [data-fa-mount] .x-reply-body { font-size: 15px; line-height: 1.35; margin: 2px 0 4px;
+                         overflow-wrap: anywhere; }
+        [data-fa-mount] .x-reply-actions { display: flex; gap: 8px; }
+        [data-fa-mount] .x-reply-actions button { color: var(--fa-muted); font-size: 13px;
+                                   padding: 4px 8px; border-radius: 9999px; }
+    component ReplyRow(author: text, handle: text, verified: bool, body: text):
+        box class "x-reply":
+            use Avatar(author)
+            box:
+                use UserChip(author, handle, verified)
+                text "{body}" class "x-reply-body"
+                row class "x-reply-actions":
+                    slot

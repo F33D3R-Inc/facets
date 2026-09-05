@@ -1,0 +1,50 @@
+# NewPostsPill — "Show 12 new posts", the bar that appears at the top of a feed
+# when the world moved while you were reading it.
+#
+# It exists because of what the live stream does WITHOUT it. Posts arrive over
+# SSE and the feed re-renders, so a row you were halfway through reading slides
+# down the page under your eyes. That is correct data and a broken experience,
+# and every product with a live feed has arrived at the same answer: hold the new
+# rows back, count them, and let the reader decide when to take them.
+#
+# ── THE COUNT IS A QUERY, NOT A COUNTER ─────────────────────────────────────
+#
+# The caller passes `count(t in Post where t.created > seenAt)` — the number of
+# rows newer than the marker this reader last caught up to. `seenAt` is an
+# ordinary `@client int` cell, and `catchUp` sets it to `now()`.
+#
+# That shape matters: the number is derived from the data, so it is right after a
+# reconnect, right in a second tab, and right when a post is deleted. A
+# hand-incremented counter fed by the stream would be none of those, and would
+# drift permanently the first time a frame was missed.
+#
+#     state seenAt: int = 0 @client
+#     action catchUp:
+#         set seenAt = now()      # (a @client action; no server round trip)
+#
+#     use NewPostsPill(count(t in Post where t.created > seenAt), catchUp)
+#     for t in Post where t.created <= seenAt by created desc limit 50:
+#         use PostCard(…)
+#
+# The feed's own `where` is what actually holds the rows back. This facet only
+# reports and invites — it has no way to hide a row, and should not: a component
+# that silently filtered a list the caller wrote would be the worst kind of
+# surprise.
+#
+# `a: action` and not a slot, because catching up takes no arguments — which is
+# exactly the case an action reference can carry (forms/form.fct explains the
+# case it cannot).
+app FacetLive:
+    css:
+        # Sticky rather than fixed: it belongs to the top of the FEED, not to the
+        # top of the window, so it stops where the column stops.
+        [data-fa-mount] .x-newposts { position: sticky; top: 8px; z-index: 20;
+                       display: flex; justify-content: center; padding: 8px 0; }
+        [data-fa-mount] .x-newposts button { background: var(--fa-accent); color: #fff; font-weight: 700;
+                              font-size: 14px; padding: 8px 16px; border-radius: 9999px;
+                              border: none; box-shadow: 0 2px 12px rgba(0,0,0,.35); cursor: pointer; }
+        [data-fa-mount] .x-newposts button:hover { filter: brightness(1.08); }
+    component NewPostsPill(count: int, a: action):
+        if count > 0:
+            row class "x-newposts":
+                button "Show {count} new posts" -> a

@@ -1,0 +1,55 @@
+# TimeAgo — "now", "4m", "3h", "2d": how long ago, in the shortest form that is
+# still true.
+#
+# A live feed needs this and `content/DateStamp` cannot be it. That one spells a
+# date out ("5 September 2026") because an article has one publication date and
+# the reader wants to know it. A post in a stream has an AGE, and a timeline where
+# every row says "5 September" says nothing at all.
+#
+# ── WHY `now` IS A PARAMETER ────────────────────────────────────────────────
+#
+# Because a view cannot read the clock, and should not be able to.
+#
+#     a view cannot use an effectful builtin (now/rand); it must be pure so it
+#     can run on any client. Compute it in an action instead
+#
+# That is the compiler refusing `now()` in a view AND in a derive, and it is the
+# right refusal: the server renders a page and the client re-renders it, and a
+# view that read its own clock would produce two different pages from the same
+# data — the number would change under the reader on hydration, every time.
+#
+# So the caller supplies the instant to measure against, and every age on the page
+# is measured against the SAME instant, which is also what stops a list from
+# rendering "2m" above "3m" above "2m" because the clock moved mid-render.
+#
+#     use TimeAgo(t.created, asOf)
+#
+# ── WHAT THE LANGUAGE IS MISSING ────────────────────────────────────────────
+#
+# There is no pure way to obtain `asOf`. `now()` lives only in an action, so an
+# app that wants live ages has to keep a cell and write it from one, and there is
+# no way to say "re-render this every minute" at all. A `now` the render seeds —
+# one instant per page render, readable in a view, the same on both sides because
+# the server sends it — is what this facet actually wants and what the language
+# does not have yet. Until then this is honest rather than wrong: the age is
+# correct as of the moment the caller names.
+#
+# ── THE BUCKETS ARE THE DESIGN ──────────────────────────────────────────────
+#
+# Seconds are noise ("47s ago" is "now"), and past a week an age stops being
+# useful and a date starts being — which is where this hands off to DateStamp
+# rather than growing a "37w" nobody can place.
+app FacetLive:
+    css:
+        [data-fa-mount] .x-ago { color: var(--fa-muted); font-size: 13px; white-space: nowrap; }
+    component TimeAgo(at: int, asOf: int):
+        if asOf - at < 60:
+            text "now" class "x-ago"
+        if asOf - at >= 60 && asOf - at < 3600:
+            text "{(asOf - at) / 60}m" class "x-ago"
+        if asOf - at >= 3600 && asOf - at < 86400:
+            text "{(asOf - at) / 3600}h" class "x-ago"
+        if asOf - at >= 86400 && asOf - at < 604800:
+            text "{(asOf - at) / 86400}d" class "x-ago"
+        if asOf - at >= 604800:
+            text "{(asOf - at) / 604800}w" class "x-ago"
