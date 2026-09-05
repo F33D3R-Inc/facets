@@ -1,0 +1,68 @@
+# SignedInAs / SignOutButton — who you are, and the way out.
+#
+#     use SignedInAs()
+#     use SignOutButton("Sign out", logout)
+#
+# ── `logout` IS PASSED IN, AND IT HAS TO BE ──────────────────────────────────
+#
+# `logout` is not a name a library facet can spell. It exists only in an app that
+# declares `auth`, and this file does not — a library that declared `auth` would
+# force an identity system on every host that imported a sign-out button. Writing
+# `button "Sign out" -> logout` here fails at build time with *button references
+# unknown action "logout"*, which is the compiler being right.
+#
+# So the action arrives as a reference: `a: action`, invoked with no arguments.
+# That is legal precisely because `logout` takes none — the arity check that
+# killed `SubmitButton` (see `forms/form.fct`: *action "request" takes 6
+# argument(s), got 0*) is satisfied here, and this is the shape `ActionButton`
+# already uses for exactly this class of action. Any no-argument action works:
+# `logout`, `endSession`, `lockAccount`.
+#
+# ── `SignedInAs` READS `actor`, WHICH NEEDS NO PARAMETER ─────────────────────
+#
+# `actor` is the authenticated identity and is in scope in any component a view
+# renders, so the identity line takes no arguments at all and cannot be passed the
+# wrong user. It is deliberately NOT a link to a profile: this library has no
+# route for one, and a component that guessed at `/profile/{actor}` would render
+# an inert span in every app that spells it differently (see `navigation/link.fct`
+# on what happens to a destination that names no route). A host that wants it
+# linked uses `SignedInAsLink`, which takes the destination.
+#
+# The avatar is `ui/avatar.fct`'s, seeded from the actor, so the identity line
+# here and the one in a nav rail are the same face.
+import "../ui/avatar.fct"
+import "../navigation/link.fct"
+app FacetAuth:
+    css:
+        [data-fa-mount] .x-signedin { display: flex; flex-direction: row; align-items: center;
+                     gap: 10px; min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-signedin .fa-image { width: 32px; height: 32px; flex: 0 0 auto; }
+        [data-fa-mount] .x-signedin-who { display: flex; flex-direction: column; gap: 0;
+                        min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-signedin-label { display: block; color: var(--fa-muted);
+                        font-size: 12px; line-height: 1.3; }
+        [data-fa-mount] .x-signedin-name { display: block; font-size: 14px; font-weight: 700;
+                        line-height: 1.3; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-signout { display: inline-flex; border: none; background: none;
+                     padding: 0; }
+        [data-fa-mount] .x-signout button { border: 1px solid var(--x-line, #2f3336);
+                     border-radius: 9999px; background: none; color: var(--fa-muted);
+                     font-size: 14px; font-weight: 600; padding: 8px 16px; cursor: pointer;
+                     align-self: auto; }
+        [data-fa-mount] .x-signout button:hover { color: var(--fa-fg);
+                     border-color: var(--fa-accent); }
+    component SignedInAs():
+        row class "x-signedin":
+            use Avatar(actor)
+            box class "x-signedin-who":
+                text "Signed in as" class "x-signedin-label"
+                text "{actor}" class "x-signedin-name"
+    component SignedInAsLink(href: text):
+        row class "x-signedin":
+            use Avatar(actor)
+            box class "x-signedin-who":
+                text "Signed in as" class "x-signedin-label"
+                use Link(actor, href)
+    component SignOutButton(label: text, a: action):
+        row class "x-signout":
+            button "{label}" -> a

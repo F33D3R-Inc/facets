@@ -1,9 +1,18 @@
-# WhoToFollow — one suggestion in the "Who to follow" rail: identity + a follow
-# button. `following` (compute with exists() in the host) drives follow/unfollow.
+# WhoToFollow — one suggestion: identity on the left, the action on the right, with
+# the space between them doing the work instead of a border.
+import "../ui/avatar.fct"
 import "../ui/userchip.fct"
 import "followbutton.fct"
 app FacetSocial:
+    css:
+        [data-fa-mount] .x-follow { display: flex; align-items: center; justify-content: space-between;
+                    gap: 12px; padding: 12px 16px; }
+        [data-fa-mount] .x-follow:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-follow button { background: var(--fa-fg); color: #000; font-weight: 700;
+                           font-size: 14px; padding: 8px 16px; border-radius: 9999px; }
     component WhoToFollow(name: text, handle: text, verified: bool, following: bool):
-        row:
-            use UserChip(name, handle, verified)
+        row class "x-follow":
+            row class "x-identity":
+                use Avatar(name)
+                use UserChip(name, handle, verified)
             use FollowButton(handle, following)

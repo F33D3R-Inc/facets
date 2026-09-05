@@ -1,0 +1,68 @@
+# Prose and Code — the two ways a block of written material gets onto a page.
+#
+#     use Prose("## What happens next\n\n- We read it.\n- You hear from a person.")
+#     use Code("fct", "app Site:\n    view Home at \"/\":\n        text \"hello\"")
+#
+# `richtext` renders a safe Markdown subset — headings, paragraphs, lists, fenced
+# code, inline code — with the same renderer on the server and in the browser. It
+# is the ONLY way to put a multi-line, pre-formatted or structured block on a page:
+# a `text` node is a `<span>` holding one run of characters, so a paragraph and a
+# heading and a bullet list written as three `text` nodes are three spans that
+# happen to be near each other, and a code sample written that way loses its
+# indentation before anyone reads it.
+#
+# THESE CAME FROM A SITE THAT HAD TO WRITE THEM. Every documentation page, every
+# code sample and every multi-paragraph answer on f33d3r.com goes through a
+# two-line wrapper it wrote locally, because the library had no way to say "a block
+# of writing" and no rules for what `richtext` emits. A wrapper this small is worth
+# promoting precisely BECAUSE it is small: what it carries is not the two lines,
+# it is the measure and the rhythm, which is the part every call site would
+# otherwise get slightly differently.
+#
+# `Prose` SETS A MEASURE AND NOTHING ELSE ABOUT THE TYPE. Long lines are the one
+# failure of unstyled prose that readers feel without being able to name — the eye
+# loses the start of the next line somewhere past 80 characters — so the block caps
+# at 68 characters and inherits everything else from the host's theme. It does not
+# set a font, a colour or a size: a library that restyles the host's body text has
+# stopped being a library.
+#
+# `Code` TAKES THE SOURCE, NOT THE FENCE. The site's version took a whole Markdown
+# string and every call site typed the fence and the language tag into it, which is
+# three characters of Markdown syntax leaking into six hundred call sites and
+# exactly one of them will get it wrong. Here the fence is the component's job:
+# pass the language and the source, and what arrives at `richtext` is
+# ```` ```lang\n…\n``` ````. Pass "" as the language for a block with no
+# highlighting. The source must not itself contain a fence — a code sample of a
+# code sample is a Markdown problem and not one this component pretends to solve.
+app FacetUI:
+    css:
+        # Measure only. Everything else — face, colour, size — is the host's.
+        [data-fa-mount] .x-prose { max-width: 68ch; border: none; background: none;
+                 padding: 0; }
+        [data-fa-mount] .x-prose .fa-richtext > :first-child { margin-top: 0; }
+        [data-fa-mount] .x-prose .fa-richtext > :last-child { margin-bottom: 0; }
+        # A code block is a panel: its own surface, its own border, and a scrollbar
+        # rather than a wrap, because a wrapped line of code is a line of code that
+        # says something different from what was written.
+        # `max-width: 100%; min-width: 0` is the same guard `data/table.fct` puts on
+        # `.x-table-scroll`, and for the same reason: this box WRAPS a scroll
+        # container, and a scroll container only scrolls if something upstream
+        # refuses to grow. Dropped into a flex ROW — a feature's trailing slot, a
+        # toolbar, any `row` — the item's flex base size is the code's max-content
+        # width, and without a ceiling the block sails past its container and the
+        # page gets the scrollbar instead of the code. The column case is the
+        # container's job (`align-items: stretch`, see `marketing/steps.fct`); this
+        # is the half the code block can enforce for itself, everywhere at once.
+        [data-fa-mount] .x-code { border: none; background: none; padding: 0;
+                 max-width: 100%; min-width: 0; }
+        [data-fa-mount] .x-code .fa-richtext pre { margin: 0; overflow-x: auto;
+                 background: var(--x-panel, #16181c); border: 1px solid var(--x-line, #2f3336);
+                 border-radius: 12px; padding: 14px 16px; }
+        [data-fa-mount] .x-code .fa-richtext pre code { font-size: 13.5px; line-height: 1.55;
+                 white-space: pre; background: none; padding: 0; }
+    component Prose(md: text):
+        box class "x-prose":
+            richtext "{md}"
+    component Code(lang: text, src: text):
+        box class "x-code":
+            richtext "```{lang}\n{src}\n```"

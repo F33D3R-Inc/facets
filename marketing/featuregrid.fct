@@ -1,0 +1,92 @@
+# FeatureGrid / FeatureItem — the "what it does" block: three or six short claims,
+# each with a mark, a name and a sentence.
+#
+#     use FeatureGrid():
+#         use FeatureItem("shield", "Authorization is data", "Policies are declared beside the entities they protect and run on the authority."):
+#             use Link("How policies compose", "/docs/policies")
+#         use FeatureItem("bolt", "One file, one deploy", "The schema, the logic and the pages compile together or not at all."):
+#
+# ── IT DOES NOT SHIP ITS OWN GRID ─────────────────────────────────────────────
+#
+# The container is `.x-l-grid3` from `layout/vocabulary.fct` — the same tracks a
+# tile grid uses everywhere else in this library, with the same `max(min(…))`
+# minimum that makes "3" a MAXIMUM at every container width and still collapses to
+# two and one as the room runs out. A marketing grid that invented its own columns
+# would be a second grid to keep in step with the first, and the first one has
+# already been fixed once for counting wrong.
+#
+# What this file adds is the one rule the shared grid cannot know: the vertical
+# rhythm INSIDE a feature, and the fact that a feature is not a card. Bordered
+# boxes in a marketing grid turn a list of claims into a table of specifications.
+#
+# ── THE MARK IS AN `icon`, AND AN EMPTY ONE RENDERS NOTHING ───────────────────
+#
+# `icon "{glyph}"` interpolates, so the mark is a parameter; pass "" for a grid of
+# text-only features and no empty box is left behind. That is the arrangement
+# `navigation/sidebaritem.fct` uses, and it is what lets one component cover a
+# grid with marks and a grid without, instead of two that drift.
+#
+# ── THE BODY IS A PARAMETER AND THERE IS STILL A SLOT ─────────────────────────
+#
+# They answer different questions. Every feature has exactly one sentence, so the
+# sentence is a parameter and its type size is set once. The slot is what comes
+# AFTER it and is different every time — a "learn more" link, a `Tag`, a `Kbd`
+# chord, a small `Figure`, nothing at all. It is `:empty`-hidden so a feature with
+# no trailing content costs no gap.
+#
+# A GRID BUILT FROM A QUERY IS THE LOOP: `for f in Feature by id asc class
+# "x-l-grid3 x-features"`. A `for` renders as one element, so a loop dropped into
+# this slot would be a single grid cell holding every feature — the trap
+# `layout/grid.fct` documents in full.
+# The marks themselves — the set, and the `mask` + `currentColor` technique that
+# draws them — are `ui/icon.fct`'s. Imported rather than left to the host: a grid
+# whose glyph parameter draws nothing is a grid with a hole where every mark was
+# meant to be, and the caller has no way to tell from the call site.
+import "../ui/icon.fct"
+import "../layout/vocabulary.fct"
+app FacetMarketing:
+    css:
+        [data-fa-mount] .x-features { --x-l-gap: 32px; border: none; background: none;
+                     padding: 0; }
+        # `stretch`, not `flex-start`: in a COLUMN flex container `align-items` sizes
+        # the children's WIDTH, and `flex-start` sizes each to its own content — which
+        # leaves a `Code` block's `pre` no width to scroll inside, so a long line
+        # sizes the whole box to max-content and the horizontal scrollbar lands on
+        # the DOCUMENT. `marketing/steps.fct` carries the full note; the invariant is
+        # that wide content scrolls inside its own container and the page body never
+        # scrolls sideways. A child that must not be full width says `align-self`.
+        [data-fa-mount] .x-feature { display: flex; flex-direction: column;
+                    align-items: stretch; gap: 8px; min-width: 0;
+                    border: none; background: none; padding: 0; }
+        # The mark, at heading size rather than at text size. `.fa-icon` sizes
+        # itself in `em`, so this is the one property that has to move.
+        [data-fa-mount] .x-feature .fa-icon { font-size: 26px; color: var(--fa-accent); }
+        [data-fa-mount] .x-feature-title { display: block; font-size: 17px; font-weight: 800;
+                        line-height: 1.3; }
+        [data-fa-mount] .x-feature-body { display: block; color: var(--fa-muted);
+                       font-size: 15px; line-height: 1.55; }
+        [data-fa-mount] .x-feature-more { display: flex; flex-direction: row; flex-wrap: wrap;
+                       align-items: center; gap: 10px; padding-top: 2px;
+                       border: none; background: none; }
+        [data-fa-mount] .x-feature-more:empty { display: none; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-feature > div:empty:not([class]) { display: none; }
+    component FeatureGrid():
+        box class "x-l-grid3 x-features":
+            slot
+    component FeatureItem(glyph: text, title: text, body: text):
+        box class "x-feature":
+            if glyph != "":
+                icon "{glyph}"
+            text "{title}" class "x-feature-title"
+            if body != "":
+                text "{body}" class "x-feature-body"
+            row class "x-feature-more":
+                slot

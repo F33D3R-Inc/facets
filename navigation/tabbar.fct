@@ -1,0 +1,55 @@
+# TabBar — a strip of tabs that are ROUTES, which is the one thing the language's
+# own `tabs` node is not.
+#
+# `tabs bind cell:` is a switch: it owns a client cell, holds every panel's nodes
+# inside itself, and swaps which one renders. That is right for a view of the same
+# data (For you / Following) and wrong for a section of a site: the panels are
+# whole pages with their own data, their own titles and their own addresses, and
+# folding them into one route means none of them can be linked, bookmarked or
+# opened in a new tab. A TabBar is a row of NavLinks that happens to look like
+# tabs; which one is current comes from the route, not from a cell.
+#
+# So this facet is a container and nothing else. It ships no tab component of its
+# own — the tab IS a NavLink, restyled by being inside this row — because a
+# `TabLink` would be NavLink's markup, NavLink's current-state rule and NavLink's
+# route-expression handling written a second time, and the second copy is the one
+# that stops matching. The rules below reach into `.x-navitem` deliberately: the
+# container owns the arrangement, the atom owns the item.
+#
+#     use TabBar():
+#         use NavLink("Posts", "/u/" + handle)
+#         use NavLink("Replies", "/u/" + handle + "/replies")
+#
+# THE DESTINATIONS ARE CONCATENATED, NOT INTERPOLATED, and this example used to
+# get it wrong. A component argument is an EXPRESSION: the quoted-and-braced form
+# is a string literal containing braces, and it used to compile clean and render
+# `href="/u/{handle}"` — a link that goes nowhere, with no diagnostic. The compiler
+# refuses it now. `+`
+# concatenates when either side is text and converts the other, so the value
+# arrives as a value and `Link` interpolates it into the node. A call site that is
+# WRITING the path rather than passing one along should prefer the language's own
+# `link "Posts" -> "/u/{handle}"` node, where the template form is checked against
+# the app's routes and a typo is a build failure.
+#
+# Neither line says which tab is current: `NavLink` compares the destination to
+# `route` itself now, so a tab strip written once in a shared layout marks the tab
+# you are on — which is the only thing a tab strip is for, and the thing it could
+# not do while `current` was an argument. A strip whose tabs cover subtrees rather
+# than single pages uses `NavLinkWhen` with a `contains(route, …)` per tab.
+import "navlink.fct"
+app FacetNav:
+    css:
+        [data-fa-mount] .x-tabbar { display: flex; flex-direction: row; align-items: stretch;
+                   gap: 0; border-bottom: 1px solid var(--x-line, #2f3336);
+                   border-radius: 0; padding: 0; background: none; }
+        # Equal thirds, quarters, whatever there are: a tab strip whose widths
+        # follow the label lengths re-flows every time a count in a label changes.
+        [data-fa-mount] .x-tabbar .x-navitem { flex: 1; width: auto; justify-content: center;
+                        border-radius: 0; padding: 16px 8px; font-size: 15px; font-weight: 600;
+                        border-bottom: 4px solid transparent; }
+        # The current tab is underlined rather than filled, because the strip sits
+        # on a border and a filled tab and a hovered tab read the same.
+        [data-fa-mount] .x-tabbar .x-navitem-current { border-bottom-color: var(--fa-accent); }
+    component TabBar():
+        row class "x-tabbar":
+            slot

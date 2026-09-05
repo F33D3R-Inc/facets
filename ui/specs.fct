@@ -1,0 +1,73 @@
+# Specs / SpecRow — a list of key-value facts. Version numbers, limits, defaults,
+# "what this thing is" tables: the block a reader scans rather than reads.
+#
+#     use Specs():
+#         use SpecRow("Language", "Rust, edition 2024")
+#         use SpecRow("Storage", "Write-ahead log with recovery")
+#         use SpecRow("Auth", "Token, per-tenant")
+#
+# WHY IT IS NOT A TABLE AND NOT A `Grid2`. A table is for data with more than one
+# axis, and this has one: a name and its value. A two-column grid gets the columns
+# right at a comfortable width and wrong at every other one — the value column ends
+# up as narrow as the longest key, or the key column as wide as the longest value.
+# The rule here is `grid-template-columns: minmax(9rem, 22ch) 1fr` per ROW, so keys
+# align down the block, a long key takes the space it needs up to a cap, and the
+# whole thing folds to one column per row when the container gets narrow, which
+# keeps a spec list readable inside a 320px rail.
+#
+# THE ROWS ARE COMPONENTS AND THE CONTAINER IS A SLOT, which is this library's
+# usual shape and it matters here for the reason `layout/grid.fct` gives at
+# length: a spec list built from a query is `for f in Fact … class "x-specs"`,
+# with the loop AS the container, because a `for` dropped into this slot renders
+# as one grid cell holding every row. The class vocabulary is reachable without
+# the wrapper for exactly that case.
+#
+# PROMOTED FROM A SITE. f33d3r.com wrote `SpecRow`/`Specs` for the "what this
+# layer is" block on four pages, and nominated it as the most generally useful
+# thing it had written — correctly: a definition list is not a site's idea, it is
+# a shape every documentation page and every settings summary needs, and every
+# repository that lacks one grows a slightly different one. The shape is promoted;
+# the site's own type scale is not, and the rules below name no font and no colour
+# beyond the muted token the host already defines for secondary text.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-specs { display: flex; flex-direction: column;
+                  border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-spec { display: grid; gap: 4px 20px; align-items: baseline;
+                 grid-template-columns: minmax(9rem, 22ch) 1fr; padding: 10px 0;
+                 border: none; background: none; }
+        # THE DIVIDER STEPS THROUGH THE WRAPPER. `.x-spec + .x-spec` is what this
+        # rule used to say, and it never matched anything: `use SpecRow(...)`
+        # renders an element of its own around each row, so two rows are a
+        # wrapper's child and the next wrapper's child — never DOM siblings — and
+        # every list of specs rendered with no rules between the rows at all. `+`
+        # and `:last-child` walk the DOM, and `display: contents` does not help
+        # because it moves boxes, not selectors; the only fix is to compare the
+        # WRAPPERS and then descend. `> * + *` does exactly that and does not care
+        # whether the wrapper is a `.fa-use` or an unclassed region div, nor how
+        # many levels of composition sit between it and the `.x-spec`.
+        #
+        # It does require the rows to be direct children of the `.x-specs` element.
+        # `use Specs():` with `use SpecRow(...)` inside is that; a `for` that
+        # renders the rows must carry the class ITSELF — `for s in Spec class
+        # "x-specs"` — for the same reason `data/table.fct` makes the loop the row
+        # group rather than putting a loop inside one.
+        [data-fa-mount] .x-specs > * + * .x-spec { border-top: 1px solid var(--x-line, #2f3336); }
+        # A `text` node is a span, so the two halves say `display: block` or the
+        # grid places two inline boxes it cannot align.
+        [data-fa-mount] .x-spec-k { display: block; color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-spec-v { display: block; font-size: 15px; line-height: 1.5; }
+        # One column per row below the point where two would leave the value four
+        # words wide. Container width is not queryable here, so this is the one
+        # media query in the file and it guards the case that is unreadable rather
+        # than the case that is merely tight.
+        @media (max-width: 480px) {
+            [data-fa-mount] .x-spec { grid-template-columns: 1fr; }
+        }
+    component Specs():
+        box class "x-specs":
+            slot
+    component SpecRow(key: text, value: text):
+        box class "x-spec":
+            text "{key}" class "x-spec-k"
+            text "{value}" class "x-spec-v"

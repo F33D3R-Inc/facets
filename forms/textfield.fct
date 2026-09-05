@@ -1,0 +1,49 @@
+# TextField — label, input, hint, error, bound to the caller's cell. The facet
+# this library said could not be written, and the note it could not be written in
+# is still at the top of fieldlabel.fct: `bind` needs a state cell that exists at
+# compile time, and a component parameter was not one, so `input bind cell` inside
+# a component failed with *input binds unknown state "cell"* and the reusable unit
+# of a form had to be the whole form.
+#
+# `v: cell text` is what changed. It declares that the caller passes the NAME of a
+# `text` state cell, not its value; the compiler substitutes that name through the
+# body and lowers a fresh copy per call site, so `input bind v` becomes
+# `input bind draft` before anything is checked. Every check a hand-written input
+# gets, this gets, against the real cell: that it exists, that it is `text` and not
+# `int`, and that it is `@client` (two-way binding to an authoritative cell is
+# still refused — the error names the cell the caller passed, not `v`).
+#
+#     state email: text = "" @client
+#     use TextField("Email", "you@example.com", true, "We never share it.", failed(subscribe), email)
+#
+# THE PLACEHOLDER IS A REAL PARAMETER. It was left out of the first version of
+# this facet because `placeholder` took a literal — `placeholder "{hint}"`
+# compiled and rendered the eight characters `{hint}` into the box — and a
+# parameter that renders its own source is worse than no parameter. The attribute
+# interpolates now, and the value is escaped by both renderers, so nothing here
+# has to sanitise it.
+#
+# One thing to know about interpolated attributes: outside a tracked region they
+# render correctly but do not live-update when the value changes later. It does
+# not bite here — a `use` is its own region, so the input and its placeholder are
+# inside one — and it is the reason a placeholder driven by a cell that changes
+# should be passed to a field rather than written onto a bare `input` at the top
+# of a view.
+#
+# A placeholder is not a label and not a hint. It vanishes the moment there is a
+# character in the box, so it can only ever show the SHAPE of the answer
+# ("you@example.com", "+44 …"); the name of the field is `label`, and anything the
+# reader still needs while typing is `hint`, which stays on screen.
+#
+# `NumberField` is the same body with `v: cell int`, and is a separate component
+# rather than a `type` parameter because the cell's type is checked at the call
+# site: one component cannot accept both, and a runtime "type" string would let a
+# text cell into a number field.
+import "field.fct"
+app FacetForms:
+    component TextField(label: text, placeholder: text, required: bool, hint: text, error: text, v: cell text):
+        use Field(label, required, hint, error):
+            input bind v placeholder "{placeholder}"
+    component NumberField(label: text, placeholder: text, required: bool, hint: text, error: text, v: cell int):
+        use Field(label, required, hint, error):
+            input bind v placeholder "{placeholder}"

@@ -1,0 +1,78 @@
+# LoginForm — email, password, submit, with the action's own pending and failure
+# states already wired.
+#
+#     state email: text = "" @client
+#     state pw: text = "" @client
+#     state pwShown: bool = false @client
+#
+#     use AuthCard("Sign in", "Welcome back."):
+#         use LoginForm(signIn, "Sign in", email, pw, pwShown)
+#
+# ── THE ACTION IS A REFERENCE AND ITS SIGNATURE IS PART OF THIS CONTRACT ──────
+#
+# The submit control is the language's own `form` node, written INSIDE this
+# component, and it invokes the referenced action with this component's two cell
+# parameters:
+#
+#     form "{submitLabel}" -> a(email, password)
+#
+# So `a` must be an action taking exactly two arguments, the identifier and the
+# secret, in that order. That is a real constraint and the compiler enforces it at
+# the call site — pass a three-argument action and the build fails with the arity
+# error, not the page. It is also the reason this component can exist at all:
+# `forms/form.fct` documents at length why no component can be the submit control
+# of a form carrying data — an `action` reference invoked with no arguments cannot
+# forward the caller's expressions — and the way around it is that THIS component
+# knows the arguments, because they are its own reference parameters. A form whose
+# fields are fixed can package its own submit; a general one cannot.
+#
+#     action signIn(email: text, password: text):
+#         check email != "" "an email address is required"
+#         check password != "" "a password is required"
+#         ...
+#
+# ── EVERY STATE IT SHOWS COMES OFF THE ONE ACTION ────────────────────────────
+#
+# `pending(a)` while it is in flight and `failed(a)` for the message from whichever
+# `check` refused it — both read from the declaration rather than tracked in cells
+# a host has to reset. `use Form(a)` supplies the spinner and the form-level error
+# line; the password field is given `failed(a)` too, so a rejected sign-in shows
+# the reason next to the box the reader will retype into. That is the same message
+# in two places on purpose: the one under the field is the one people read.
+#
+# The `check` messages ARE the copy the reader sees, so write them as sentences.
+# And write them so they do not say which half was wrong: "that email and password
+# do not match" is one message; "no such account" plus "wrong password" is an
+# account-enumeration oracle with a nice error style.
+#
+# ── WHAT THE PASSWORD BOX IS ──────────────────────────────────────────────────
+#
+# `auth/passwordfield.fct` — read its top comment. `PasswordField` renders a
+# real `<input type="password" autocomplete="current-password">`, which is the
+# right token for a sign-in box specifically: it tells a password manager to
+# fill the account's EXISTING secret rather than offer to generate one. A
+# sign-up or change-password box wants the other token, `new-password`, via
+# `NewPasswordField` — never this component.
+#
+# `submitLabel` is a parameter because the button says what the form does and that
+# is not always "Sign in" — it is "Continue", "Unlock", "Sign in to {org}" built at
+# the call site.
+import "../forms/form.fct"
+import "../forms/textfield.fct"
+import "passwordfield.fct"
+app FacetAuth:
+    css:
+        # The submit control of an auth form is the whole width of the card: it is
+        # the only thing to press, and a right-aligned pill in a 400px column reads
+        # as a secondary action. `forms/form.fct` styles `.x-form .fa-form >
+        # button[type=submit]` for the general case; this narrows it to a form
+        # inside an auth card, so nothing else in the library moves.
+        [data-fa-mount] .x-authform .fa-form > button[type="submit"] { align-self: stretch;
+                       width: 100%; margin-top: 14px; padding: 12px 18px; font-size: 15px; }
+        [data-fa-mount] .x-authform .x-form-actions { justify-content: center; }
+    component LoginForm(a: action, submitLabel: text, email: cell text, password: cell text, shown: cell bool):
+        box class "x-authform":
+            use Form(a):
+                form "{submitLabel}" -> a(email, password):
+                    use TextField("Email", "you@example.com", true, "", "", email)
+                    use PasswordField("Password", "", true, "", failed(a), password, shown)

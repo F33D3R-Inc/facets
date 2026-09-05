@@ -1,0 +1,96 @@
+# SelectField — a labelled `select` whose options come from a cell. The facet
+# `forms/field.fct` says cannot exist, which was true when it was written and is
+# now only half true. This file is the half that changed, and the note in field.fct
+# is the half that did not.
+#
+#     state tag: text = "" @client
+#     state tagOptions: [text] = ["rust", "databases", "compilers"] @client
+#     use SelectField("Tag", false, "", "", "— any —", tag, tagOptions)
+#     use SelectFieldReq("Tag", true, "", failed(save), tag, tagOptions)
+#
+# ── WHAT CHANGED, AND WHAT DID NOT ──────────────────────────────────────────
+#
+# `select` and `radio` options may now come from data: the repeating header goes
+# inside the choice list, so a view can write
+#
+#     select bind chosen:
+#         option "— any —" -> ""
+#         for c in Category where c.rank > 0 by rank desc limit 5:
+#             option "{c.name}" -> c.slug
+#
+# That is what makes a real filter control possible AT A CALL SITE. It does not by
+# itself make a general `SelectField` possible, because the loop names an ENTITY
+# and a component cannot take one: there is no entity-typed parameter, so a library
+# component can never write `for c in Category`.
+#
+# THE PARAMETER THAT DOES WORK IS A LIST CELL. `items: cell [text]` names a `[text]`
+# state cell at the call site; `for o in items:` walks it inside the component, and
+# each element is both the option's label and its value. So the general select IS
+# expressible now — over a cell, not over an entity — and this is it.
+#
+# TWO CASES THIS DOES NOT COVER, AND WHAT TO USE INSTEAD:
+#
+#   * LABEL DIFFERENT FROM VALUE ("United Kingdom" → "GB"). One `[text]` cell holds
+#     one string per row. Two parallel cells would compile and would be a data
+#     structure held together by index arithmetic in two places, which is worse
+#     than writing the options out. Use `Field` with a hand-written `select`.
+#   * OPTIONS FROM AN ENTITY. Use `Field` with the `for … option` form above. The
+#     scaffold takes the control as children precisely so it never has to learn
+#     about a control it cannot parameterise, and this is that case.
+#
+# AND ONE THAT IS A DELIBERATE COMPILE ERROR: an ENUM-typed cell with dynamic
+# options. A `radio`/`select` bound to an enum already defaults its options to the
+# enum's members, and supplying a second, data-driven set would mean the control
+# offers values the cell's type does not admit. `v: cell text` here is not a
+# limitation working around that — it is the same statement from the other side: an
+# enum cell's choices are its type, and a type is not a parameter.
+#
+# ── THE PLACEHOLDER ROW IS A PARAMETER, NOT AN ASSUMPTION ───────────────────
+#
+# `empty` is the LABEL of the leading option whose value is "" — "— any —" on a
+# filter, "Choose a country" on a picker with no default. A library that hard-coded
+# that word would be choosing a site's voice; a library that left it out would make
+# an optional filter unclearable, because a select with no empty row has no way
+# back to "nothing chosen".
+#
+# WHETHER THE ROW EXISTS AT ALL IS A SECOND COMPONENT AND NOT A CONDITIONAL.
+# `SelectField` always emits it; `SelectFieldReq` never does, for a field whose
+# cell has a real default and where a blank row is a value the form does not want.
+# An `if` around an `option` would put a tracked region inside a `select`, so the
+# browser's own control would gain and lose its first row as the region
+# re-rendered — the leading row is part of a control's contract or it is not, and a
+# contract is not a runtime condition.
+import "field.fct"
+app FacetForms:
+    css:
+        # The runtime gives `select` no styling of its own, and the browser default
+        # is a control that looks nothing like the inputs beside it. These rules are
+        # the same shape `.x-field input` gets, so a form mixing a text field and a
+        # select is one form.
+        [data-fa-mount] .x-field select { width: 100%; box-sizing: border-box;
+                        font: inherit; font-size: 15px; padding: 10px 12px;
+                        color: var(--fa-fg); background: var(--x-panel, #16181c);
+                        border: 1px solid var(--x-line, #2f3336); border-radius: 10px;
+                        appearance: none; cursor: pointer; }
+        [data-fa-mount] .x-field select:focus-visible { outline: 2px solid var(--fa-accent);
+                        outline-offset: 2px; border-color: var(--fa-accent); }
+        # The dropdown list itself is drawn by the operating system and cannot be
+        # styled; the option colours are set anyway so a light-on-dark theme does
+        # not produce dark-on-dark on the engines that do honour them.
+        [data-fa-mount] .x-field select option { color: var(--fa-fg);
+                        background: var(--x-panel, #16181c); }
+    # `empty`, `v`, `items` and `o` are named so that none of them collides with
+    # `Field`'s four parameters. That is load-bearing: a slot child resolves locals
+    # against the CALLEE first, so a child interpolating `label`, `required`, `hint`
+    # or `error` here would silently render `Field`'s value instead of this one's.
+    component SelectField(label: text, required: bool, hint: text, error: text, empty: text, v: cell text, items: cell [text]):
+        use Field(label, required, hint, error):
+            select bind v:
+                option "{empty}" -> ""
+                for o in items:
+                    option "{o}" -> o
+    component SelectFieldReq(label: text, required: bool, hint: text, error: text, v: cell text, items: cell [text]):
+        use Field(label, required, hint, error):
+            select bind v:
+                for o in items:
+                    option "{o}" -> o

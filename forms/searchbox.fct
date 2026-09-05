@@ -1,6 +1,11 @@
-# SearchBox — the explore/search input. Binds the host's @client `q` cell; the host
-# filters its feed with `where contains(lower(field), lower(q))`. Pure presentation.
+# SearchBox — a pill, not a bordered input. Lives at the top of the right rail.
 app FacetForms:
+    css:
+        [data-fa-mount] .x-search { padding: 6px 12px; }
+        [data-fa-mount] .x-search input { width: 100%; background: var(--x-panel, #16181c);
+                          border: 1px solid transparent; border-radius: 9999px;
+                          padding: 12px 16px; font-size: 15px; }
+        [data-fa-mount] .x-search input:focus { background: none; border-color: var(--fa-accent); outline: none; }
     component SearchBox():
-        box:
+        box class "x-search":
             input bind q placeholder "Search"

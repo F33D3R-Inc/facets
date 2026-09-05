@@ -1,0 +1,60 @@
+# DefinitionList — a term and its description, where the description is CONTENT
+# rather than a string. It is the half of `ui/specs.fct` that a parameter cannot
+# reach:
+#
+#     use DefinitionList():
+#         use DefinitionRow("Status"):
+#             use Tag("Beta", "warn")
+#         use DefinitionRow("Maintainer"):
+#             use Link("@ada", "/profile/ada")
+#         use DefinitionRow("Notes"):
+#             use Prose("Two paragraphs of **actual writing**.")
+#
+# ── WHY THIS IS NOT A SECOND `Specs` ───────────────────────────────────────────
+#
+# `SpecRow(key, value)` takes two strings, which is right for the case it was
+# promoted for — version numbers, limits, defaults — and cannot hold a badge, a
+# link, a nested list or a paragraph, because a component argument is an
+# expression and a node is not one. `DefinitionRow` takes the term as a parameter
+# and the description as a `slot`, which is the same row with the value side
+# opened up.
+#
+# The CONTAINER is not written twice. `DefinitionList()` forwards its children
+# into `Specs()`, so both kinds of row sit on the one grid — `minmax(9rem, 22ch)
+# 1fr`, keys aligned down the block, folding to one column per row in a narrow
+# rail — and a list that mixes `SpecRow` and `DefinitionRow` still aligns. The
+# only rule this file adds is the one for the description box, because a `box` in
+# that grid cell is a flex column and needs to be told it is one.
+#
+# A LIST BUILT FROM A QUERY DOES NOT USE THIS WRAPPER. A `for` renders as one
+# element, so a loop dropped into this slot is a single grid row holding every
+# entry. The loop is the container — `for f in Fact by id asc class "x-specs"` —
+# which is the whole reason `ui/specs.fct` ships its class vocabulary alongside
+# its components, and the reason this file leans on that vocabulary instead of
+# inventing a parallel one.
+import "../ui/specs.fct"
+app FacetData:
+    css:
+        # The description side. `.x-spec-v` is a `text` node's span and sets
+        # `display: block` for its own reasons; this is the same cell holding a
+        # tree, so it is a real box with a stack rhythm of its own and no border,
+        # padding or background from the runtime's nested-box default.
+        # `stretch`, not `flex-start`: in a COLUMN flex container `align-items` sizes
+        # the children's WIDTH, and `flex-start` sizes each to its own content — which
+        # leaves a `Code` block's `pre` no width to scroll inside, so a long line
+        # sizes the whole box to max-content and the horizontal scrollbar lands on
+        # the DOCUMENT. `marketing/steps.fct` carries the full note; the invariant is
+        # that wide content scrolls inside its own container and the page body never
+        # scrolls sideways. A child that must not be full width says `align-self`.
+        [data-fa-mount] .x-spec-d { display: flex; flex-direction: column;
+                     align-items: stretch; gap: 8px; min-width: 0;
+                     font-size: 15px; line-height: 1.5;
+                     border: none; background: none; padding: 0; }
+    component DefinitionList():
+        use Specs():
+            slot
+    component DefinitionRow(term: text):
+        box class "x-spec":
+            text "{term}" class "x-spec-k"
+            box class "x-spec-d":
+                slot

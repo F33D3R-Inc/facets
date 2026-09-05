@@ -1,0 +1,125 @@
+# Byline — who wrote it, and when. The line that sits under an article's title and
+# again at the top of every summary in the index.
+#
+#     use Byline(p.author, "/author/" + p.author, p.created)
+#     use BylineEdited(p.author, "/author/" + p.author, p.created, p.updated > p.created)
+#     use BylineAvatar(p.author, "/author/" + p.author, p.created)
+#
+# PROMOTED FROM THE JOURNAL APP, WHICH RATED ITS OWN VERSION "weakly" AND WAS
+# RIGHT TO. Three things are different here and each is the reason the local one
+# was weak:
+#
+#   * THE DESTINATION IS A PARAMETER. The journal's `Byline(author, created,
+#     updated)` built `/author/{author}` itself, because that is its route — which
+#     means the facet could not move to a site whose author pages live at `/u/`,
+#     which means it was not a library facet. It takes the href now, in the
+#     route-expression form, so a site the destination does not fit degrades to
+#     text instead of to a dead link.
+#   * THE DATE IS READABLE. `{day}/{month}/{year}` is ambiguous between two large
+#     countries and unreadable in both when the month is a bare number. `DateStamp`
+#     spells the month, which costs twelve lines once here instead of a decision at
+#     every call site.
+#   * "edited" IS A BOOLEAN THE CALLER OWNS. The journal's version took `created`
+#     AND `updated` and compared them, which builds one site's editorial policy
+#     into a library facet — a site that touches `updated` on publish, or on a tag
+#     change, would show "edited" on posts nobody edited. The caller decides what
+#     counts as an edit and passes the answer.
+#
+# ── WHY THIS IS NOT `ui/UserChip` ───────────────────────────────────────────
+#
+# `UserChip(name, handle, verified)` is the social identity line: a display name, a
+# verification mark and an @handle, three facts about a PERSON. A byline is a fact
+# about a DOCUMENT — one name and one date — and it has no handle and no check
+# mark to render. Putting a date parameter on UserChip would give every post card
+# in the feed a field it does not use; putting a handle on this would give every
+# blog a concept it does not have. Two shapes, not two sizes of one.
+#
+# ── THE MONTH IS A `match` ON A STRINGIFIED int, WHICH IS NOT AN AFFECTATION ──
+#
+# `match` cases must be quoted strings — `case 1:` is refused with *expected a
+# quoted string, got "1"* — so the subject is converted with `"" + month(at)` and
+# the arms are the digits. Twelve `if`s would compile too and would put twelve
+# tracked regions in every byline on the page instead of one `match`.
+#
+# There is no locale here and no attempt at one. The language has no locale
+# facility, and a library that faked one would be picking a locale on behalf of
+# every site that imports it. This is one format, stated plainly, and a site that
+# needs another writes its own `DateStamp` — which is nine lines and no import.
+import "../navigation/link.fct"
+import "../ui/avatarinitials.fct"
+app FacetContent:
+    css:
+        [data-fa-mount] .x-byline { display: flex; flex-direction: row; align-items: center;
+                    flex-wrap: wrap; gap: 6px; font-size: 14px; color: var(--fa-muted);
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-byline-who { font-weight: 700; color: var(--fa-fg); }
+        [data-fa-mount] .x-byline a.x-link { color: var(--fa-fg); font-weight: 700; }
+        [data-fa-mount] .x-byline a.x-link:hover { text-decoration: underline; }
+        # The separator. A literal node rather than a `::before` on the sibling,
+        # because a sibling selector cannot cross a `use` boundary — every `use`
+        # renders a wrapper element — and half the things on this row arrive
+        # through one.
+        [data-fa-mount] .x-byline-sep { color: var(--fa-muted); opacity: .6; }
+        [data-fa-mount] .x-byline-note { font-style: italic; }
+        [data-fa-mount] .x-byline-avatar { gap: 10px; }
+        # A byline whose parts arrive through `use` — the date does — must not have
+        # its wrapper laid out instead of its content.
+        [data-fa-mount] .x-byline > .fa-use { display: contents; }
+    # The date, spelled. Every content facet in this category renders a date
+    # through this one component, so a site has one date format and not five.
+    component DateStamp(at: int):
+        row class "x-byline":
+            text "{day(at)}" class "x-date-day"
+            match "" + month(at):
+                case "1":
+                    text "January"
+                case "2":
+                    text "February"
+                case "3":
+                    text "March"
+                case "4":
+                    text "April"
+                case "5":
+                    text "May"
+                case "6":
+                    text "June"
+                case "7":
+                    text "July"
+                case "8":
+                    text "August"
+                case "9":
+                    text "September"
+                case "10":
+                    text "October"
+                case "11":
+                    text "November"
+                case "12":
+                    text "December"
+                else:
+                    text "—"
+            text "{year(at)}" class "x-date-year"
+    component Byline(author: text, href: text, at: int):
+        row class "x-byline":
+            text "by" class "x-byline-lead"
+            use Link(author, href)
+            text "·" class "x-byline-sep"
+            use DateStamp(at)
+    component BylineEdited(author: text, href: text, at: int, edited: bool):
+        row class "x-byline":
+            text "by" class "x-byline-lead"
+            use Link(author, href)
+            text "·" class "x-byline-sep"
+            use DateStamp(at)
+            if edited:
+                text "·" class "x-byline-sep"
+                text "edited" class "x-byline-note"
+    # The same line with the author's face on it. `AvatarInitials` renders locally
+    # — see ui/avatarinitials.fct for why that matters and what the alternative
+    # sends where — so a byline never costs the reader a third-party request.
+    component BylineAvatar(author: text, href: text, at: int):
+        row class "x-byline x-byline-avatar":
+            use AvatarInitials(author)
+            box class "x-byline-lines":
+                row class "x-byline":
+                    use Link(author, href)
+                use DateStamp(at)

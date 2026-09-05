@@ -1,0 +1,147 @@
+# PricingTable / PricingTier — the plans, side by side, each with a price, what is
+# in it, and the button that starts it.
+#
+#     use PricingTable():
+#         use PricingTier("Free", "$0", "forever", "", false):
+#             use PricingFeatures():
+#                 use PricingFeature("One project")
+#                 use PricingFeature("Community support")
+#             use PricingActions():
+#                 button "Start free" -> startPlan("free")
+#         use PricingTier("Team", "$12", "per seat / month", "Billed monthly.", true):
+#             use PricingFeatures():
+#                 use PricingFeature("Unlimited projects")
+#                 use PricingFeature("Audit log")
+#             use PricingActions():
+#                 button "Start a team" -> startPlan("team")
+#
+# ── THE HIGHLIGHT IS A MARKER ELEMENT AND A `:has()` RULE ─────────────────────
+#
+# The obvious shape — `if highlighted: …tier… / if !highlighted: …tier…` — is not
+# available, and the reason is worth knowing before writing the next component
+# with a variant: A COMPONENT HAS AT MOST ONE `slot`, so a body written twice
+# needs the slot twice and is refused. `navigation/sidebaritem.fct` hit this first
+# and this is its answer, reused: the tier is written ONCE, an empty marker box is
+# rendered inside it when the tier is highlighted, and the container styles itself
+# off the marker's presence. The marker is `display: none`; `:has()` finds it
+# anyway, which is the whole trick.
+#
+# `highlighted` is a `bool` rather than a name because there is exactly one kind
+# of emphasis a pricing table has and a second one would be two tiers competing.
+#
+# ── THE PRICE IS `text` ───────────────────────────────────────────────────────
+#
+# For the reason `data/stat.fct` gives at length: a price is a formatted number —
+# a currency mark, a separator, a "from", a "Custom" — and this language has no
+# formatting functions, so the host is the only place that knows how to write it.
+# `period` is the small print beside it ("per seat / month") and is separate so it
+# stays small when the amount is large.
+#
+# ── A TICK IS NOT ENOUGH ON ITS OWN ───────────────────────────────────────────
+#
+# `PricingFeature` draws its tick as a pseudo-element, so the row's TEXT is the
+# whole of what it says and a reader whose browser announces the list hears the
+# feature rather than a checkmark glyph. This library cannot put an `aria-hidden`
+# on a node — there is no attribute modifier — so the way to keep decoration out
+# of the content is to keep it out of the document, which is what CSS `content` is
+# for.
+#
+# The features and the action are `slot` children rather than parameters: a
+# feature list is variable-length and this language has no list-of-records a
+# component could take (the shape `navigation/breadcrumb.fct` documents), and a
+# button's arguments belong to the call site.
+app FacetMarketing:
+    css:
+        # `auto-fit` with a floor and no cap: a pricing table has as many columns
+        # as it has tiers, and auto-fit collapses the tracks it did not fill — so
+        # three tiers are three equal columns on a page and one column on a phone,
+        # with no count in the class name to keep in step with the call site.
+        [data-fa-mount] .x-tiers { display: grid; gap: 20px; align-items: stretch;
+                  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+                  border: none; background: none; padding: 0; }
+        # A `use` renders a wrapper between the grid and the tier; flattening it is
+        # what makes tiers in a row match heights instead of each sitting at its
+        # own content height. Same rule, same reason, as `layout/vocabulary.fct`.
+        [data-fa-mount] .x-tiers > .fa-use,
+        [data-fa-mount] .x-tiers > div:not([class]) { display: contents; }
+
+        [data-fa-mount] .x-tier { display: flex; flex-direction: column;
+                 align-items: stretch; gap: 10px; box-sizing: border-box; height: 100%;
+                 padding: 22px 20px; border-radius: 16px;
+                 border: 1px solid var(--x-line, #2f3336); background: none; }
+        # The marker never shows; it exists so the tier above it can see it.
+        [data-fa-mount] .x-tier-on { display: none; }
+        [data-fa-mount] .x-tier:has(.x-tier-on) { border-color: var(--fa-accent);
+                 border-width: 2px; padding: 21px 19px;
+                 background: color-mix(in srgb, var(--fa-accent) 7%, transparent); }
+        [data-fa-mount] .x-tier-name { display: block; font-size: 14px; font-weight: 800;
+                       letter-spacing: .06em; text-transform: uppercase;
+                       color: var(--fa-muted); }
+        [data-fa-mount] .x-tier:has(.x-tier-on) .x-tier-name { color: var(--fa-accent); }
+        [data-fa-mount] .x-tier-price { display: flex; flex-direction: row; flex-wrap: wrap;
+                        align-items: baseline; gap: 8px;
+                        border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-tier-amount { display: block; font-size: 34px; font-weight: 800;
+                         line-height: 1.05; letter-spacing: -.02em;
+                         font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-tier-period { display: block; color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-tier-note { display: block; color: var(--fa-muted); font-size: 13px;
+                       line-height: 1.45; }
+
+        [data-fa-mount] .x-tier-features { display: flex; flex-direction: column; gap: 8px;
+                        padding: 10px 0 0; border: none; background: none; }
+        [data-fa-mount] .x-tier-feature { display: block; position: relative;
+                       padding-left: 24px; font-size: 15px; line-height: 1.45; }
+        # Decoration, kept in CSS so it is not part of the sentence.
+        [data-fa-mount] .x-tier-feature::before { content: "\2713"; position: absolute;
+                       left: 0; top: 0; font-weight: 800; color: var(--fa-accent); }
+        # The action sits at the BOTTOM of every tier, whatever the feature lists
+        # do — `margin-top: auto` in a stretched column is what lines the buttons
+        # up across tiers of different lengths.
+        [data-fa-mount] .x-tier-actions { display: flex; flex-direction: column;
+                       align-items: stretch; gap: 8px; margin-top: auto; padding-top: 16px;
+                       border: none; background: none; }
+        [data-fa-mount] .x-tier-actions button { width: 100%; align-self: stretch;
+                       border: 1px solid var(--x-line, #2f3336); border-radius: 9999px;
+                       background: none; color: var(--fa-fg); font-weight: 700;
+                       font-size: 15px; padding: 11px 18px; cursor: pointer; }
+        [data-fa-mount] .x-tier-actions button:hover {
+                       background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-tier:has(.x-tier-on) .x-tier-actions button {
+                       background: var(--fa-accent); border-color: var(--fa-accent);
+                       color: #fff; }
+        [data-fa-mount] .x-tier:has(.x-tier-on) .x-tier-actions button:hover {
+                       filter: brightness(1.08); }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-tier > div:empty:not([class]),
+        [data-fa-mount] .x-tier-price > div:empty:not([class]) { display: none; }
+    component PricingTable():
+        box class "x-tiers":
+            slot
+    component PricingTier(name: text, price: text, period: text, note: text, highlighted: bool):
+        box class "x-tier":
+            if highlighted:
+                box class "x-tier-on"
+            text "{name}" class "x-tier-name"
+            row class "x-tier-price":
+                text "{price}" class "x-tier-amount"
+                if period != "":
+                    text "{period}" class "x-tier-period"
+            if note != "":
+                text "{note}" class "x-tier-note"
+            slot
+    component PricingFeatures():
+        box class "x-tier-features":
+            slot
+    component PricingFeature(label: text):
+        text "{label}" class "x-tier-feature"
+    component PricingActions():
+        box class "x-tier-actions":
+            slot

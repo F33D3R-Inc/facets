@@ -1,0 +1,70 @@
+# Rating — a score out of five, drawn as stars, with the number beside it.
+#
+#     use Rating(4, 128)          # ★★★★☆  4/5  (128)
+#     use Rating(reviewScore, 0)  # no count
+#
+# ── WHY THE STARS ARE SIX LITERAL STRINGS IN A `match` ────────────────────────
+#
+# The obvious implementation is a loop that draws a star per point, and there is
+# no loop that can: `for` walks an entity or a `[T]` state cell, there is no
+# numeric range, so `for i in 1..value` is not a thing this language says. The
+# next idea is one `text` node per position under an `if` — five `if`s, ten nodes,
+# and a component that renders differently from the one beside it the day someone
+# edits four of the five. What is left is the honest version: six possible
+# renderings of a five-star row, written out, chosen by the score.
+#
+# `match` compares its subject as text, so an `int` subject matches `case "4"`.
+# A score outside 0–5 falls to the `else` and renders empty stars rather than
+# failing, which is `ui/tag.fct`'s rule for an unknown tone applied to an unknown
+# number. HALF STARS ARE NOT HERE: they would double the arm count to eleven to
+# express a precision a five-glyph row cannot actually show.
+#
+# ── THE NUMBER IS NOT DECORATION ──────────────────────────────────────────────
+#
+# `4/5` is rendered next to the stars, always. A row of glyphs is a picture of a
+# number, and this language cannot put an `aria-label` on a node — so for a reader
+# whose browser announces "black star black star white star" the digits ARE the
+# rating. They are also what makes 4 and 5 distinguishable at a glance, which
+# outlined-versus-filled at 14px is not.
+#
+# The count is optional by value: pass 0 and no parenthesis renders. It is the
+# number of ratings, not the score, and it is what tells a reader whether the four
+# stars mean anything.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-rating { display: inline-flex; flex-direction: row;
+                    align-items: center; flex-wrap: nowrap; gap: 6px;
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-rating-stars { font-size: 15px; line-height: 1.2;
+                          letter-spacing: 1px; color: #ffd400; white-space: nowrap; }
+        [data-fa-mount] .x-rating-score { font-size: 13px; font-weight: 700;
+                          font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-rating-count { font-size: 13px; color: var(--fa-muted);
+                          font-variant-numeric: tabular-nums; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-rating > div:empty:not([class]) { display: none; }
+    component Rating(score: int, count: int):
+        row class "x-rating":
+            match score:
+                case "5":
+                    text "★★★★★" class "x-rating-stars"
+                case "4":
+                    text "★★★★☆" class "x-rating-stars"
+                case "3":
+                    text "★★★☆☆" class "x-rating-stars"
+                case "2":
+                    text "★★☆☆☆" class "x-rating-stars"
+                case "1":
+                    text "★☆☆☆☆" class "x-rating-stars"
+                else:
+                    text "☆☆☆☆☆" class "x-rating-stars"
+            text "{score}/5" class "x-rating-score"
+            if count > 0:
+                text "({count})" class "x-rating-count"

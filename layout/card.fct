@@ -1,0 +1,28 @@
+# Card — a bordered block with its own padding, for a thing that is one thing: a
+# post preview, a plan, a stat, a settings group. `CardRaised` is the filled
+# variant for a block sitting on the page background rather than in a list of
+# peers.
+#
+# Outlined OR filled, never both — that is why there are two components and not a
+# `bordered: bool` plus a `raised: bool`, which is four states of which two are
+# wrong. A card that is outlined and filled reads as a mistake at every size, and
+# the way to not ship it is to have no way to ask for it.
+#
+# This is the one wrapper in the layout set that is SUPPOSED to look like a box.
+# Everything else here (`Page`, `Stack`, `Row`, `Grid`, `Split`) explicitly turns
+# the runtime's default nested-box border off, because the default sheet makes
+# every nested box a card so that any app renders legibly with no design work —
+# the right default, and one that turns a five-deep layout into five nested
+# rectangles. `Card` is where that default is asked for on purpose.
+#
+# It takes no title parameter. A card's heading is a heading — `SectionHeader`,
+# `PanelTitle`, or a `text` the caller styles — and a title parameter would be a
+# fourth way to write one that only works inside a card.
+import "vocabulary.fct"
+app FacetLayout:
+    component Card():
+        box class "x-l-card":
+            slot
+    component CardRaised():
+        box class "x-l-card x-l-card-raised":
+            slot

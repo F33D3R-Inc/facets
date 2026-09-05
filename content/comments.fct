@@ -1,0 +1,120 @@
+# Comments — the conversation under an article, and the one nesting level a
+# conversation is worth having.
+#
+#     use CommentList():
+#         for c in Comment where c.post == p.id by created desc limit 100:
+#             use CommentRow(c.author, "/author/" + c.author, c.created):
+#                 use CommentBody(c.body)
+#                 if c.author == actor || p.author == actor:
+#                     use CommentActions():
+#                         button "delete" -> removeComment(c.id)
+#
+# ── WHY THE BODY AND THE CONTROLS ARE IN THE SLOT ───────────────────────────
+#
+# The journal app wrote `CommentRow(author, body, created)` locally and rated it
+# "no — do not promote", and its reason was exactly right: what makes a comment a
+# comment is the delete affordance next to it, and that is a call to an action WITH
+# AN ARGUMENT (`removeComment(c.id)`). A component cannot be the control for such a
+# call — an `action` reference is invoked with no arguments, which is the rule
+# `forms/form.fct` explains at length and the reason `SubmitButton` no longer
+# exists — so the journal's component could hold the words but not the button, and
+# the call site had to wrap it in a row of its own to put them side by side.
+#
+# `slot` is the answer that was missing, and it is why this IS promotable where the
+# journal's was not. The component owns what is structural — the identity line, the
+# date, the indent, the hairline — and the caller writes the body and the controls
+# in the slot, WHERE THE ARGUMENTS ARE. Nothing has to be threaded through a
+# reference that cannot carry it.
+#
+# The body is in the slot rather than a parameter for a second reason: a comment
+# may be plain text, or it may be markdown a site wants `ui/Prose` to render, and a
+# `body: text` parameter forces the first. `CommentBody` is here for the plain
+# case so a caller is not writing this file's class names by hand.
+#
+# ── ONE NESTING LEVEL, AND ONLY ONE ─────────────────────────────────────────
+#
+# `CommentReplies` indents a set of replies under their parent, and there is
+# nothing that indents further. That is a design position, not a limit: a thread
+# that nests without bound reaches a column two characters wide on a phone, and
+# every product that has shipped one has ended up capping it. One level is the cap,
+# stated once here.
+#
+# It also happens to be what this language can express cleanly. A tree needs
+# recursion — a component that renders itself — and a comment tree needs a query
+# per level; `for` walks one collection, and a sub-query in a `for … where` that
+# references the outer row is silently not evaluated, so "the replies to THIS
+# comment" cannot be filtered in the loop that produced it. A flat list plus one
+# explicit reply loop is what actually works, and it is also the right shape.
+#
+# ── THE HAIRLINE IS ON THE ROW ──────────────────────────────────────────────
+#
+# Not on the list with a `:last-child` exception. Sibling and positional selectors
+# do not survive a `use` boundary — every `use` renders a wrapper element, so every
+# row here is a `.fa-use` child and `:last-child` is about the wrapper, not the
+# comment. The row owns its own separator, which also survives a row rendered
+# inside an `if`.
+import "../navigation/link.fct"
+import "../ui/avatarinitials.fct"
+import "byline.fct"
+app FacetContent:
+    css:
+        [data-fa-mount] .x-cmts { display: flex; flex-direction: column; gap: 0;
+                 border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-cmt { display: grid; grid-template-columns: 32px minmax(0,1fr);
+                 gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--x-line, #2f3336);
+                 border-radius: 0; background: none; align-items: start; }
+        # The avatar column. Smaller than a byline's, because a conversation is a
+        # list of remarks and a 40px disc per remark is a column of faces with some
+        # text beside it.
+        [data-fa-mount] .x-cmt .x-avi { width: 32px; height: 32px; }
+        [data-fa-mount] .x-cmt .x-avi-t::first-letter { font-size: 14px; line-height: 32px; }
+        [data-fa-mount] .x-cmt-main { display: flex; flex-direction: column; gap: 6px;
+                      min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-cmt-head { display: flex; flex-direction: row; align-items: center;
+                      flex-wrap: wrap; gap: 6px; font-size: 14px; color: var(--fa-muted);
+                      border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-cmt-head a.x-link { color: var(--fa-fg); font-weight: 700; }
+        [data-fa-mount] .x-cmt-head > .fa-use { display: contents; }
+        [data-fa-mount] .x-cmt-body { font-size: 15px; line-height: 1.5;
+                      overflow-wrap: anywhere; color: var(--fa-fg); }
+        [data-fa-mount] .x-cmt-main > .fa-use { display: contents; }
+        [data-fa-mount] .x-cmt-main > div:empty:not([class]) { display: none; }
+        # The controls strip. Muted and small until hovered, because "delete" beside
+        # every remark at full weight makes the page look like an admin screen.
+        [data-fa-mount] .x-cmt-acts { display: flex; flex-direction: row; align-items: center;
+                      gap: 14px; padding-top: 2px; border: none; background: none; }
+        [data-fa-mount] .x-cmt-acts button { border: none; background: none; padding: 0;
+                      font: inherit; font-size: 13px; color: var(--fa-muted); cursor: pointer;
+                      border-radius: 0; }
+        [data-fa-mount] .x-cmt-acts button:hover { color: var(--fa-fg);
+                        text-decoration: underline; }
+        # One nesting level. The rule is on the container so the rows inside it stay
+        # ordinary rows — a reply is a comment that is somewhere else, not a
+        # different kind of thing.
+        [data-fa-mount] .x-cmt-replies { display: flex; flex-direction: column; gap: 0;
+                      margin-left: 44px; border: none; background: none; padding: 0;
+                      border-left: 2px solid var(--x-line, #2f3336); padding-left: 16px; }
+        [data-fa-mount] .x-cmt-replies .x-cmt { padding: 12px 0; border-bottom: none; }
+    component CommentList():
+        box class "x-cmts":
+            slot
+    # The identity line, the date, and the caller's nodes. `href` is the author's
+    # page in the route-expression form: a site with no author pages passes "" and
+    # gets the name as inert text rather than a link to nowhere.
+    component CommentRow(author: text, href: text, at: int):
+        box class "x-cmt":
+            use AvatarInitials(author)
+            box class "x-cmt-main":
+                row class "x-cmt-head":
+                    use Link(author, href)
+                    text "·" class "x-byline-sep"
+                    use DateStamp(at)
+                slot
+    component CommentBody(body: text):
+        text "{body}" class "x-cmt-body"
+    component CommentActions():
+        row class "x-cmt-acts":
+            slot
+    component CommentReplies():
+        box class "x-cmt-replies":
+            slot

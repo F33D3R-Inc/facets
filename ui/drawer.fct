@@ -1,0 +1,74 @@
+# Drawer — a panel that comes in from the edge of the screen: filters, a cart, a
+# details pane, a navigation menu on a phone. The same `toggle` + `overlay bind`
+# pair `Modal` is built on, with the sheet pushed to an edge and made
+# full-height.
+#
+#     state filtersOpen: bool = false @client
+#
+#     use ToggleButton("Filters", filtersOpen)
+#     use Drawer("Filters", filtersOpen):
+#         use CheckboxField("Only mine", "", "", onlyMine)
+#         use ToggleButtonQuiet("Done", filtersOpen)
+#
+# ── AN EDGE DRAWER IS EXPRESSIBLE; AN ANCHORED POPOVER IS NOT ──────────────────
+#
+# The distinction is worth stating because it is the one that decides which of
+# these components can exist. `overlay` renders a fixed backdrop over the viewport
+# with a panel inside it, and the language has no measurement of where a node
+# landed — so a panel positioned RELATIVE TO ITS TRIGGER (a dropdown under a
+# button, a tooltip beside a word, a context menu at the pointer) cannot be
+# written, and this library does not fake one. A panel positioned relative to the
+# VIEWPORT needs no measurement at all: it is `align-items: stretch` and
+# `justify-content: flex-end` on the backdrop, which is exactly what a drawer is.
+#
+# `DrawerLeft` is the same panel on the other edge — a separate component rather
+# than a `side: text` parameter, because a component has at most one `slot` and a
+# `match` with two arms would need one per arm. The size is in the name for the
+# same reason `layout/flow.fct` puts the gap in the name.
+#
+# THE BACKDROP'S PADDING IS REMOVED, NOT OVERRIDDEN AT THE CALL SITE. The runtime
+# centres its panel with `1rem` of air on every side, which is right for a modal
+# and wrong for a drawer — a drawer with a gap between it and the screen edge
+# reads as a modal that has slipped. Both rules are here, scoped to `.x-drawer`,
+# so nothing outside a drawer is affected.
+#
+# Closing is the backdrop, or any `ToggleButton` on the same cell. There is no
+# focus trap and no `Escape`: see `ui/modal.fct` for why, and for what would have
+# to land in the language to change it.
+import "togglebutton.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-drawer .fa-overlay-backdrop { align-items: stretch;
+                      justify-content: flex-end; padding: 0; }
+        [data-fa-mount] .x-drawer-left .fa-overlay-backdrop { justify-content: flex-start; }
+        [data-fa-mount] .x-drawer .fa-overlay-panel { display: flex; flex-direction: column;
+                      gap: 14px; box-sizing: border-box; width: min(420px, 100%);
+                      max-width: none; height: 100%; max-height: none;
+                      overflow-y: auto; padding: 20px 22px; border-radius: 0;
+                      border: none; border-left: 1px solid var(--x-line, #2f3336);
+                      background: var(--fa-bg); color: var(--fa-fg);
+                      box-shadow: -24px 0 60px rgba(0,0,0,.45); }
+        [data-fa-mount] .x-drawer-left .fa-overlay-panel { border-left: none;
+                      border-right: 1px solid var(--x-line, #2f3336);
+                      box-shadow: 24px 0 60px rgba(0,0,0,.45); }
+        [data-fa-mount] .x-drawer-title { display: block; font-size: 18px; font-weight: 800;
+                       line-height: 1.25; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-drawer .fa-overlay-panel > div:empty:not([class]) { display: none; }
+    component Drawer(title: text, open: cell bool):
+        overlay bind open class "x-drawer":
+            if title != "":
+                text "{title}" class "x-drawer-title"
+            slot
+    component DrawerLeft(title: text, open: cell bool):
+        overlay bind open class "x-drawer x-drawer-left":
+            if title != "":
+                text "{title}" class "x-drawer-title"
+            slot

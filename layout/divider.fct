@@ -1,0 +1,14 @@
+# Divider — the hairline between two things. A feed already separates its rows with
+# a bottom border on each row, which is right there; this is for the other case —
+# a rule between two blocks that are not list items and have no border of their
+# own, where an app would otherwise reach for an empty bordered `box` and get the
+# runtime's default card instead.
+app FacetLayout:
+    css:
+        [data-fa-mount] .x-divider { height: 1px; background: var(--x-line, #2f3336);
+                   border: none; margin: 0; }
+        [data-fa-mount] .x-divider-inset { margin-inline: 16px; }
+    component Divider():
+        box class "x-divider"
+    component DividerInset():
+        box class "x-divider x-divider-inset"

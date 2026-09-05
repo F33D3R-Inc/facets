@@ -1,0 +1,100 @@
+# PersonRow — a person in a list, with room for whatever you do to them.
+#
+#     use PersonList():
+#         for m in Member where m.team == t.id by name asc limit 50:
+#             use PersonRow(m.name, m.role, "/u/" + m.handle):
+#                 use ActionButton("Remove", removeMember)
+#
+# ── THE GAP THIS FILLS, WHICH IS BETWEEN THREE THINGS THAT ALREADY EXIST ────
+#
+#   `ui/UserChip(name, handle, verified)`   an identity LINE — a byline inside
+#                                           something else. It carries no avatar
+#                                           on purpose (see its own note) and it
+#                                           has nowhere to put a control.
+#   `social/WhoToFollow(name, handle, …)`   a person plus one specific verb. The
+#                                           follow button is baked in, which is
+#                                           right for a social rail and wrong for
+#                                           a members list, an invite list, a
+#                                           mentions picker or a table of authors.
+#   `data/Table`                            columns of values, not people.
+#
+# So every app that has listed people has written this: a face, two lines, and a
+# control on the right. The control is a `slot` rather than a parameter for the
+# reason `content/comments.fct` explains at length — a real control calls an action
+# WITH AN ARGUMENT (`removeMember(m.id)`), an `action` reference is invoked with
+# none, so a component can hold the person but never the button. The slot puts the
+# button back where its arguments are.
+#
+# ── THE SUBTITLE IS TEXT, NOT A HANDLE ────────────────────────────────────
+#
+# "@ada", "Admin", "joined in March", "3 posts" — a list of people is a list of
+# people FOR SOMETHING, and the second line is whatever that something is. Typing
+# it as a handle would build one product's idea of a person into the library and
+# would make the facet useless for the other four cases above. A site that wants an
+# @handle passes "@" + m.handle.
+#
+# ── THE AVATAR IS LOCAL ──────────────────────────────────────────────────
+#
+# `AvatarInitials`, not `Avatar`: a list of people is the single worst place to
+# make one third-party request per row with each person's name in the query string.
+# See ui/avatarinitials.fct for the trade in full. A site that wants the generated
+# illustrations composes `Avatar` into a row of its own.
+#
+# ── THE WHOLE ROW IS NOT THE LINK ────────────────────────────────────────
+#
+# The name is. A row that is entirely clickable and also contains a button is a row
+# where the button is inside the link, and every miss on the button navigates
+# instead — which is how a "Remove" that occasionally opens a profile happens. The
+# name is the destination and the trailing slot is the controls, and they do not
+# overlap.
+import "avatarinitials.fct"
+import "../navigation/link.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-people { display: flex; flex-direction: column; gap: 0;
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-person { display: grid; grid-template-columns: 40px minmax(0,1fr) auto;
+                    align-items: center; gap: 12px; padding: 12px 0;
+                    border-bottom: 1px solid var(--x-line, #2f3336); border-radius: 0;
+                    background: none; }
+        [data-fa-mount] .x-person-lines { display: flex; flex-direction: column; gap: 1px;
+                          min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-person-name { font-weight: 700; font-size: 15px;
+                         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        [data-fa-mount] .x-person-name a.x-link { color: var(--fa-fg); }
+        [data-fa-mount] .x-person-name a.x-link:hover { text-decoration: underline; }
+        [data-fa-mount] .x-person-sub { color: var(--fa-muted); font-size: 14px;
+                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        [data-fa-mount] .x-person-acts { display: flex; flex-direction: row; align-items: center;
+                         gap: 8px; justify-self: end; border: none; background: none;
+                         padding: 0; }
+        [data-fa-mount] .x-person > .fa-use { display: contents; }
+        [data-fa-mount] .x-person-lines > .fa-use { display: contents; }
+        [data-fa-mount] .x-person-lines > div:empty:not([class]) { display: none; }
+        # A row whose slot is empty should not reserve a third column's gap.
+        [data-fa-mount] .x-person-acts:empty { display: none; }
+    component PersonList():
+        box class "x-people":
+            slot
+    component PersonRow(name: text, subtitle: text, href: text):
+        box class "x-person":
+            use AvatarInitials(name)
+            box class "x-person-lines":
+                row class "x-person-name":
+                    use Link(name, href)
+                if subtitle != "":
+                    text "{subtitle}" class "x-person-sub"
+            row class "x-person-acts":
+                slot
+    # The same person with no controls and no list around them — a byline-sized
+    # block for a sidebar, an author card, a "posted by". Separate rather than an
+    # empty slot, because a `use` with no children is three lines of nothing at
+    # every call site that does not have a button.
+    component PersonBlock(name: text, subtitle: text, href: text):
+        row class "x-person x-person-block":
+            use AvatarInitials(name)
+            box class "x-person-lines":
+                row class "x-person-name":
+                    use Link(name, href)
+                if subtitle != "":
+                    text "{subtitle}" class "x-person-sub"

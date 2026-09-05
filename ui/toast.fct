@@ -1,0 +1,40 @@
+# Toast — a transient status message pinned to the corner of the viewport, for the
+# thing that just happened somewhere the reader is not looking ("Post published",
+# "Could not save"). It is presentation only: what raises it, and for how long, is
+# the host's business — wrap it in `if pending(a)` / `if failed(a) != ""`, or in
+# any `if` over a state cell.
+#
+# It does NOT dismiss itself, and cannot: dismissal means flipping a client cell
+# from a click, and an action can only `set` an entity field, never a state cell.
+# A toast in this language is therefore a *derived* view of something the host
+# already knows, which is the honest version of it — a toast with a dead close
+# button is worse than a toast without one.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-toast { position: fixed; bottom: 24px; left: 50%;
+                  transform: translateX(-50%); z-index: 60; display: flex; align-items: center;
+                  gap: 10px; max-width: min(90vw, 420px); padding: 12px 16px; border-radius: 12px;
+                  font-size: 14px; line-height: 1.35; box-shadow: 0 8px 28px rgba(0,0,0,.45);
+                  background: var(--x-panel, #16181c); color: var(--fa-fg);
+                  border: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-toast-ok { border-color: #00ba7c; }
+        [data-fa-mount] .x-toast-warn { border-color: #ffd400; }
+        [data-fa-mount] .x-toast-danger { border-color: #f4212e; }
+        [data-fa-mount] .x-toast-mark { font-size: 15px; }
+    component Toast(tone: text, message: text):
+        match tone:
+            case "ok":
+                row class "x-toast x-toast-ok":
+                    text "✓" class "x-toast-mark"
+                    text "{message}"
+            case "warn":
+                row class "x-toast x-toast-warn":
+                    text "!" class "x-toast-mark"
+                    text "{message}"
+            case "danger":
+                row class "x-toast x-toast-danger":
+                    text "✕" class "x-toast-mark"
+                    text "{message}"
+            else:
+                row class "x-toast":
+                    text "{message}"

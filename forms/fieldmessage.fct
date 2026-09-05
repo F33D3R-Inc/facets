@@ -1,0 +1,24 @@
+# FieldMessage — the two lines that can sit under a control: a hint, and an error.
+# They live in one file because they are one decision made twice — the same slot,
+# the same type size, one muted and one red — and splitting them across two files
+# is how the two drift apart.
+#
+# Both render only when their text is non-empty, which is what lets a call site
+# pass a value straight through without an `if` of its own. In particular
+#
+#     use FieldError(failed(subscribe))
+#
+# is the whole error path of a form: `failed(a)` is the runtime's own message for
+# the last failure of `a` and is "" the rest of the time, so the line appears when
+# the action fails and disappears when it next succeeds, with nothing to reset.
+app FacetForms:
+    css:
+        [data-fa-mount] .x-field-hint { color: var(--fa-muted); font-size: 13px; line-height: 1.35; }
+        [data-fa-mount] .x-field-error { color: #f4212e; font-size: 13px; line-height: 1.35;
+                       overflow-wrap: anywhere; }
+    component FieldHint(hint: text):
+        if hint != "":
+            text "{hint}" class "x-field-hint"
+    component FieldError(message: text):
+        if message != "":
+            text "{message}" class "x-field-error"

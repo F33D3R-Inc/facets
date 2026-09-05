@@ -1,0 +1,63 @@
+# Link — a label and a destination the CALLER supplies. This is the facet the
+# whole `navigation/` category was blocked on: until the compiler learned the
+# route-expression form, `link "{label}" -> "{href}"` was rejected outright
+# (*link path must start with `/`*), and a navigation atom that cannot be told
+# where to point is not an atom, it is a hard-coded menu.
+#
+# A destination is now one of exactly two things:
+#
+#   * a PATH TEMPLATE — starts with a literal `/`, e.g. "/post/{p.id}". The
+#     compiler knows its shape, checks it against the app's routes, and
+#     percent-escapes what fills the holes. A call site writing its own link
+#     should keep using this form: a typo is a build failure.
+#   * a ROUTE EXPRESSION — one whole interpolation and nothing else, "{href}".
+#     Nothing static can say where it points, so the check moves to the
+#     renderers: they resolve the value against the routes this app serves and
+#     emit an `<a>` only if it names one. Otherwise the label renders as an
+#     inert `<span class="fa-link">`.
+#
+# There is deliberately nothing in between — "{base}/edit" is refused — because a
+# half-written destination would have to be half-escaped, and a rule that escapes
+# some of a path and not the rest is the rule that lets a value out of its segment.
+#
+# HOW A CALL SITE BUILDS A DESTINATION, since this is the trap the whole category
+# walks into. A component ARGUMENT is an expression, and a quoted `{p.id}` in
+# expression position is a string literal containing a brace, a p, a dot, an id and
+# a brace. Interpolation is a property of a node's text, not of a string. So a
+# destination assembled at the call site is assembled with `+`, which concatenates
+# when either side is text and converts the other:
+#
+#     use Link("Open", "/post/" + p.id)          # correct
+#     link "Open" -> "/post/{p.id}"              # correct, and route-checked
+#
+# THE THIRD FORM — an interpolation inside the argument — IS A BUILD ERROR NOW.
+# It used to compile clean and render the characters, and it took a real
+# storefront's product grid down to `href="/p/{p.id}"` and visible text reading
+# `{p.name}` before anyone noticed. The compiler refuses it when the braces name
+# something the surrounding scope actually defines, and names the argument and the
+# fix; braces around a name the scope does not define are still literal text
+# everywhere, so prose and JSON samples are untouched.
+#
+# The second line is the one to prefer whenever the call site is WRITING the path:
+# it is the template form, so a typo is a build failure rather than a link that
+# turns into inert text at runtime. `Link` earns its keep where the destination
+# ARRIVES as data — a menu row's `href` field, a route parameter, a cell — which
+# is precisely the case that was unwritable before.
+#
+# THE DEGRADED FORM IS THE FEATURE, not a fallback to apologise for. A component
+# handed a dead destination renders the words and refuses to promise navigation,
+# so a link in this library can never dangle: it either goes somewhere this app
+# actually serves, or it visibly is not a link. The `span.x-link` rule below is
+# what makes that legible rather than a mystery — the text goes muted and loses
+# its pointer, so a broken destination looks broken in the browser instead of
+# looking fine until it is clicked.
+app FacetNav:
+    css:
+        [data-fa-mount] a.x-link { color: var(--fa-accent); text-decoration: none; }
+        [data-fa-mount] a.x-link:hover { text-decoration: underline; }
+        # The inert half of a route expression. Same size and weight as the live
+        # one — this is not an error state — but muted and unclickable, so the
+        # difference reads as "nowhere to go", not as "styling forgot this one".
+        [data-fa-mount] span.x-link { color: var(--fa-muted); cursor: default; }
+    component Link(label: text, href: text):
+        link "{label}" -> "{href}" class "x-link"

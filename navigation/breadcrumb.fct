@@ -1,0 +1,50 @@
+# Breadcrumb — the trail back up. A container and two kinds of crumb:
+#
+#     use Breadcrumb():
+#         use Crumb("Home", "/")
+#         use Crumb("Posts", "/posts")
+#         use CrumbCurrent(post.title)
+#
+# The current crumb takes the title as an EXPRESSION. A component argument is not a
+# template, so the quoted-and-braced form is a build error — it used to compile and
+# render the braces, which is how it spread. A crumb whose label comes from data
+# passes the value and this component interpolates it into its own node; a crumb
+# whose label is fixed passes a plain literal, as the two above do.
+#
+# The trail is the CHILDREN of the container, not a parameter, because a
+# breadcrumb is a variable-length list and this language has no list-of-records a
+# component could take. `slot` is what makes that expressible at all: before it,
+# the container had to be a bare CSS class the host applied to a box of its own.
+#
+# Two components rather than a `last: bool` on one, because they are two different
+# things: a crumb is a link with a separator after it, and the current page is not
+# a link at all. A "breadcrumb" whose last entry navigates to the page you are
+# already on is the most common way this pattern goes wrong, and the way to not
+# make that mistake is to have nothing that can.
+#
+# The separator belongs to the crumb rather than to the container for the same
+# reason: `gap` plus a `::after` on every child but the last needs `:last-child`,
+# which is a rule about position, and the crumb's own trailing "/" is a rule about
+# what a crumb IS. It also survives a crumb rendered inside an `if`, where
+# `:last-child` quietly stops being the last crumb.
+import "link.fct"
+app FacetNav:
+    css:
+        [data-fa-mount] .x-crumbs { display: flex; flex-direction: row; flex-wrap: wrap;
+                   align-items: center; gap: 8px; padding: 8px 0; border: none;
+                   background: none; font-size: 14px; }
+        [data-fa-mount] .x-crumb { display: flex; align-items: center; gap: 8px;
+                  border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-crumb-sep { color: var(--fa-muted); }
+        # The current page: same size, no link colour, and it carries the weight so
+        # the eye lands on where it is rather than on where it has been.
+        [data-fa-mount] .x-crumb-current { font-weight: 700; overflow-wrap: anywhere; }
+    component Breadcrumb():
+        row class "x-crumbs":
+            slot
+    component Crumb(label: text, href: text):
+        row class "x-crumb":
+            use Link(label, href)
+            text "/" class "x-crumb-sep"
+    component CrumbCurrent(label: text):
+        text "{label}" class "x-crumb-current"

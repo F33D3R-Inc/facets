@@ -1,13 +1,23 @@
-# UserChip — avatar + display name (with verified mark) + @handle. The identity
-# unit used in the feed, profile header, and "who to follow".
-import "avatar.fct"
+# UserChip — the identity line: display name, verified mark, @handle, all on one
+# row. It used to stack the handle under the name beside the avatar, which reads as
+# a two-line block rather than a byline; a feed wants a byline.
+#
+# The avatar is NOT part of this chip any more. A post lays out as a two-column
+# grid — avatar, then everything else — so the avatar belongs to whatever is doing
+# the laying out, and a chip that carried its own avatar could not be placed in
+# that grid's second column.
 import "verifiedbadge.fct"
 app FacetUI:
+    css:
+        # The identity line, and the two text roles it is built from. Repeated by
+        # the other atoms that render a byline rather than being imported from
+        # here: an atom that only renders correctly when some *other* atom was
+        # also composed into the page is not a self-contained atom.
+        [data-fa-mount] .x-identity { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+        [data-fa-mount] .x-name { font-weight: 700; font-size: 15px; }
+        [data-fa-mount] .x-handle { color: var(--fa-muted); font-size: 15px; }
     component UserChip(name: text, handle: text, verified: bool):
-        row:
-            use Avatar(name)
-            box:
-                row:
-                    text "{name}"
-                    use VerifiedBadge(verified)
-                text "@{handle}"
+        row class "x-identity":
+            link "{name}" -> "/profile/{handle}" class "x-name"
+            use VerifiedBadge(verified)
+            link "@{handle}" -> "/profile/{handle}" class "x-handle"

@@ -1,10 +1,17 @@
-# EngagementBar — the reply/repost/like/bookmark action row under a post. Counts
-# are passed in (compute them in the host with count(x in … where …)). The buttons
-# call host actions by convention: like(id), repost(id), bookmark(id).
+# EngagementBar — reply, repost, like, bookmark, spread across the width of the
+# post body rather than bunched at the left. Muted until hovered, which is what
+# keeps a timeline calm: the actions are present on every post and shouting on
+# none of them.
 app FacetSocial:
+    css:
+        [data-fa-mount] .x-actions { display: flex; justify-content: space-between; max-width: 425px;
+                     margin-top: 4px; color: var(--fa-muted); }
+        [data-fa-mount] .x-actions button, [data-fa-mount] .x-actions .fa-text {
+                     color: var(--fa-muted); font-size: 13px; padding: 6px 8px; border-radius: 9999px; }
+        [data-fa-mount] .x-actions button:hover { background: var(--x-hover, rgba(239,243,244,.06)); color: var(--fa-accent); }
     component EngagementBar(id: int, likes: int, replies: int, reposts: int):
-        row:
-            text "💬 {replies}"
+        row class "x-actions":
+            link "💬 {replies}" -> "/post/{id}"
             button "🔁 {reposts}" -> repost(id)
-            button "♥ {likes}" -> like(id)
+            button "♡ {likes}" -> like(id)
             button "🔖" -> bookmark(id)

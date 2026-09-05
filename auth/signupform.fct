@@ -1,0 +1,83 @@
+# SignupForm — name, email, password, submit. `LoginForm`'s sibling, and the
+# differences between them are the reason it is a second component rather than a
+# flag on the first.
+#
+#     state name: text = "" @client
+#     state email: text = "" @client
+#     state pw: text = "" @client
+#     state pwShown: bool = false @client
+#
+#     use AuthCard("Create an account", "Free while it is in beta."):
+#         use SignupForm(register, "Create account", name, email, pw, pwShown,
+#                        "At least 12 characters.")
+#
+# ── THE ACTION TAKES THREE ARGUMENTS, IN THIS ORDER ──────────────────────────
+#
+#     form "{submitLabel}" -> a(name, email, password)
+#
+# `a` must be an action of exactly that arity and order; the compiler checks it at
+# the call site, so a mismatch is a build failure rather than a form that posts
+# the email into the name column. See `auth/loginform.fct` for why a component can
+# invoke an action with arguments at all — it is because these three cells are its
+# own reference parameters, and a general-purpose submit component still cannot.
+#
+#     action register(name: text, email: text, password: text):
+#         check name != "" "tell us what to call you"
+#         check contains(email, "@") "that does not look like an email address"
+#         check !exists(u in Account where u.email == email) "that address is already registered"
+#         add Account { name: name, email: email, ... }
+#
+# ── WHY IT IS NOT `LoginForm` WITH AN EXTRA FIELD ────────────────────────────
+#
+# Three things differ and each of them is the difference between a form that works
+# and one that irritates. It has a name field, so a three-argument action. Its
+# password field carries a `passwordHint` — the rule, stated BEFORE the reader
+# types rather than after they are rejected, which is the whole argument for
+# `hint` existing alongside `error` in `forms/fieldmessage.fct`. And it has a slot
+# under the fields, because a sign-up is the one form that reliably has something
+# to say before you press it: terms, a marketing opt-in (`CheckboxField` on the
+# caller's own cell), a note about what happens next.
+#
+# ── THERE IS NO CONFIRM-PASSWORD FIELD ───────────────────────────────────────
+#
+# Not an omission. A confirmation box needs its own cell and a check that the two
+# match, and the check has to run on the AUTHORITY to mean anything — where only
+# one of the two values ever arrives, because the second is never sent. So the
+# comparison would have to be a client-side `if` in the view, which is a
+# validation this library will not pretend to: a form that says "passwords do not
+# match" from a rule the server never sees is a form that will one day accept a
+# mismatch, and typing it twice with no working reveal (see below) buys nothing a
+# password manager does not already do better. The mitigation is letting the box
+# accept a manager's fill and generated value in the first place, which is what
+# `NewPasswordField` is for.
+#
+# ── THE PASSWORD BOX IS `NewPasswordField`, NOT `PasswordField` ──────────────
+#
+# `auth/passwordfield.fct` names both: `PasswordField` writes the
+# `current-password` autocomplete token, which tells a manager to fill the
+# account's EXISTING secret — correct for sign-in, wrong here, because a
+# sign-up box should get the OTHER token, `new-password`, so a manager offers
+# to GENERATE one instead. `NewPasswordField` is that second component; a
+# control keyword is not an expression, so one component cannot pick the token
+# at runtime and there has to be two. Read that file before reaching for either
+# one elsewhere.
+#
+# `SignupForm` still takes a `shown: cell bool` parameter and no longer uses
+# it: `NewPasswordField` carries no reveal (see `auth/passwordfield.fct` for
+# why one is not expressible against a real password control), so there is
+# nothing left for it to drive. It stays in this signature only because a
+# library does not change a component's arity out from under a caller — see
+# the identical trade-off `PasswordField` documents for the same parameter.
+import "../forms/form.fct"
+import "../forms/textfield.fct"
+import "passwordfield.fct"
+import "loginform.fct"
+app FacetAuth:
+    component SignupForm(a: action, submitLabel: text, name: cell text, email: cell text, password: cell text, shown: cell bool, passwordHint: text):
+        box class "x-authform":
+            use Form(a):
+                form "{submitLabel}" -> a(name, email, password):
+                    use TextField("Name", "Ada Lovelace", true, "", "", name)
+                    use TextField("Email", "you@example.com", true, "", "", email)
+                    use NewPasswordField("Password", "", true, passwordHint, failed(a), password)
+                    slot

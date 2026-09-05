@@ -1,7 +1,7 @@
 {
   "name": "github.com/F33D3R-Inc/facets",
-  "version": "0.1.0",
-  "description": "The Facet standard library — reusable UI / social / data facets. v0.1.0 is the f33d3r core batch.",
-  "facet": ">=1.16.0",
+  "version": "0.4.0",
+  "description": "The Facet standard library — reusable UI / layout / navigation / form / social / data facets. v0.1.0 is the f33d3r core batch; v0.2.0 adds the site batch; v0.3.0 adds the categories the language could not express before: navigation/ (parameterized link destinations), forms/ as reusable FIELDS (cell and action reference parameters), and layout/ as real wrappers (component children via `slot`). v0.4.0 catches the library up to two more: `route` makes NavLink/SidebarItem mark themselves instead of taking a `current` argument, and the textarea/checkbox/toggle/radio control nodes make TextAreaField, CheckboxField, ToggleField, Toggle and — with `overlay bind` on the same cell — Menu real. It also fixes three bugs found by a real site built on this library: SubmitButton could not submit a form carrying data and is removed in favour of the language's `form` node plus FormActions/ActionButton; `.x-field input` over-styled the new tick controls; and Grid2/Grid3 counted columns at whatever width they were given. Promoted from that site: TextAreaField, Prose/Code, Specs/SpecRow. NOTE: v0.4.0 needs the toolchain that added `route` and the four control nodes on top of everything v0.3.0 needed; the language shipped that batch (plus reference-parameter components, `slot`, route-expression link destinations, and more) as 1.31.0, so the pin below is now the true lower bound, not a stand-in for it.",
+  "facet": ">=1.31.0",
   "license": "MIT"
 }

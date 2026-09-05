@@ -1,0 +1,32 @@
+# Tag — a toned pill. VerifiedBadge is one specific badge with one meaning; this is
+# the general one: a short label whose colour carries a status ("draft", "beta",
+# "3 new"). It is built on `badge`, the language's own pill node, so it inherits
+# the runtime's `.fa-badge` shape and only restates the colour.
+#
+# The tone is a name, not a colour. A component parameter cannot reach `style`
+# (that modifier takes a literal), and a library that let call sites pass
+# `"#ff0044"` would have as many reds as it has call sites — which is how a design
+# system stops being one. Four tones is the whole vocabulary; anything else falls
+# through to neutral rather than failing, because a tag with an unknown tone should
+# still render its label.
+app FacetUI:
+    css:
+        [data-fa-mount] .fa-badge.x-tag { font-size: 12px; font-weight: 700; padding: 2px 8px;
+                    border-radius: 9999px; letter-spacing: .01em; }
+        [data-fa-mount] .fa-badge.x-tag-neutral { background: var(--x-line, #2f3336); color: var(--fa-fg); }
+        [data-fa-mount] .fa-badge.x-tag-accent { background: var(--fa-accent); color: #fff; }
+        [data-fa-mount] .fa-badge.x-tag-ok { background: #00ba7c; color: #041b12; }
+        [data-fa-mount] .fa-badge.x-tag-warn { background: #ffd400; color: #241f00; }
+        [data-fa-mount] .fa-badge.x-tag-danger { background: #f4212e; color: #fff; }
+    component Tag(label: text, tone: text):
+        match tone:
+            case "accent":
+                badge "{label}" class "x-tag x-tag-accent"
+            case "ok":
+                badge "{label}" class "x-tag x-tag-ok"
+            case "warn":
+                badge "{label}" class "x-tag x-tag-warn"
+            case "danger":
+                badge "{label}" class "x-tag x-tag-danger"
+            else:
+                badge "{label}" class "x-tag x-tag-neutral"

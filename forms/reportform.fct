@@ -1,0 +1,74 @@
+# ReportForm — "report this", whole: the reason list, the optional note, the row it
+# writes, and the once-only rule. `subject` is whatever is being reported — a post
+# id, a handle — passed by the call site, which is the one part of a form a
+# parameter CAN carry (an action argument is an expression; a `bind` is not).
+#
+# This is the library's worked example of `select`, and — since `field.fct` — of
+# why the field set has a slot-taking `Field` alongside its parameterised fields.
+# The reasons are a fixed list and belong in the language's own dropdown rather
+# than in a row of buttons: a report has exactly one reason, and a control that
+# cannot express "exactly one" turns into two reports. But `option` labels and
+# values are literals in the source, and there is no list-of-records a component
+# could take instead, so `SelectField(label, options)` is not a thing this
+# language can express. `use Field("Reason", true, "", ""):` with the six
+# `option` lines in its slot is — and it gets the same label, hint and error
+# layout as every parameterised field, which is the part that actually had to be
+# shared.
+#
+# It declares no `policy`. A policy is a NAME in the merged graph, so a library
+# facet that declares `policy member` collides with the first host that has one of
+# its own — `data/feed.fct` does. The sign-in rule is spelled as a `check`, which
+# is scoped to this action and composes with anything.
+import "field.fct"
+import "textfield.fct"
+import "fieldmessage.fct"
+import "../ui/spinner.fct"
+app FacetForms:
+    css:
+        [data-fa-mount] .x-report { display: flex; flex-direction: column; gap: 4px;
+                  padding: 16px; border-radius: 16px; border: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-report-actions { display: flex; align-items: center; gap: 12px;
+                          justify-content: flex-end; padding-top: 8px; }
+        [data-fa-mount] .x-report-actions button { background: #f4212e; color: #fff; font-weight: 700;
+                                 font-size: 15px; padding: 10px 20px; border-radius: 9999px; }
+        [data-fa-mount] .x-report-done { font-size: 15px; font-weight: 600; }
+    entity Report:
+        id: int
+        subject: text
+        reason: text
+        note: text
+        reporter: text
+        created: int
+
+    state reportReason: text = "spam" @client
+    state reportNote: text = "" @client
+
+    action submitReport(subject: text, reason: text, note: text):
+        check actor != "guest" "sign in to report this"
+        check subject != "" "there is nothing to report"
+        check reason != "" "pick a reason"
+        check !exists(r in Report where r.subject == subject && r.reporter == actor) "you have already reported this"
+        add Report { subject: subject, reason: reason, note: note, reporter: actor, created: now() }
+
+    component ReportForm(subject: text):
+        box class "x-report":
+            # The receipt is the row, not a client flag: a reporter who reloads the
+            # page still sees that the report went in, and the `check` above and this
+            # `if` are reading the same fact, so they can never disagree.
+            if exists(r in Report where r.subject == subject && r.reporter == actor):
+                text "Thanks — this is with us." class "x-report-done"
+                use FieldHint("We review every report. You won't hear back unless we need more.")
+            if !exists(r in Report where r.subject == subject && r.reporter == actor):
+                use Field("Reason", true, "", ""):
+                    select bind reportReason:
+                        option "Spam or scam" -> "spam"
+                        option "Harassment" -> "harassment"
+                        option "Hate speech" -> "hate"
+                        option "Violence or self-harm" -> "violence"
+                        option "Misleading information" -> "misinfo"
+                        option "Something else" -> "other"
+                use TextField("Anything else we should know?", "Optional", false, "", failed(submitReport), reportNote)
+                row class "x-report-actions":
+                    if pending(submitReport):
+                        use Spinner("Sending…")
+                    button "Send report" -> submitReport(subject, reportReason, reportNote)

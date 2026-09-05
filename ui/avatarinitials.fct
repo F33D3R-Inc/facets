@@ -1,0 +1,134 @@
+# AvatarInitials — an avatar that renders from the name and nothing else. No
+# network request, no third party, works offline.
+#
+#     use AvatarInitials(t.author)
+#     use AvatarInitialsLarge(profile.name)
+#
+# ── PICK BETWEEN THIS AND `ui/Avatar` DELIBERATELY, BECAUSE THEY DIFFER IN WHAT
+#    THEY SEND, NOT IN HOW THEY LOOK ──────────────────────────────────────────
+#
+#   `ui/Avatar(name)`      renders `image "https://api.dicebear.com/…?seed={name}"`.
+#                          Prettier — a generated illustration rather than a
+#                          letter — and every page that uses it makes one request
+#                          per avatar to a third-party host, with the person's
+#                          NAME OR HANDLE in the query string. That host learns
+#                          who reads what, from which IP, on every page load; the
+#                          reader has no way to decline; and the avatars are blank
+#                          boxes offline, on a plane, behind a firewall, in a test
+#                          run and in a CI screenshot.
+#   `AvatarInitials(name)` renders a letter on a coloured disc from local CSS.
+#                          Plainer, and it sends nothing anywhere.
+#
+# This one is the right default for anything where the names are real people's,
+# and `Avatar` is a reasonable choice for a demo or a seeded playground where the
+# names are fixtures. That is the whole trade, stated here so an author picks it
+# rather than inherits it. `Avatar` is NOT changed — apps depend on its arity, and
+# a component that quietly stops making a request it used to make is a different
+# kind of surprise — but a library component should not make a network call on a
+# reader's behalf without the page saying so, and now it does not have to.
+#
+# ── THE LETTER IS CSS, BECAUSE THE LANGUAGE CANNOT TAKE ONE ─────────────────
+#
+# The pure standard library is abs / floor / round / money / len / upper / lower /
+# trim / year / month / day / min / max / contains. There is no substring, no
+# index, no split — so "the first letter of `name`" is not an expression this
+# language can write, and a component cannot compute an initial.
+#
+# What it can do is render the WHOLE name at `font-size: 0` and give
+# `::first-letter` a size back. The disc then shows exactly one glyph and clips
+# nothing, because there is nothing else with a size. Two things to know about
+# that: `::first-letter` needs a block-level box (hence `display: block` on the
+# text node, which the runtime renders as an inline span), and it selects the
+# first typographic letter unit — so it skips leading punctuation and keeps a
+# combining accent attached, which is more correct than a naive first-character
+# slice would have been. A name that begins with an emoji shows the emoji.
+#
+# ── THE COLOUR IS A FUNCTION OF THE NAME'S LENGTH, AND ONLY OF THAT ─────────
+#
+# `class` interpolates, so the swatch is one class computed from the name. The
+# arithmetic available is thinner than it looks: a STRING LITERAL CANNOT APPEAR
+# INSIDE AN INTERPOLATION — `class "x-avi-c{contains(name, "e")}"` ends the
+# attribute at the inner quote and fails with *unknown view node "box"* — so
+# `contains` probes, which are the only other thing that could vary a text value,
+# cannot be written in the class itself. They can be written in an `if`, and they
+# are: two probes over four branches multiply the eight length buckets up to
+# something that spreads a list of people across the palette instead of colouring
+# every four-letter name the same.
+#
+# It is still a decoration and not an identity. Two names can share a colour, and
+# nothing here should be read as "same colour, same person" — the name is written
+# next to the disc in every component in this library that uses one, and that is
+# the thing that identifies.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-avi { display: inline-flex; align-items: center;
+                 justify-content: center; width: 40px; height: 40px; flex: 0 0 auto;
+                 border-radius: 9999px; overflow: hidden; padding: 0; gap: 0;
+                 border: none; user-select: none; }
+        [data-fa-mount] .x-avi-lg { width: 64px; height: 64px; }
+        # ── THE WRAPPER IS NOT DECORATION, IT IS THE COMPONENT'S ONE BOX ───────
+        #
+        # `AvatarInitials` picks a swatch with four `if`s, and an `if` that renders
+        # nothing STILL LEAVES ITS ELEMENT BEHIND — so without a wrapper this atom
+        # emits four siblings, three of them empty, straight into whatever laid it
+        # out. Dropped into `ui/personrow.fct`'s three-column grid that is one
+        # avatar and three empty grid items: the name lands in the actions column
+        # and the row wraps. A library atom has to be ONE box to its caller.
+        #
+        # So the branches live inside `.x-avi-wrap`, which shrink-wraps the disc,
+        # refuses to stretch in a flex row, and hides the empty regions. The three
+        # rules below are the whole mechanism and each is load-bearing: an
+        # unclassed empty element is always a region that rendered nothing (a
+        # classed one may be a deliberate empty box), and every child arrives
+        # through a `use`, which renders a wrapper of its own.
+        [data-fa-mount] .x-avi-wrap { display: inline-flex; flex: 0 0 auto;
+                        align-self: start; border: none; background: none;
+                        padding: 0; gap: 0; }
+        [data-fa-mount] .x-avi-wrap > .fa-use { display: contents; }
+        [data-fa-mount] .x-avi-wrap > div:empty:not([class]) { display: none; }
+        # The whole name, sized to nothing; the first letter, sized back. This is
+        # the entire mechanism — see the note above for why it is not a substring.
+        [data-fa-mount] .x-avi-t { display: block; font-size: 0; line-height: 0;
+                    letter-spacing: 0; text-align: center; overflow: hidden; }
+        [data-fa-mount] .x-avi-t::first-letter { font-size: 17px; line-height: 40px;
+                    font-weight: 800; letter-spacing: .02em; }
+        [data-fa-mount] .x-avi-lg .x-avi-t::first-letter { font-size: 26px; line-height: 64px; }
+        # Eight swatches. Dark ink on light ground rather than the reverse, so the
+        # disc reads at 40px against either theme without a border.
+        [data-fa-mount] .x-avi-c0 { background: #a8c7fa; color: #0b2545; }
+        [data-fa-mount] .x-avi-c1 { background: #f9c784; color: #452500; }
+        [data-fa-mount] .x-avi-c2 { background: #a7e8c1; color: #06331d; }
+        [data-fa-mount] .x-avi-c3 { background: #f6adc6; color: #45091f; }
+        [data-fa-mount] .x-avi-c4 { background: #c9b8f5; color: #22103f; }
+        [data-fa-mount] .x-avi-c5 { background: #ffe08a; color: #3d2f00; }
+        [data-fa-mount] .x-avi-c6 { background: #9fdbe8; color: #05303a; }
+        [data-fa-mount] .x-avi-c7 { background: #e4bfa4; color: #3a2110; }
+    # The swatch, given a seed. It is a component rather than four copies of the
+    # markup because the branching below is about the SEED and nothing else — the
+    # disc is one thing, drawn once.
+    component AvatarSwatch(seed: int, name: text):
+        box class "x-avi x-avi-c{seed % 8}":
+            text "{name}" class "x-avi-t"
+    component AvatarSwatchLarge(seed: int, name: text):
+        box class "x-avi x-avi-lg x-avi-c{seed % 8}":
+            text "{name}" class "x-avi-t"
+    component AvatarInitials(name: text):
+        box class "x-avi-wrap":
+            if contains(lower(name), "e") && contains(lower(name), "a"):
+                use AvatarSwatch(len(name) * 3, name)
+            if contains(lower(name), "e") && !contains(lower(name), "a"):
+                use AvatarSwatch(len(name) * 3 + 1, name)
+            if !contains(lower(name), "e") && contains(lower(name), "a"):
+                use AvatarSwatch(len(name) * 3 + 2, name)
+            if !contains(lower(name), "e") && !contains(lower(name), "a"):
+                use AvatarSwatch(len(name) * 3 + 5, name)
+    component AvatarInitialsLarge(name: text):
+        box class "x-avi-wrap":
+            if contains(lower(name), "e") && contains(lower(name), "a"):
+                use AvatarSwatchLarge(len(name) * 3, name)
+            if contains(lower(name), "e") && !contains(lower(name), "a"):
+                use AvatarSwatchLarge(len(name) * 3 + 1, name)
+            if !contains(lower(name), "e") && contains(lower(name), "a"):
+                use AvatarSwatchLarge(len(name) * 3 + 2, name)
+            if !contains(lower(name), "e") && !contains(lower(name), "a"):
+                use AvatarSwatchLarge(len(name) * 3 + 5, name)

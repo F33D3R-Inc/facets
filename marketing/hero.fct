@@ -1,0 +1,97 @@
+# Hero — the top of a page that has to say what this is before anyone scrolls: an
+# eyebrow, a headline, a sentence, and the actions.
+#
+#     use Hero("Now in beta", "Ship a whole app from one file.",
+#              "Data, logic, authorization and UI in one language the compiler checks end to end."):
+#         button "Request access" -> requestAccess(email)
+#         use Link("Read the docs", "/docs")
+#
+# THE ACTIONS ARE A `slot` BECAUSE THEY CANNOT BE ANYTHING ELSE. A hero's primary
+# action is a `button` wired to an action with the call site's own arguments, or a
+# `link` to a route, or a whole `Form`. A component argument is an expression, an
+# action reference cannot be invoked with a call site's arguments through a
+# parameter (see `forms/form.fct` on why `SubmitButton` was removed), and a node
+# is not a value — so "the actions" is exactly the shape a slot exists for.
+#
+# The action strip DISAPPEARS when nothing is put in it (`:empty`), rather than
+# leaving a gap under the sentence. An always-rendered empty flex item still costs
+# its parent's `gap`, which is the kind of unexplained air that gets fixed at a
+# call site with a negative margin.
+#
+# ── TWO ALIGNMENTS, TWO COMPONENTS ────────────────────────────────────────────
+#
+# `Hero` is centred — the arrangement for a page whose hero is the whole first
+# screen. `HeroLeft` is ranged left, for a hero sharing its row with a screenshot
+# or sitting above a documentation page. They are two components rather than an
+# `align: text` parameter because a component has at most one `slot` and a `match`
+# with two arms would need one per arm; the same wall `layout/flow.fct` and
+# `ui/aspectbox.fct` both document, and the same answer — the variant goes in the
+# name.
+#
+# THE HEADLINE SIZE IS A `clamp()`, NOT A MEDIA QUERY. A hero headline is the one
+# piece of type on a site whose right size genuinely depends on how much room
+# there is, and a breakpoint gives it exactly two right sizes and a jump between
+# them. `clamp()` scales it with the viewport between a floor that stays readable
+# on a phone and a ceiling that stops it becoming a poster on a wide monitor.
+#
+# The eyebrow and the sentence are optional by value — pass "" and neither line
+# renders — which is this library's convention everywhere (`Spinner`,
+# `EmptyState`, `SectionHeader`, `FieldHint`) and is why they are not four
+# components.
+app FacetMarketing:
+    css:
+        [data-fa-mount] .x-hero { display: flex; flex-direction: column; align-items: center;
+                 text-align: center; gap: 16px; padding: 72px 16px 56px; max-width: 820px;
+                 margin-inline: auto; border: none; background: none; }
+        [data-fa-mount] .x-hero-left { align-items: flex-start; text-align: left;
+                      margin-inline: 0; padding-inline: 0; }
+        [data-fa-mount] .x-hero-eyebrow { display: block; font-size: 13px; font-weight: 700;
+                        letter-spacing: .08em; text-transform: uppercase;
+                        color: var(--fa-accent); }
+        [data-fa-mount] .x-hero-headline { display: block; font-weight: 800; line-height: 1.08;
+                         letter-spacing: -.02em; overflow-wrap: anywhere;
+                         font-size: clamp(32px, 6vw, 60px); }
+        [data-fa-mount] .x-hero-sub { display: block; color: var(--fa-muted); line-height: 1.5;
+                    max-width: 60ch; font-size: clamp(16px, 2vw, 19px); }
+        [data-fa-mount] .x-hero-actions { display: flex; flex-direction: row; flex-wrap: wrap;
+                        align-items: center; justify-content: center; gap: 12px;
+                        padding-top: 8px; border: none; background: none; }
+        [data-fa-mount] .x-hero-left .x-hero-actions { justify-content: flex-start; }
+        # Nothing in the slot, nothing on the page — see the note above.
+        [data-fa-mount] .x-hero-actions:empty { display: none; }
+        # The primary action. A hero's button is the loudest control on the page
+        # and the runtime's default button is a bordered grey one, so it is dressed
+        # here rather than in every site's own stylesheet.
+        [data-fa-mount] .x-hero-actions button { background: var(--fa-accent); color: #fff;
+                        border: none; border-radius: 9999px; font-weight: 700;
+                        font-size: 16px; padding: 13px 26px; cursor: pointer;
+                        align-self: auto; }
+        [data-fa-mount] .x-hero-actions button:hover { filter: brightness(1.08); }
+        [data-fa-mount] .x-hero-actions a.x-link { font-weight: 600; font-size: 16px; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-hero > div:empty:not([class]) { display: none; }
+    component Hero(eyebrow: text, headline: text, sub: text):
+        box class "x-hero":
+            if eyebrow != "":
+                text "{eyebrow}" class "x-hero-eyebrow"
+            text "{headline}" class "x-hero-headline"
+            if sub != "":
+                text "{sub}" class "x-hero-sub"
+            row class "x-hero-actions":
+                slot
+    component HeroLeft(eyebrow: text, headline: text, sub: text):
+        box class "x-hero x-hero-left":
+            if eyebrow != "":
+                text "{eyebrow}" class "x-hero-eyebrow"
+            text "{headline}" class "x-hero-headline"
+            if sub != "":
+                text "{sub}" class "x-hero-sub"
+            row class "x-hero-actions":
+                slot

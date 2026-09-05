@@ -1,0 +1,94 @@
+# Stat — one number, said properly: the figure, the thing it counts, and
+# optionally how it has moved. `StatGroup` is the row they sit in.
+#
+#     use StatGroup():
+#         use Stat("Members", "1,204")
+#         use StatDelta("Requests today", "18,930", "12%", "up")
+#         use StatDelta("p95 latency", "84ms", "6ms", "down")
+#
+# ── THE VALUE IS `text`, NOT `int`, AND THAT IS DELIBERATE ─────────────────────
+#
+# A stat is almost never a bare integer: it is a formatted one — a thousands
+# separator, a currency, a unit, a percentage, a duration. The language has no
+# formatting functions, so the host is the only place that knows how to write
+# `1,204` or `$96.00` or `84ms`, and a parameter typed `int` would force every
+# call site to hand over the raw number and get the runtime's default rendering.
+# `text` accepts an int by interpolating at the call site — `"{count(m in
+# Member)}"` on a node, or `count(...) + ""` in an argument — and accepts the
+# formatted string when there is one.
+#
+# ── THE DIRECTION IS A NAME, AND IT DRAWS AN ARROW AS WELL AS A COLOUR ─────────
+#
+# Green-up and red-down is the whole convention and it is also the whole problem:
+# for a reader who cannot separate the two colours, a 12% rise and a 12% fall are
+# the same pixel. So the direction sets an arrow AND a colour, and the arrow is
+# the part that carries the meaning. It is a name rather than a `positive: bool`
+# because down is not always bad — latency falling is the good news in the example
+# above — so the parameter says which way the number moved and the CALLER decides
+# whether that is worth a green: pass "up"/"down" for the coloured arrows, and
+# anything else (""/"flat"/"same") for a neutral one. An unknown name renders the
+# delta muted rather than failing, the same way `ui/tag.fct` treats an unknown
+# tone.
+#
+# `Stat` is `StatDelta` with no delta — one line on top of it rather than a second
+# copy of the markup, which is the arrangement `navigation/navlink.fct` uses and
+# for the same reason: two bodies is two bodies that drift.
+#
+# ── THE GROUP IS A WRAPPING ROW, NOT A GRID ────────────────────────────────────
+#
+# `layout/grid.fct` is for cards and tiles, which want equal columns. Stats want
+# to size to their own content and wrap when they run out of room — four across a
+# page, two in a 350px rail, one on a phone — with no column ever narrower than a
+# number plus its label. That is `flex-wrap` with a basis, and it is a different
+# arrangement rather than a narrower `Grid3`, so it gets its own two rules instead
+# of a fourth track minimum in the layout vocabulary.
+#
+# A GROUP BUILT FROM A QUERY IS THE LOOP: `for m in Metric by id asc class
+# "x-stats"`, with a `use Stat(...)` inside it. A `for` renders as one element, so
+# a loop dropped into this slot is one flex item holding every stat.
+app FacetData:
+    css:
+        [data-fa-mount] .x-stats { display: flex; flex-direction: row; flex-wrap: wrap;
+                    align-items: flex-start; gap: 24px 32px;
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-stat { display: flex; flex-direction: column; gap: 4px;
+                   flex: 1 1 140px; min-width: 140px;
+                   border: none; background: none; padding: 0; }
+        # Every one of these is a `text` node, which is a span — so each says
+        # `display: block` or its own line breaks and spacing are line-box rules
+        # rather than box rules.
+        [data-fa-mount] .x-stat-label { display: block; color: var(--fa-muted);
+                         font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+        [data-fa-mount] .x-stat-value { display: block; font-size: 28px; font-weight: 800;
+                         line-height: 1.15; font-variant-numeric: tabular-nums;
+                         overflow-wrap: anywhere; }
+        [data-fa-mount] .x-stat-delta { display: block; font-size: 13px; font-weight: 700;
+                         color: var(--fa-muted); font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-stat-up { color: #00ba7c; }
+        [data-fa-mount] .x-stat-down { color: #f4212e; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-stat > div:empty:not([class]) { display: none; }
+    component StatGroup():
+        row class "x-stats":
+            slot
+    component StatDelta(label: text, value: text, delta: text, direction: text):
+        box class "x-stat":
+            text "{label}" class "x-stat-label"
+            text "{value}" class "x-stat-value"
+            if delta != "":
+                match direction:
+                    case "up":
+                        text "↑ {delta}" class "x-stat-delta x-stat-up"
+                    case "down":
+                        text "↓ {delta}" class "x-stat-delta x-stat-down"
+                    else:
+                        text "→ {delta}" class "x-stat-delta"
+    component Stat(label: text, value: text):
+        use StatDelta(label, value, "", "")

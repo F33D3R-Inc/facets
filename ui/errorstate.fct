@@ -1,0 +1,24 @@
+# ErrorState — the block that says the request failed, as opposed to EmptyState,
+# which says there is nothing to show. They are the same shape on purpose (the
+# `.x-blank` slate ships with EmptyState and comes along with the import) and a
+# different colour on purpose: one is the absence of data, the other is a fault,
+# and a reader who cannot tell them apart will keep waiting for a list that is
+# never coming.
+#
+# `detail` is meant to be fed `failed(someAction)` — the runtime's own message for
+# the last failure — rather than a hand-written string. It renders only when it is
+# non-empty, so the same call site covers "failed with a reason" and "failed".
+import "emptystate.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-blank-error .x-blank-title { color: #f4212e; }
+        [data-fa-mount] .x-blank-error { border: 1px solid #f4212e33; border-radius: 12px;
+                        background: #f4212e0d; }
+        [data-fa-mount] .x-blank-detail { color: var(--fa-muted); font-size: 13px; margin-top: 8px;
+                         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                         overflow-wrap: anywhere; }
+    component ErrorState(title: text, detail: text):
+        box class "x-blank x-blank-error":
+            text "{title}" class "x-blank-title"
+            if detail != "":
+                text "{detail}" class "x-blank-detail"

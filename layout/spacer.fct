@@ -1,0 +1,22 @@
+# Spacer — deliberate empty vertical space, in three named sizes. Named rather
+# than measured because a component parameter cannot reach the `style` modifier
+# (it takes a literal), and because an app that can ask for 13px of air will
+# eventually contain 13px, 14px and 15px of air in three places that meant the
+# same thing.
+#
+# Reach for this only where the gap is *content* — a break between two sections
+# the reader should feel. Padding inside a block belongs in that block's own
+# rules, not in a spacer wedged next to it.
+app FacetLayout:
+    css:
+        [data-fa-mount] .x-spacer-sm { height: 8px; }
+        [data-fa-mount] .x-spacer-md { height: 20px; }
+        [data-fa-mount] .x-spacer-lg { height: 48px; }
+    component Spacer(size: text):
+        match size:
+            case "sm":
+                box class "x-spacer-sm"
+            case "lg":
+                box class "x-spacer-lg"
+            else:
+                box class "x-spacer-md"

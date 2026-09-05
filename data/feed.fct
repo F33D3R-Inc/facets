@@ -79,3 +79,44 @@ data Feed in feed:
         text "Who to follow"
         use WhoToFollow("Grace Hopper", "grace", true, exists(f in Follow where f.follower == actor && f.followee == "grace"))
         use WhoToFollow("Alan Turing", "alan", false, exists(f in Follow where f.follower == actor && f.followee == "alan"))
+
+    # ── the other screens this slice serves ─────────────────────────────────
+    # A `data` facet may declare routed `view`s as well as its `content:` block.
+    # `content:` is what the wireframe's socket holds on the mounted route; a
+    # `view` here is another whole screen rendered in that same wireframe, with
+    # this socket holding the view instead. That is the layered-track analogue of
+    # `view X in Shell` on the plain track, and it is the thing this file was
+    # missing all day: `PostCard`'s body links to "/post/{id}", and a link to a
+    # route no view serves is a build failure — correctly, because a dangling
+    # destination inside a shared component would otherwise be discovered by a
+    # reader clicking it.
+    #
+    # THE ROUTES BELONG TO THIS FACET AND NOT TO THE WIREFRAME. `feed` is the
+    # socket that owns Tweet, so it is the only place that can answer "what is at
+    # /post/7" without a second facet reaching into this one's entities. The nav
+    # rail and the right rail come from the wireframe either way, so all three
+    # screens are the same site rather than three pages that happen to share a
+    # stylesheet.
+    view PostDetail at "/post/:id":
+        meta title "Post / F33D3R"
+        # One row, or the words that say there is none. The `for` is how a single
+        # row is fetched — there is no "get one" node — and the `limit 1` is what
+        # makes that honest rather than incidental.
+        for t in Tweet where t.id == id by id desc limit 1:
+            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id))
+        if !exists(t in Tweet where t.id == id):
+            text "This post no longer exists."
+
+    view Profile at "/profile/:handle":
+        meta title "@{handle} / F33D3R"
+        # `UserChip` and `PostCard` both link a handle here, so this is the
+        # destination the whole component set has been pointing at. The follow
+        # control is the same `WhoToFollow` the right rail uses — one facet for
+        # "this person, and whether you follow them", not a second one that means
+        # the same thing on a different page.
+        text "Posts by @{handle}"
+        use WhoToFollow(handle, handle, false, exists(f in Follow where f.follower == actor && f.followee == handle))
+        if !exists(t in Tweet where t.author == handle):
+            text "No posts yet."
+        for t in Tweet where t.author == handle by created desc limit shown:
+            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id))

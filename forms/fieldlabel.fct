@@ -1,0 +1,97 @@
+# FieldLabel — the caption above a control, with the required mark handled here so
+# that "required" looks the same in every form instead of being a `*` somebody
+# typed into a label string.
+#
+# It is one of the four parts every field is made of — label, control, hint,
+# error — and the three others are `fieldmessage.fct` (hint + error) and the
+# control itself. `field.fct` assembles them; `textfield.fct`,
+# `textareafield.fct`, `checkfield.fct` and `uploadfield.fct` are the assembled
+# fields.
+#
+# THIS FILE USED TO CARRY A LONG NOTE SAYING `TextField(label, cell)` COULD NOT
+# EXIST. It is worth keeping the shape of that note, because it explains why the
+# `.x-field` rules live here rather than with the field: `bind` names a state cell
+# that must be resolved at compile time, and a component parameter was not one, so
+# `input bind cell` inside a component failed with *input binds unknown state
+# "cell"* and the reusable unit of a form had to be the whole form. The label and
+# the messages were the only parameterisable pieces, so they were extracted on
+# their own and shipped the layout rules for a control they never rendered.
+#
+# Reference parameters closed that. `v: cell text` passes the NAME of a cell, the
+# compiler substitutes it through the component body and lowers a copy per call
+# site, and `input bind v` becomes `input bind draft` before any check runs. The
+# fields exist now. The rules stayed here anyway — a control laid out next to this
+# label has to look like a control whether the binding came from a parameter or
+# was written by hand, and `Field`'s slot means plenty of them are still written
+# by hand.
+#
+# WHY THE CONTROL RULE NAMES ITS CONTROLS INSTEAD OF SAYING `input`. It used to be
+# `.x-field input`, written when `input` was the only control that could sit in a
+# `Field`'s slot. `checkbox`, `radio`, `toggle` and `textarea` landed in the
+# language and three of them also render an `<input>` — a checkbox and a radio are
+# `<input type="checkbox">` and `<input type="radio">` inside their own label — so
+# the old selector caught them and gave a tick box `width: 100%` and 11px of
+# padding, which lays a radio group out as full-width boxes with the labels shoved
+# to the right of them. It was reported from a real site, which had to narrow the
+# selector back at the call site.
+#
+# A BOX YOU FILL IN AND A BOX YOU TICK ARE NOT THE SAME SHAPE, and no selector
+# that says "input" can tell them apart, because the distinction is not in the tag
+# — it is in the type. So the rule lists what it means: the free-entry controls
+# (`input` that is not a tick box, `select`, `textarea`) get the filled-box
+# treatment, and the tick controls get their own rule sized to a tick. Adding the
+# next control is adding it to whichever of the two lists it belongs to.
+app FacetForms:
+    css:
+        [data-fa-mount] .x-field { display: flex; flex-direction: column; gap: 6px;
+                 padding: 8px 0; border: none; background: none; }
+        [data-fa-mount] .x-field-label { font-size: 14px; font-weight: 600;
+                       display: flex; align-items: center; gap: 4px; }
+        [data-fa-mount] .x-field-req { color: #f4212e; }
+        # Free-entry controls. Same tokens as SearchBox, a different shape on
+        # purpose: a search box is a pill you drop a word into, a form field is a
+        # box you fill in, and a form of pills reads as a toolbar rather than as
+        # something to complete. `.fa-textarea` is the class the runtime puts on a
+        # `textarea` node; it is named here so a TextAreaField and a TextField are
+        # the same box with a different height.
+        [data-fa-mount] .x-field input:not([type="checkbox"]):not([type="radio"]),
+        [data-fa-mount] .x-field select,
+        [data-fa-mount] .x-field .fa-textarea {
+                 width: 100%; box-sizing: border-box; background: var(--x-panel, #16181c);
+                 color: var(--fa-fg); border: 1px solid var(--x-line, #2f3336);
+                 border-radius: 8px; padding: 11px 12px; font-size: 15px; font-family: inherit; }
+        [data-fa-mount] .x-field input:not([type="checkbox"]):not([type="radio"]):focus,
+        [data-fa-mount] .x-field select:focus,
+        [data-fa-mount] .x-field .fa-textarea:focus {
+                 border-color: var(--fa-accent); outline: none; }
+        [data-fa-mount] .x-field input::placeholder,
+        [data-fa-mount] .x-field .fa-textarea::placeholder { color: var(--fa-muted); }
+        # A textarea is the one free-entry control with a height worth setting: the
+        # runtime's own sheet gives it 5rem, which is two lines of answer, and a
+        # field that asks for a paragraph should look like it expects one. It stays
+        # `resize: vertical` — the width is the field's, the height is the writer's.
+        [data-fa-mount] .x-field .fa-textarea { min-height: 6.5rem; line-height: 1.45; }
+        # Tick controls. The label is the click target (the runtime renders the
+        # control inside its own `<label>`), so the rule sizes the row rather than
+        # the box, and the box keeps its intrinsic size: a tick that stretches to
+        # the width of the form is not a tick, it is a mistake.
+        [data-fa-mount] .x-field .fa-radio { display: flex; flex-direction: column;
+                       gap: 8px; padding: 2px 0 2px; }
+        [data-fa-mount] .x-field .fa-radio-option,
+        [data-fa-mount] .x-field .fa-checkbox,
+        [data-fa-mount] .x-field .fa-toggle { font-size: 15px; gap: 9px; }
+        [data-fa-mount] .x-field .fa-radio-option input,
+        [data-fa-mount] .x-field .fa-checkbox input,
+        [data-fa-mount] .x-field .fa-toggle input { width: auto; flex: 0 0 auto;
+                       accent-color: var(--fa-accent); }
+    # An EMPTY LABEL RENDERS NOTHING, not an empty row. `Field` always calls this,
+    # and a control that carries its own caption — a checkbox, a toggle: the words
+    # beside the box ARE the label, and a second one above it is the same words
+    # twice — passes "" and gets the hint/error scaffold without a 20px gap where a
+    # caption is not. The `required` mark goes with the label it marks.
+    component FieldLabel(label: text, required: bool):
+        if label != "":
+            row class "x-field-label":
+                text "{label}"
+                if required:
+                    text "*" class "x-field-req"

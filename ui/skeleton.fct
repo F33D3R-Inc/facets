@@ -1,0 +1,42 @@
+# Skeleton — the shape of the content that has not arrived yet. A spinner says
+# "something is happening"; a skeleton says "a post is about to be here", which
+# is the difference between a page that flickers and a page that fills in.
+#
+# `SkeletonPost` is laid out on the SAME two-column grid as PostCard — 40px of
+# avatar, then everything else — because the whole point of a skeleton is that
+# nothing moves when the real row replaces it. If the two ever disagree the
+# skeleton is worse than nothing: it becomes a layout shift with extra steps.
+#
+# `SkeletonLine` takes a width name rather than a width: a component parameter
+# cannot reach the `style` modifier (that value is a literal), so the three sizes
+# a placeholder actually needs are named and matched here.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-skel { background: var(--x-line, #2f3336); border-radius: 4px;
+                 height: 12px; margin: 6px 0; animation: x-skel-pulse 1.4s ease-in-out infinite; }
+        [data-fa-mount] .x-skel-full { width: 100%; }
+        [data-fa-mount] .x-skel-half { width: 55%; }
+        [data-fa-mount] .x-skel-short { width: 30%; }
+        [data-fa-mount] .x-skel-avatar { width: 40px; height: 40px; border-radius: 9999px;
+                        background: var(--x-line, #2f3336); animation: x-skel-pulse 1.4s ease-in-out infinite; }
+        [data-fa-mount] .x-skel-post { display: grid; grid-template-columns: 40px minmax(0,1fr);
+                      gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        @keyframes x-skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+        @media (prefers-reduced-motion: reduce) {
+            [data-fa-mount] .x-skel, [data-fa-mount] .x-skel-avatar { animation: none; opacity: .7; }
+        }
+    component SkeletonLine(width: text):
+        match width:
+            case "half":
+                box class "x-skel x-skel-half"
+            case "short":
+                box class "x-skel x-skel-short"
+            else:
+                box class "x-skel x-skel-full"
+    component SkeletonPost():
+        box class "x-skel-post":
+            box class "x-skel-avatar"
+            box:
+                use SkeletonLine("short")
+                use SkeletonLine("full")
+                use SkeletonLine("half")

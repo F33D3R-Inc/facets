@@ -1,0 +1,33 @@
+# TextAreaField — label, a multi-line box, hint, error, bound to the caller's
+# cell. `TextField` with the one control swapped, and that is the whole diff:
+#
+#     state note: text = "" @client
+#     use TextAreaField("What would you build?", "One or two sentences.", true, "", failed(request), note)
+#
+# IT COULD NOT BE WRITTEN THIS MORNING, because the language had no `textarea`
+# node and this library refuses to fake a control out of another one — a
+# single-line `input` styled to look tall still loses everything typed after the
+# first Enter, and a field that eats the user's paragraph is worse than no field.
+# The node landed with a cell contract checked at the bind site (`a textarea edits
+# a text cell`), so `v: cell text` here gets the same three checks a hand-written
+# `textarea bind note` gets: that the cell exists, that it is `text`, and that it
+# is `@client`.
+#
+# A SITE WROTE THIS FILE BEFORE THE LIBRARY DID. It needed a "what would you
+# build?" box on a request-access form, found no facet, and wrote an exact mirror
+# of `TextField` over the same `Field` scaffold — then nominated it for promotion
+# on the grounds that a local copy of a library field is a library field in the
+# wrong repository. This is that component, unchanged in shape; the site's version
+# also had to style `.fa-textarea` itself, and those rules are now in
+# `fieldlabel.fct` next to the rules for every other control a `Field` holds.
+#
+# WHEN TO USE IT INSTEAD OF `TextField`: when the answer is prose. A one-line box
+# tells the reader "a few words"; a six-line box tells them "a sentence or two",
+# and that expectation is set by the control's height before anything is read. The
+# height is `min-height` and `resize: vertical` — the width belongs to the field,
+# the height belongs to whoever is writing in it.
+import "field.fct"
+app FacetForms:
+    component TextAreaField(label: text, placeholder: text, required: bool, hint: text, error: text, v: cell text):
+        use Field(label, required, hint, error):
+            textarea bind v placeholder "{placeholder}"

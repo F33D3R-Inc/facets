@@ -1,0 +1,30 @@
+# UploadField — a file picker in the same scaffold as every other field, bound to
+# the caller's cell. `upload bind v` writes the stored file's URL into the cell, so
+# the cell is `text` and the value is what a later `image`/`video` node renders or
+# an action writes to a row.
+#
+#     state avatar: text = "" @client
+#     use UploadField("Profile picture", "Choose an image", false,
+#                     "PNG or JPEG, up to 5 MB.", failed(save), avatar)
+#
+# `buttonLabel` is the text on the picker itself, and it is a parameter rather
+# than the runtime's fixed "Upload" because the two labels answer different
+# questions: `label` says which field this is ("Profile picture"), the button says
+# what clicking it does ("Choose an image", "Replace"). An app that can only set
+# the first ends up writing the verb into the field name.
+#
+# The size and type limits in the example are a HINT, not a rule. This component
+# cannot enforce either — the constraint belongs to the action that stores the
+# result, where it is a `check` the authority runs — so the hint's job is to tell
+# the reader before the upload rather than after it.
+import "field.fct"
+app FacetForms:
+    css:
+        [data-fa-mount] .x-field .fa-upload { display: inline-flex; align-items: center; gap: 10px;
+                       border: 1px dashed var(--x-line, #2f3336); border-radius: 8px;
+                       padding: 10px 12px; font-size: 14px; color: var(--fa-muted);
+                       cursor: pointer; }
+        [data-fa-mount] .x-field .fa-upload:hover { border-color: var(--fa-accent); }
+    component UploadField(label: text, buttonLabel: text, required: bool, hint: text, error: text, v: cell text):
+        use Field(label, required, hint, error):
+            upload bind v label "{buttonLabel}"

@@ -1,0 +1,53 @@
+# Grid — content in columns that collapse on their own.
+#
+# `Grid2` is for cards and panels (280px minimum), `Grid3` for smaller tiles
+# (220px). Both are `auto-fit` + `minmax` rather than a media query, and that is
+# the whole design: the columns collapse when the CONTENT runs out of room, which
+# is the right trigger and keeps working inside a 350px rail as well as on a
+# 350px phone. A grid governed by viewport width is a grid that is wrong in every
+# container that is not the viewport.
+#
+# The names count columns rather than describing a purpose ("CardGrid",
+# "TileGrid") because the number is the only thing a call site is actually
+# choosing, and a purpose-named grid gets used for the other purpose within a
+# week.
+#
+# THE NUMBER IN THE NAME IS A MAXIMUM AND IT IS ENFORCED. It did not used to be:
+# the track minimum was the only bound, so `Grid2` meant "columns of at least
+# 280px" and produced two of them in a 600px app column and three or four across a
+# 1120px page measure. A site hit exactly that and widened the tracks at its own
+# call site to buy the name back — which moves the width at which the name lies
+# rather than fixing it. The track minimum is now `max(MIN, one-Nth-of-this-
+# container)`, so the grid fits at most N however wide the container is, and still
+# collapses to fewer when the content runs out of room. The rule and the arithmetic
+# are in `vocabulary.fct`; a call site that wants different columns at different
+# widths wants a different grid, not a wider `Grid2`.
+#
+#     use Grid2():
+#         use Card():
+#             ...
+#         use Card():
+#             ...
+#
+# A GRID OF QUERY RESULTS IS NOT WRITTEN THIS WAY, and getting it wrong is silent.
+# A `for` renders as one element of its own — it is a tracked region the runtime
+# re-fills when the query changes — so a `for` dropped into this slot is ONE grid
+# cell containing every row, not a row per cell, and it compiles and lays out
+# wrongly. The loop is the grid:
+#
+#     for p in Post by created desc limit 12 class "x-l-grid2":
+#         use Card():
+#             ...
+#
+# The `class` modifier is legal on any node, `for` included, so the list region
+# itself becomes the grid container and each row is a direct child. This is the
+# case the CSS vocabulary exists for: the rule has to be reachable without the
+# wrapper, because there are containers only the runtime can render.
+import "vocabulary.fct"
+app FacetLayout:
+    component Grid2():
+        box class "x-l-grid2":
+            slot
+    component Grid3():
+        box class "x-l-grid3":
+            slot

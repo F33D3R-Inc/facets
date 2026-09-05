@@ -1,0 +1,71 @@
+# Figure — a picture with a caption under it, at the width of the column rather
+# than at the runtime's avatar size.
+#
+#     use Figure("/media/architecture.png", "The three layers, and what crosses between them.")
+#     use FigureWide(post.cover, "")
+#
+# THE SECOND LINE USED TO READ `use FigureWide("{post.cover}", "")` AND THAT WAS
+# WRONG IN THE WAY THAT WAS HARDEST TO SEE. A component ARGUMENT is an expression,
+# not a template: the quoted form was a string literal containing a brace, a p, an
+# o … and a brace. It compiled clean, and the page got `src="{post.cover}"` — a
+# broken image with no error anywhere. The value is passed as the expression it is,
+# `post.cover`, and this component interpolates it into the node, where
+# interpolation actually lives.
+#
+# THE COMPILER REFUSES THE WRONG FORM NOW, so this is history rather than a trap
+# still open: an interpolation in an argument whose braces name something the
+# surrounding scope defines is a build error naming the argument and the fix.
+# Braces around a name the scope does NOT define stay literal text everywhere, so
+# prose and JSON samples are unaffected. The wrong form reached this file by being
+# copied out of a doc comment, which is why the corrected line is here rather than
+# the note alone.
+#
+# `Figure` LETS THE IMAGE KEEP ITS OWN SHAPE: the width is the column's and the
+# height follows, which is right for a diagram, a screenshot or a chart, where
+# cropping would remove content. `FigureWide` holds a 16 / 9 box and crops into it
+# — right for a cover image, where the shape of the layout matters more than the
+# edges of the photograph — and is built on `AspectWide` rather than restating the
+# ratio.
+#
+# THE FIRST RULE IS THE WHOLE POINT OF THE FILE. The runtime's default sheet makes
+# every `image` node a 44px round avatar, because the app it is defaulting for is
+# a social feed and that is the right default there. An `image` written straight
+# into a page is therefore a small circle, and every site that has wanted a
+# picture has had to undo that in its own stylesheet. It is undone here, once,
+# scoped to a figure.
+#
+# The caption is optional by value. It is `text` rather than a slot because a
+# caption is a sentence — a caption that can hold a whole tree is a caption that
+# will hold a form.
+import "aspectbox.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-figure { display: flex; flex-direction: column; gap: 8px;
+                    min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-figure .fa-image { display: block; width: 100%; height: auto;
+                        max-width: 100%; border-radius: 12px; object-fit: contain;
+                        background: none; }
+        [data-fa-mount] .x-figure .fa-video { display: block; width: 100%; height: auto;
+                        border-radius: 12px; }
+        [data-fa-mount] .x-figure-caption { display: block; color: var(--fa-muted);
+                          font-size: 13px; line-height: 1.45; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-figure > div:empty:not([class]) { display: none; }
+    component Figure(src: text, caption: text):
+        box class "x-figure":
+            image "{src}"
+            if caption != "":
+                text "{caption}" class "x-figure-caption"
+    component FigureWide(src: text, caption: text):
+        box class "x-figure":
+            use AspectWide():
+                image "{src}"
+            if caption != "":
+                text "{caption}" class "x-figure-caption"

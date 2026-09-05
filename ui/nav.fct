@@ -1,5 +1,23 @@
 # Nav — the left icon rail. A `ui` facet: pure presentation that snaps into the
 # `nav` socket of a wireframe. No data, no durable state — just icons + links.
+#
+# EVERY ROW USED TO POINT AT "/" AND THAT WAS A WORKAROUND, NOT A DESIGN. A link
+# to a route no view serves is a build failure, and until a `ui`/`data` facet
+# could declare routed `view`s there was nowhere in a layered build for
+# /profile/:handle to be served from — so the rail pointed four rows at the one
+# route that existed. `data/feed.fct` serves /profile/:handle now, so Profile
+# points at the signed-in actor's own page. The destination is the path-template
+# form, which is checked against the app's routes at build time: this row is a
+# dead link at compile time or it is not a dead link at all.
+#
+# Explore and Notifications still point at "/" because nothing in this
+# composition serves them yet, and they are left honest rather than pointed at
+# invented routes — a rail row that goes home is a row that has not been built,
+# and a rail row that 404s is a bug.
+# The four marks below are `ui/icon.fct`'s. A `ui` facet has no `css:` block of
+# its own — it is content snapped into a wireframe socket — so the set has to
+# arrive by import or the rail draws four blank squares.
+import "icon.fct"
 ui Nav in nav:
     content:
         text "𝕏 · F33D3R"
@@ -14,6 +32,6 @@ ui Nav in nav:
             link "Notifications" -> "/"
         row:
             icon "user"
-            link "Profile" -> "/"
+            link "Profile" -> "/profile/{actor}"
         text "signed in as {actor}"
         button "log out" -> logout

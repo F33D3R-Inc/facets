@@ -1,0 +1,43 @@
+# Meter — a level inside a range, with a tone: disk used, seats taken, budget
+# spent, rate limit remaining. It is `ProgressBar`'s twin and the difference is
+# what the bar MEANS.
+#
+#     use Meter("Storage", 41, 50, "warn")
+#     use Meter("Seats", 3, 25, "ok")
+#
+# A PROGRESS BAR MEASURES A TASK AND ONLY EVER GOES UP; A METER MEASURES A STATE
+# AND CAN GO EITHER WAY. That is why a progress bar is always the accent colour
+# (it is neutral — an import is not good or bad news, it is just underway) and a
+# meter is toned: 41 of 50 is a warning if it is storage and unremarkable if it is
+# a word count, and only the caller knows which.
+#
+# The tone is one of the four `ui/alert.fct` defines and is applied as an
+# interpolated class, so an unknown tone falls through to the accent rather than
+# failing. The fill vocabulary — the fifty-one width classes and the reason there
+# have to be fifty-one of them — is `ui/progress.fct`'s, imported rather than
+# repeated; the note there is worth reading before adding a third bar of any kind
+# to this library.
+#
+# THE READOUT IS THE VALUE AND ITS MAXIMUM, NOT A PERCENTAGE. A meter's units are
+# the thing being measured ("41 / 50 GB" is the sentence the caller wants), and a
+# percentage throws away the half of that the reader needs. `ProgressBar` shows a
+# percentage for the opposite reason: the units of a task are steps nobody counts.
+import "progress.fct"
+import "alert.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-meter { --x-tone: var(--fa-accent); }
+        [data-fa-mount] .x-meter .x-meter-fill { background: var(--x-tone); }
+        [data-fa-mount] .x-meter .x-progress-track { height: 10px; }
+        [data-fa-mount] .x-meter-read { display: block; color: var(--fa-muted);
+                       font-size: 13px; font-variant-numeric: tabular-nums; }
+    component Meter(label: text, value: int, max: int, tone: text):
+        box class "x-progress x-meter x-tone-{tone}":
+            row class "x-progress-head":
+                if label != "":
+                    text "{label}" class "x-progress-label"
+                if max > 0:
+                    text "{value} / {max}" class "x-meter-read"
+            if max > 0:
+                box class "x-progress-track":
+                    box class "x-progress-fill x-meter-fill x-fill-{value * 50 / max}"

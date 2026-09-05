@@ -1,0 +1,89 @@
+# Callout and Banner — the two ways a page says something out of band.
+#
+#     use Callout("info", "Before you start"):
+#         use Prose("You will need an API key. Generate one on the **Keys** page.")
+#         use Link("Open Keys", "/settings/keys")
+#
+#     use Banner("warn", "Scheduled maintenance on Sunday, 02:00–04:00 UTC.")
+#
+# A `Callout` is a block IN the reading flow: an aside, a prerequisite, a warning
+# beside the paragraph it is about, with a `slot` so it can hold prose, a link, a
+# code sample or a table. A `Banner` is a full-width strip ACROSS the top of a
+# page or a section, one line, no children — the shape a status notice takes.
+#
+# ── NEITHER OWNS A COLOUR ─────────────────────────────────────────────────────
+#
+# The four tones — `info`, `ok`, `warn`, `danger` — are `ui/alert.fct`'s, one
+# custom property set four ways, imported rather than restated. That file's note
+# explains why the vocabulary is separate from the component that first needed it;
+# this file is the second caller that made the argument real. A fifth tone goes
+# there and both of these get it.
+#
+# The tone arrives as an interpolated class, so an unknown tone renders neutral
+# rather than failing, and the runtime filters the interpolated run to
+# class-token characters so a tone carrying a space cannot add a class it was
+# never granted.
+#
+# ── WHY THIS IS NOT `Alert` WITH A SLOT BOLTED ON ─────────────────────────────
+#
+# `Alert` is a compact, marked, two-string block — a status about the page, sized
+# to be scanned. A callout is a piece of the DOCUMENT: it has the page's own type
+# size, no mark competing with its heading, and a body that is content rather than
+# a string. Making one component do both would mean a mark that is sometimes
+# wanted, a title that is sometimes a heading, and a body that is sometimes a
+# parameter and sometimes children — four booleans of which most combinations are
+# wrong. They share the colours and nothing else, which is exactly what the tone
+# vocabulary is for.
+#
+# `Banner` IS FULL-BLEED ONLY IF ITS CONTAINER IS. It has no negative margins and
+# does not try to escape a padded column, because a component cannot ask what it
+# is inside and a rule that assumes is a rule that breaks in a rail. Put it above
+# `Page`, not inside it.
+import "../ui/alert.fct"
+app FacetMarketing:
+    css:
+        # `stretch`, not `flex-start`: in a COLUMN flex container `align-items` sizes
+        # the children's WIDTH, and `flex-start` sizes each to its own content — which
+        # leaves a `Code` block's `pre` no width to scroll inside, so a long line
+        # sizes the whole box to max-content and the horizontal scrollbar lands on
+        # the DOCUMENT. `marketing/steps.fct` carries the full note; the invariant is
+        # that wide content scrolls inside its own container and the page body never
+        # scrolls sideways. A child that must not be full width says `align-self`.
+        [data-fa-mount] .x-callout { --x-tone: var(--fa-accent);
+                    display: flex; flex-direction: column; align-items: stretch;
+                    gap: 10px; box-sizing: border-box; padding: 16px 18px;
+                    border-radius: 12px; border: 1px solid transparent;
+                    border-left: 3px solid var(--x-tone);
+                    background: color-mix(in srgb, var(--x-tone) 9%, transparent); }
+        [data-fa-mount] .x-callout-title { display: block; font-size: 15px; font-weight: 800;
+                        line-height: 1.35; letter-spacing: .01em; color: var(--x-tone); }
+        # The body of a callout is the page's own prose, at the page's own size:
+        # a callout that shrinks its type is an aside nobody reads.
+        [data-fa-mount] .x-callout .x-prose { max-width: 62ch; }
+
+        [data-fa-mount] .x-banner { --x-tone: var(--fa-accent);
+                   display: flex; flex-direction: row; flex-wrap: wrap;
+                   align-items: center; justify-content: center; gap: 10px;
+                   box-sizing: border-box; width: 100%; padding: 10px 16px;
+                   font-size: 14px; line-height: 1.45; text-align: center;
+                   border: none; border-bottom: 1px solid
+                       color-mix(in srgb, var(--x-tone) 45%, transparent);
+                   background: color-mix(in srgb, var(--x-tone) 14%, transparent); }
+        [data-fa-mount] .x-banner-text { display: block; overflow-wrap: anywhere; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-callout > div:empty:not([class]) { display: none; }
+    component Callout(tone: text, title: text):
+        box class "x-callout x-tone-{tone}":
+            if title != "":
+                text "{title}" class "x-callout-title"
+            slot
+    component Banner(tone: text, message: text):
+        row class "x-banner x-tone-{tone}":
+            text "{message}" class "x-banner-text"

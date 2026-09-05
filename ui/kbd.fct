@@ -1,0 +1,36 @@
+# Kbd — a key cap. The thing a shortcut is written on, so that "press ctrl k" is
+# not a sentence the reader has to parse for which words are keys.
+#
+#     use Keys():
+#         use Kbd("Ctrl")
+#         use KbdPlus()
+#         use Kbd("K")
+#
+# A cap per key rather than one component taking "Ctrl+K", because the "+" between
+# two caps is not a key and should not be drawn as one — and because splitting a
+# string is not something this language does. `KbdPlus` is that separator, named
+# so it reads at the call site.
+#
+# `Keys` is the inline row they sit in. It uses `row`, which wraps, so a four-key
+# chord at the end of a sentence breaks like text instead of pushing its container
+# wide.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-keys { display: inline-flex; flex-direction: row; flex-wrap: wrap;
+                  align-items: center; gap: 4px; vertical-align: baseline;
+                  border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-kbd { display: inline-block; min-width: 1.6em; padding: 2px 6px;
+                 border-radius: 6px; font-size: 12px; font-weight: 700; line-height: 1.5;
+                 text-align: center; white-space: nowrap;
+                 font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                 color: var(--fa-fg); background: var(--x-panel, #16181c);
+                 border: 1px solid var(--x-line, #2f3336);
+                 box-shadow: 0 1px 0 var(--x-line, #2f3336); }
+        [data-fa-mount] .x-kbd-plus { color: var(--fa-muted); font-size: 12px; }
+    component Kbd(key: text):
+        text "{key}" class "x-kbd"
+    component KbdPlus():
+        text "+" class "x-kbd-plus"
+    component Keys():
+        row class "x-keys":
+            slot

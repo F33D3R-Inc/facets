@@ -1,0 +1,90 @@
+# CheckboxField / ToggleField / Toggle — the two-state controls, as fields and as
+# a settings row. The three of them are one control with two presentations, which
+# is exactly how the language models it: `checkbox` and `toggle` are the same IR
+# node with a variant, the same `@client bool` contract, the same event. They
+# differ in what the reader is being asked.
+#
+#     state notify: bool = true @client
+#     use CheckboxField("Warn me before a change breaks me", "", failed(request), notify)
+#     use ToggleField("Public profile", "Anyone can see your posts.", "", public)
+#     use ToggleList():
+#         use Toggle("Reduce motion", reduceMotion)
+#         use Toggle("Autoplay video", autoplay)
+#
+# NONE OF THESE EXISTED BEFORE TODAY. There was no `checkbox` and no `toggle`
+# node, and the README said so in the sentence that ended "so those fields do not
+# exist here rather than being faked out of an `input`" — a text input holding
+# "true" is not a checkbox, it is a bug with a label on it.
+#
+# THE LABEL IS NOT ABOVE THE BOX, IT IS BESIDE IT. Every other field in this
+# library is a caption over a control: the caption names the thing and the control
+# holds the answer. A tick box IS its caption — the words are the question and the
+# box is the whole answer — so a `FieldLabel` above it would print the question
+# twice, once as a heading and once as the thing you click. What is left of the
+# scaffold is the part that still applies: the hint under the row, and the error
+# under that, in the same place and the same components a text field puts them.
+#
+# SO THESE CALL `Field` LIKE EVERY OTHER FIELD DOES. They used to assemble
+# `.x-field` by hand from `FieldHint`/`FieldError` directly, dodging a compiler
+# bug where a slot child resolved a name against the CALLEE's parameters before
+# the caller's: `use Field("", false, hint, error): checkbox bind v label
+# "{label}"` read `Field`'s own first parameter — always "" here — instead of
+# this component's `label`, so the checkbox rendered with no words at all. That
+# is fixed: expansion now alpha-renames the callee's colliding binders
+# (`Field`'s `label` becomes `label$c2` internally) before splicing the slot in,
+# so the child's `{label}` keeps meaning what the caller wrote regardless of
+# what `Field` happens to call its own parameters. Verified against this
+# compiler: the natural form below renders the real label. `Field`'s own hazard
+# note is stale for the same reason and is `fct`'s to correct where it lives.
+#
+# CHECKBOX OR TOGGLE IS NOT A STYLE CHOICE. A checkbox is part of a form you are
+# filling in and takes effect when the form is submitted; a toggle is a setting
+# that takes effect when you flip it. That is the distinction the reader makes
+# from the shape, so a toggle in a form promises an immediacy the form cannot
+# deliver, and a checkbox on a settings screen hides one it could.
+#
+# `Toggle` is the settings row rather than a bare control, because that is the
+# thing a bare `toggle` node cannot be: the runtime renders the switch first and
+# the words after it, which reads fine in a form and wrongly in a list of
+# settings, where the labels have to line up on the left and the switches on the
+# right or the row below is unscannable. Same node, `row-reverse` and a
+# `space-between`, and it is a row you can stack.
+import "field.fct"
+app FacetForms:
+    css:
+        # The settings row. Full width, label left, switch right, and a rule
+        # between rows so a stack of them reads as a list rather than as a block
+        # of sentences.
+        [data-fa-mount] .x-toggle-row { padding: 12px 0; border: none; background: none; }
+        [data-fa-mount] .x-toggle-row .fa-toggle { display: flex; flex-direction: row-reverse;
+                        justify-content: space-between; align-items: center; width: 100%;
+                        gap: 16px; font-size: 15px; }
+        # THE RULE BETWEEN ROWS NEEDS A LIST TO BE BETWEEN THEM IN. This said
+        # `.x-toggle-row + .x-toggle-row` and drew nothing, ever: `use Toggle(...)`
+        # renders an element of its own around each row, so two rows are never DOM
+        # siblings and `+` never matched. `display: contents` is no help — it moves
+        # boxes, not selector relationships — so the comparison has to be made
+        # between the WRAPPERS, and that needs an element that says "these rows are
+        # one list". That element is `ToggleList`, and this is the whole reason it
+        # exists. A `Toggle` written on its own is still a plain row with no stray
+        # rule above it, which is what a single setting in a form should look like.
+        [data-fa-mount] .x-toggle-list { display: flex; flex-direction: column;
+                        border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-toggle-list > * + * .x-toggle-row {
+                        border-top: 1px solid var(--x-line, #2f3336); }
+    component CheckboxField(label: text, hint: text, error: text, v: cell bool):
+        use Field("", false, hint, error):
+            checkbox bind v label "{label}"
+    component ToggleField(label: text, hint: text, error: text, v: cell bool):
+        use Field("", false, hint, error):
+            toggle bind v label "{label}"
+    component Toggle(label: text, v: cell bool):
+        box class "x-toggle-row":
+            toggle bind v label "{label}"
+    # The stack of settings. It carries no padding and no surface of its own — a
+    # host puts these in a `Card` or a `Panel` when it wants one — and exists so
+    # the rule between two rows has something to be scoped to. See the note above
+    # the rule for why the rows cannot find each other without it.
+    component ToggleList():
+        box class "x-toggle-list":
+            slot

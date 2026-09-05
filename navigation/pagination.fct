@@ -1,0 +1,76 @@
+# Pagination — previous / where you are / next, plus the numbered steps for hosts
+# that can enumerate their pages.
+#
+# `Pagination` is the whole control for the ordinary case: the host knows which
+# page it is on, how many there are, and the two destinations. The ends are the
+# interesting part. At page 1 there is no previous page, so "Previous" renders as
+# text rather than as a link that goes back to page 1 and looks broken; the same
+# at the far end. That is spelled as an `if` on the page number rather than left
+# to the destination, because a control should not depend on a runtime check to
+# be correct — but the runtime check is the second line of defence and it holds:
+# `prevHref` is a route expression, so even a host that computes "/posts?page=0"
+# for a route that does not exist gets inert text and never a dead link.
+#
+# `PageNumbers` + `PageNumber` are the numbered strip, and they are separate
+# because this language cannot count. There is no numeric range to iterate — `for`
+# walks an entity or a `[T]` cell, not `1..pages` — so a component cannot render
+# its own steps, and a fabricated "1 … 4 5 6 … 20" would be a component printing
+# numbers it has no way to know are pages. A host that has something to iterate
+# writes the loop and drops a `PageNumber` in it; a host that does not uses
+# `Pagination` alone, which is why the count line lives there and not here.
+import "link.fct"
+app FacetNav:
+    css:
+        [data-fa-mount] .x-pager { display: flex; flex-direction: row; flex-wrap: wrap;
+                  align-items: center; justify-content: center; gap: 16px;
+                  padding: 20px 12px; border: none; background: none; }
+        [data-fa-mount] .x-pager-count { color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-pager-step { border: 1px solid var(--x-line, #2f3336);
+                       border-radius: 9999px; padding: 6px 14px; font-size: 14px;
+                       background: none; }
+        [data-fa-mount] .x-pager-step a.x-link { color: var(--fa-fg); }
+        [data-fa-mount] .x-pager-step:hover { border-color: var(--fa-accent); }
+        # The end of the road. Dimmed and left un-hoverable, so "there is no page
+        # before this one" and "this link is broken" do not look the same.
+        [data-fa-mount] .x-pager-off { color: var(--fa-muted); border-color: transparent; }
+        [data-fa-mount] .x-pager-off:hover { border-color: transparent; }
+        [data-fa-mount] .x-pager-numbers { gap: 6px; padding: 0; }
+        [data-fa-mount] .x-pager-num { min-width: 34px; justify-content: center; }
+        [data-fa-mount] .x-pager-num-current { border-color: var(--fa-accent);
+                          background: var(--fa-accent); font-weight: 700; }
+        [data-fa-mount] .x-pager-num-current a.x-link,
+        [data-fa-mount] .x-pager-num-current span.x-link { color: #fff; }
+    component Pagination(page: int, pages: int, prevHref: text, nextHref: text):
+        row class "x-pager":
+            if page > 1:
+                row class "x-pager-step":
+                    use Link("← Previous", prevHref)
+            if page <= 1:
+                row class "x-pager-step x-pager-off":
+                    text "← Previous"
+            text "Page {page} of {pages}" class "x-pager-count"
+            if page < pages:
+                row class "x-pager-step":
+                    use Link("Next →", nextHref)
+            if page >= pages:
+                row class "x-pager-step x-pager-off":
+                    text "Next →"
+    component PageNumbers():
+        row class "x-pager x-pager-numbers":
+            slot
+    # The number is rendered with a bare `link` rather than through `Link`, and
+    # the reason is worth knowing before writing the next facet: a component
+    # ARGUMENT is an expression, and a quoted, braced `n` in expression position is
+    # a string literal containing a brace, an n and a brace — it is not
+    # interpolation. It used to compile clean and render those three characters on
+    # the page; the compiler refuses it now, which turns a wrong page into a build
+    # error but does not change what has to be written. Interpolation is a property
+    # of a node's text, so a component that has to build a label out of a value
+    # writes the node itself.
+    component PageNumber(n: int, href: text, current: bool):
+        if !current:
+            row class "x-pager-step x-pager-num":
+                link "{n}" -> "{href}" class "x-link"
+        if current:
+            row class "x-pager-step x-pager-num x-pager-num-current":
+                link "{n}" -> "{href}" class "x-link"

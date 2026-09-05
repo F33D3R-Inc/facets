@@ -1,0 +1,44 @@
+# Panel — the rounded card the right rail is made of ("What's happening", "Who to
+# follow"): a title, then rows, on a raised surface with the corners clipped so the
+# first and last row do not poke out of the radius.
+#
+# It ships as a WRAPPER plus its two text atoms. It used to ship as a title and a
+# class vocabulary and no wrapper at all, because a component could not accept
+# child nodes — `use Panel(): …rows…` was unsayable — so the host wrote the
+# container itself and the rules travelled with the import. `slot` closed that,
+# and the container is a component now:
+#
+#     use Panel():
+#         use PanelTitle("Who to follow")
+#         use WhoToFollow(…)
+#
+# The class vocabulary stays, and a host that renders its panel from a `for` still
+# needs it: a `for` renders as one element of its own, so a panel whose rows ARE
+# the query writes `for u in Suggestion … class "x-panel"` rather than wrapping
+# the loop in a `Panel` that would make the whole list one row. Same arrangement
+# UserChip uses for `.x-identity` — the atom owns the rule for a class its
+# neighbour applies — now with a wrapper for the common case.
+app FacetLayout:
+    css:
+        [data-fa-mount] .x-panel { background: var(--x-panel, #16181c); border-radius: 16px;
+                 margin-bottom: 16px; overflow: hidden; }
+        # BOTH OF THESE SAY `display: block`, AND THAT IS NOT DECORATION. A `text`
+        # node renders as a `<span>`, and horizontal padding on an inline box is
+        # applied at the START of the first line box and the END of the last one —
+        # not down the side of the element. A one-line note looks inset and a note
+        # that wraps loses the inset on every line after the first, which is a bug
+        # that only appears at some widths and in some translations. It was reported
+        # from a real site, whose call site had to restate the padding. `block` makes
+        # the padding a box property, which is what the rule always meant.
+        [data-fa-mount] .x-panel-title { display: block; font-size: 20px; font-weight: 800;
+                       padding: 12px 16px; }
+        [data-fa-mount] .x-panel-note { display: block; color: var(--fa-muted); font-size: 13px;
+                       line-height: 1.45; padding: 0 16px 12px; }
+    component Panel():
+        box class "x-panel":
+            slot
+    component PanelTitle(title: text):
+        text "{title}" class "x-panel-title"
+    component PanelNote(note: text):
+        if note != "":
+            text "{note}" class "x-panel-note"

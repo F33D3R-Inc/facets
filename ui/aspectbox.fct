@@ -1,0 +1,65 @@
+# AspectBox — a box that holds its shape before its contents arrive, so an image
+# loading does not shove everything under it down the page.
+#
+#     use AspectWide():
+#         image "{post.cover}"
+#
+#     use AspectSquare():
+#         use Skeleton…                # while the media is still coming
+#
+# A layout shift is the failure this closes and it is almost invisible while
+# developing: on a warm cache the image is there before the first paint, and the
+# jump only appears for the reader on a slow connection — the one least able to
+# absorb it. `aspect-ratio` reserves the height from the width, which is known
+# immediately, so the box is the right size before a single byte of media has
+# landed.
+#
+# ── FOUR COMPONENTS, NOT ONE WITH A `ratio` PARAMETER ─────────────────────────
+#
+# The ratio would have to be selected with a `match`, and each arm would need its
+# own `slot` — a component has at most one. That is the same wall `layout/
+# spacer.fct` hit (which solved it by taking a size NAME, legal because a spacer
+# has no children) and `layout/flow.fct` hit (which put the gap in the name). Here
+# the ratio goes in the name for the same reason, and it is the better trade
+# anyway: four ratios is the whole vocabulary, and a library that accepts any
+# ratio grows three that mean the same thing.
+#
+#     AspectUltraWide   21 / 9   a banner
+#     AspectWide        16 / 9   video, a card cover, an OG image
+#     AspectSquare       1 / 1   an avatar block, a gallery tile
+#     AspectPortrait     3 / 4   a phone screenshot, a book cover
+#
+# ── THE CONTENT IS COVERED, AND THE RUNTIME'S IMAGE DEFAULT IS UNDONE ─────────
+#
+# `object-fit: cover` means a photo that is not the box's ratio is cropped rather
+# than letterboxed, which is what a fixed-shape tile wants; a call site that needs
+# the whole picture visible wants `Figure`, not this. The `.fa-image` rule is
+# load-bearing and not decoration: the runtime's default sheet makes every `image`
+# a 44px round avatar, so an image dropped into an aspect box without it is a
+# small circle floating in a large rectangle.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-aspect { display: block; position: relative; width: 100%;
+                    overflow: hidden; border-radius: 12px; gap: 0; padding: 0; border: none;
+                    background: var(--x-line, #2f3336); }
+        [data-fa-mount] .x-aspect-21x9 { aspect-ratio: 21 / 9; }
+        [data-fa-mount] .x-aspect-16x9 { aspect-ratio: 16 / 9; }
+        [data-fa-mount] .x-aspect-1x1 { aspect-ratio: 1 / 1; }
+        [data-fa-mount] .x-aspect-3x4 { aspect-ratio: 3 / 4; }
+        # The contents fill the box. `.fa-image` is named explicitly because the
+        # runtime's default makes it a 44px circle.
+        [data-fa-mount] .x-aspect .fa-image,
+        [data-fa-mount] .x-aspect .fa-video { display: block; width: 100%; height: 100%;
+                        border-radius: 0; object-fit: cover; }
+    component AspectUltraWide():
+        box class "x-aspect x-aspect-21x9":
+            slot
+    component AspectWide():
+        box class "x-aspect x-aspect-16x9":
+            slot
+    component AspectSquare():
+        box class "x-aspect x-aspect-1x1":
+            slot
+    component AspectPortrait():
+        box class "x-aspect x-aspect-3x4":
+            slot

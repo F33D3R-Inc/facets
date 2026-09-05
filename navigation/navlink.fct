@@ -1,0 +1,68 @@
+# NavLink — a Link that knows whether it is the page you are already on. The
+# current item is the one thing a bare link cannot express and the one thing a
+# navigation needs most: a menu that never marks where you are is a menu you have
+# to read every time.
+#
+#     use NavLink("Docs", "/docs")
+#
+# THAT USED TO TAKE A THIRD ARGUMENT AND IT WAS THE LIBRARY'S WORST ONE. There was
+# no expression for "the route being rendered", so `current: bool` was a value the
+# host worked out and threaded in by hand — which meant a nav written once inside a
+# shared `layout` could not mark itself at all, because a layout is the same nodes
+# on every route. The README listed it as impossible. `route` landed, this facet
+# reads it, and the common case has no third argument: `route == href` is the
+# comparison every call site was writing anyway, and it is written once here.
+#
+# `route` is readable in a view and in a component rendered by one, and nowhere
+# else — not in a derive, a policy or an action, which have no page in sight. That
+# is exactly the scope a nav item lives in, so this facet costs nothing to use and
+# there is no cell to keep in step.
+#
+# THE OVERRIDE SURVIVED, BECAUSE EXACT MATCH IS NOT THE ONLY ANSWER. A "Docs" tab
+# should stay lit on `/docs/getting-started`, a profile tab is current when the
+# handle in the route is yours, and neither is `route == href`. `NavLinkWhen` takes
+# the condition instead of computing one:
+#
+#     use NavLinkWhen("Docs", "/docs", contains(route, "/docs"))
+#     use NavLinkWhen("Profile", "/profile/" + handle, handle == actor)
+#
+# The second destination is CONCATENATED and that is not a style preference: a
+# component argument is an expression, so the quoted-and-braced form is a literal
+# containing braces. It used to compile and render `href="/profile/{handle}"`; the
+# compiler refuses it now. `+` converts and joins; interpolation is a property of a
+# node's text, and the node is inside `Link`. This example shipped in the wrong
+# form and a real app copied it out of here.
+#
+# It is the same markup and the same rules — `NavLink` is one line on top of it —
+# so a nav can mix the two without the marked item looking different depending on
+# which one drew it. Exact match is the default because it is the answer that is
+# right without being told anything; a prefix default would light "Home" on every
+# page in the site, which is the failure that makes people stop trusting the mark.
+#
+# The destination is the route-expression form, so an item pointing at a route
+# this app does not serve renders as its label and nothing else (see link.fct) —
+# which is the right failure for a nav: a menu with a dead entry shows the entry
+# without pretending it leads anywhere.
+import "link.fct"
+app FacetNav:
+    css:
+        [data-fa-mount] .x-navitem { display: flex; align-items: center; gap: 10px;
+                    padding: 8px 12px; border-radius: 9999px; border: none; background: none;
+                    width: fit-content; }
+        [data-fa-mount] .x-navitem:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-navitem a.x-link { color: var(--fa-fg); }
+        # The current item. Weight and full colour rather than a background block,
+        # because the hover state is already a background block and two of them in
+        # the same rail are indistinguishable while the pointer is moving.
+        [data-fa-mount] .x-navitem-current { font-weight: 800; }
+        [data-fa-mount] .x-navitem-current a.x-link,
+        [data-fa-mount] .x-navitem-current span.x-link { color: var(--fa-fg); }
+    component NavLinkWhen(label: text, href: text, current: bool):
+        if !current:
+            row class "x-navitem":
+                use Link(label, href)
+        if current:
+            row class "x-navitem x-navitem-current":
+                use Link(label, href)
+    component NavLink(label: text, href: text):
+        use NavLinkWhen(label, href, route == href)

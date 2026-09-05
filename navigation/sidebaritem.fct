@@ -1,0 +1,79 @@
+# SidebarItem — one row of a left rail: a leading glyph, a label that navigates,
+# an active state it works out for itself, and a slot on the end for whatever the
+# row is carrying.
+#
+#     use SidebarItem("bell", "Notifications", "/notifications"):
+#         use UnreadBadge(count(n in Notification where n.user == actor && !n.read))
+#
+#     use SidebarItem("home", "Home", "/")
+#
+# THE ACTIVE FLAG USED TO BE THE FOURTH ARGUMENT. It was a value the host computed
+# and passed, because there was no expression for the route being rendered — which
+# meant a rail written once in a shared `layout`, the only place a rail is ever
+# written, could not mark its own row. `route` landed and this facet reads it:
+# `route == href`, once, here, instead of at every call site.
+#
+# `SidebarItemWhen` keeps the explicit flag for the case exact match gets wrong —
+# a section rail whose "Settings" row should stay lit across `/settings/billing`,
+# a profile row that is current when the route's handle is yours:
+#
+#     use SidebarItemWhen("gear", "Settings", "/settings", contains(route, "/settings"))
+#
+# `SidebarItem` is one line on top of it, forwarding its own children into that
+# component's slot, so both draw the identical row.
+#
+# BOTH A GLYPH PARAMETER AND A SLOT, because they are two different jobs. The
+# glyph is the item's identity and every item in a rail has one, so it is a
+# parameter — `icon "{glyph}"` interpolates now, and an empty string renders no
+# icon at all rather than an empty box, which is what makes a rail of icon rows
+# and a rail of plain rows the same component. The slot is the trailing mark: an
+# unread count, a tag, a chevron, nothing. That is per-item, arbitrary in shape,
+# and could never be a parameter — an `int` badge parameter would fit exactly one
+# app's rail.
+#
+# WHY THE ACTIVE STATE IS A MARKER ELEMENT AND A `:has()` RULE, not two branches.
+# A component has at most one `slot` — its children are one tree, and two slots
+# would render them twice — so the `if current: … / if !current: …` shape NavLink
+# uses is unavailable here: each arm would need its own slot. So the row is
+# written once, an empty marker is rendered inside it when the item is active, and
+# the container styles itself off the marker's presence. The marker is
+# `display:none`; `:has()` matches it anyway, which is the whole point.
+import "link.fct"
+# The glyph is only a glyph if something draws it. `ui/icon.fct` owns the set and
+# the technique; without it every rail in this library renders a blank square
+# where its mark should be.
+import "../ui/icon.fct"
+app FacetNav:
+    css:
+        [data-fa-mount] .x-side-item { display: flex; align-items: center; gap: 14px;
+                      padding: 10px 14px; border-radius: 9999px; border: none;
+                      background: none; font-size: 17px; }
+        [data-fa-mount] .x-side-item:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-side-item a.x-link { color: var(--fa-fg); }
+        [data-fa-mount] .x-side-item span.x-link { color: var(--fa-muted); }
+        # The trailing slot gets a box of its own rather than being pushed with a
+        # `:last-child` rule, because it is not reliably last: the slot splices its
+        # children FLAT into the row, and the active marker is a sibling after
+        # them. The box is always rendered and usually empty, which costs nothing —
+        # an empty flex item with `margin-left: auto` absorbs the free space and
+        # draws nothing — and it means a count sits at the end of the rail rather
+        # than against the label, lining up with the one below it.
+        [data-fa-mount] .x-side-item-end { margin-left: auto; display: flex;
+                        align-items: center; gap: 8px; border: none; background: none;
+                        padding: 0; }
+        # The marker itself never shows; it exists so the row above it can see it.
+        [data-fa-mount] .x-side-item-on { display: none; }
+        [data-fa-mount] .x-side-item:has(.x-side-item-on) { font-weight: 800;
+                      background: var(--x-hover, rgba(239,243,244,.06)); }
+    component SidebarItemWhen(glyph: text, label: text, href: text, active: bool):
+        row class "x-side-item":
+            if glyph != "":
+                icon "{glyph}"
+            use Link(label, href)
+            box class "x-side-item-end":
+                slot
+            if active:
+                box class "x-side-item-on"
+    component SidebarItem(glyph: text, label: text, href: text):
+        use SidebarItemWhen(glyph, label, href, route == href):
+            slot

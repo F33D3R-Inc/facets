@@ -1,0 +1,93 @@
+# FAQ — questions that open. Built on `ui/menu.fct`'s `Disclosure`, which is the
+# in-flow half of the toggle-plus-panel pair: the answer renders under the
+# question, inside the document, so it can be scrolled past and printed rather
+# than dismissed.
+#
+#     state qWhatIs: bool = false @client
+#     state qPricing: bool = false @client
+#
+#     use FAQ():
+#         use FAQItem("What is a facet?", qWhatIs):
+#             use Prose("A module that carries its own data, logic and pages.")
+#         use FAQItem("How is it priced?", qPricing):
+#             use Prose("Per seat, monthly.")
+#             use Link("See the plans", "/pricing")
+#
+# ── EVERY QUESTION NEEDS ITS OWN `@client bool` CELL, AND THAT IS THE SHAPE ────
+#
+# It looks like boilerplate and it is the honest cost of a rule this library keeps
+# running into: nothing can write a `@client bool` except a control bound to it,
+# so "open" is a cell, and there is no array of cells and no way to index one — a
+# `for` walks an entity or a `[T]` cell, and a `[bool]` cell has no per-row
+# binding syntax. So a FAQ built from a QUERY cannot open its rows individually;
+# it can share one cell (every answer opens at once, which is an "expand all" and
+# not an accordion) or render the answers unfolded. Static questions, one cell
+# each, is the arrangement that actually works, and it is what the example above
+# shows.
+#
+# A ONE-AT-A-TIME ACCORDION IS NOT EXPRESSIBLE EITHER. Closing the other panels
+# when one opens means writing cells the reader did not click, and no control
+# writes a cell it is not bound to. Every question here opens and closes on its
+# own, which is the behaviour the language can actually guarantee.
+#
+# ── WHAT THIS FILE ADDS TO `Disclosure` ───────────────────────────────────────
+#
+# Three things, and it changes none of that component's own rules. The question
+# becomes a full-width row with the mark at the far end, so a column of questions
+# has one edge rather than a ragged one. The mark is `+` / `−`, drawn as a
+# pseudo-element off the control's own `:checked` state — no second cell, nothing
+# to keep in step, and no glyph in the text of the question. And the answer's
+# indent rule is undone: `Disclosure` marks its panel with a left rule because it
+# is usually a nested aside, and in a list of questions that rule reads as a
+# quotation.
+import "../ui/menu.fct"
+app FacetMarketing:
+    css:
+        [data-fa-mount] .x-faq { display: flex; flex-direction: column; gap: 0;
+                border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-faq-item { border: none; background: none; padding: 0;
+                     border-bottom: 1px solid var(--x-line, #2f3336); }
+        # The question. `space-between` puts the mark at the right edge; the label
+        # is the click target the runtime already gave us, so nothing here has to
+        # add one.
+        # `position: relative` is not decoration: the checkbox below is taken out
+        # of the paint with `position: absolute`, and an absolutely positioned box
+        # with no positioned ancestor is positioned against the VIEWPORT — a 1px
+        # invisible control parked in the corner of the page, which some browsers
+        # will scroll to on focus.
+        [data-fa-mount] .x-faq-item .fa-toggle { position: relative; display: flex; width: 100%;
+                     align-items: flex-start; justify-content: space-between; gap: 16px;
+                     padding: 18px 2px; font-size: 17px; font-weight: 700;
+                     line-height: 1.4; cursor: pointer; }
+        [data-fa-mount] .x-faq-item .fa-toggle input { position: absolute; width: 1px;
+                     height: 1px; opacity: 0; margin: 0; padding: 0; border: none; }
+        [data-fa-mount] .x-faq-item .fa-toggle:hover { color: var(--fa-accent); }
+        [data-fa-mount] .x-faq-item .fa-toggle:has(input:focus-visible) {
+                     outline: 2px solid var(--fa-accent); outline-offset: 2px;
+                     border-radius: 8px; }
+        # The mark, read off the control's own state. Decoration, so it lives in
+        # CSS and not in the question's words.
+        [data-fa-mount] .x-faq-item .fa-toggle::after { content: "+"; flex: 0 0 auto;
+                     font-size: 20px; font-weight: 700; line-height: 1.2;
+                     color: var(--fa-muted); }
+        [data-fa-mount] .x-faq-item .fa-toggle:has(input:checked)::after { content: "\2212";
+                     color: var(--fa-accent); }
+        # The answer. `Disclosure`'s own panel carries a left rule and an indent
+        # for the nested-aside case; in a list of questions neither is right.
+        #
+        # `align-items: stretch` and not `flex-start`: in a column, `align-items`
+        # sizes the children's WIDTH, and an answer holding a `Code` block whose
+        # child is sized to its own content gives the DOCUMENT the horizontal
+        # scrollbar instead of the code block. See `marketing/steps.fct` for the
+        # long form; the invariant is that the page body never scrolls sideways.
+        [data-fa-mount] .x-faq-item .x-disclosure-panel { border-left: none;
+                     margin: 0; padding: 0 0 20px; display: flex; flex-direction: column;
+                     align-items: stretch; gap: 10px; }
+        [data-fa-mount] .x-faq-item .x-disclosure-panel .x-prose { max-width: 68ch; }
+    component FAQ():
+        box class "x-faq":
+            slot
+    component FAQItem(question: text, open: cell bool):
+        box class "x-faq-item":
+            use Disclosure(question, open):
+                slot

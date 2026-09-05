@@ -1,0 +1,41 @@
+# Flow — the two directions content runs in, as wrappers.
+#
+# `Stack` is one column with real gaps and no card; it is the default container
+# for everything, and most screens are a Page around a Stack. `Row` is its
+# horizontal twin and WRAPS, always: a row that cannot wrap is a horizontal
+# scrollbar waiting for a narrow viewport.
+#
+# WHY THE GAPS ARE THREE COMPONENTS AND NOT A `gap: text` PARAMETER. `Spacer`
+# takes a size name and picks a class with `match`, which is the right shape for a
+# leaf. It is not available here: a component has at most one `slot`, and a
+# `match` with three arms would need one per arm. So the size is in the name.
+# That is the better trade anyway — `StackTight` says what it is at the call site,
+# and three names is the whole vocabulary, which is how a design system stays one.
+#
+#     use Stack():             20px between blocks — the default rhythm
+#     use StackTight():         8px — a label and its value, a list of rows
+#     use StackLoose():        40px — between sections of a long page
+#
+# `RowBetween` pushes its two ends apart (a title and its action); `RowEnd` pushes
+# everything right (a form's buttons). Both are the same row with one extra class,
+# so a row that later needs to wrap or align differently changes in one place.
+import "vocabulary.fct"
+app FacetLayout:
+    component Stack():
+        box class "x-l-stack":
+            slot
+    component StackTight():
+        box class "x-l-stack x-l-stack-tight":
+            slot
+    component StackLoose():
+        box class "x-l-stack x-l-stack-loose":
+            slot
+    component Row():
+        row class "x-l-row":
+            slot
+    component RowBetween():
+        row class "x-l-row x-l-row-between":
+            slot
+    component RowEnd():
+        row class "x-l-row x-l-row-end":
+            slot

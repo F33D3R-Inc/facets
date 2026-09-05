@@ -1,0 +1,102 @@
+# Form — the wrapper that puts an action's own states around a set of fields. It
+# takes the ACTION by reference, so the three things every form has to render are
+# read off the one declaration instead of being tracked in cells the host has to
+# keep in step:
+#
+#     use Form(request):
+#         form "Send request" -> request(name, email, note):
+#             use TextField("Name", "Ada Lovelace", true, "", "", name)
+#             use TextField("Email", "you@example.com", true, "", "", email)
+#             use TextAreaField("What for?", "One or two sentences.", true, "", "", note)
+#
+# `pending(a)` while it is in flight, `failed(a)` for the message from whichever
+# `check` refused it, and nothing at all the rest of the time. A form built this
+# way has no `submitting` flag to reset, no `error` cell to clear, and no way for
+# the spinner and the request to disagree.
+#
+# ── WHY `SubmitButton` IS GONE ──────────────────────────────────────────────
+#
+# This file used to ship `SubmitButton(label, a: action)`, which lowered to
+# `button "{label}" -> a` — an action reference invoked with NO arguments — and a
+# note saying that made it no-argument-only. That note was true and the component
+# was still wrong, and a real site found out how wrong: every field in a form is a
+# `@client` cell, a server-placed action cannot read client state, so the values
+# have to arrive as ARGUMENTS. `use SubmitButton("Send", request)` was rejected
+# with *action "request" takes 6 argument(s), got 0* — not in an unusual form, in
+# the only kind of form there is. There is no varargs and no way to forward a call
+# site's expressions through an `action` reference, so no component can ever be
+# the submit control of a form that carries data. A component named `SubmitButton`
+# that cannot submit a form is a trap in the shape of a convenience, so it is not
+# here any more.
+#
+# THE SUBMIT CONTROL OF A REAL FORM IS THE LANGUAGE'S `form` NODE, written in this
+# component's slot: `form "Send" -> request(a, b, c):` takes the arguments because
+# it is at the call site, where the arguments are. That is not a workaround for a
+# missing facet — it is the node whose entire job this is, and it brings the
+# browser's own submit behaviour (Enter to send, a real `<button type="submit">`)
+# with it. What `Form` adds is the half a bare `form` node has no opinion about:
+# the pending state, the failure message, and the styling of the button the node
+# renders for itself. The `.fa-form` rules below are why a form written this way
+# looks like this library rather than like an unstyled browser default — the site
+# that hit the bug had to write them itself.
+#
+# The two pieces that WERE reusable survive under names that do not lie:
+#
+#   * `FormActions()` — the strip under the fields where submit controls sit. A
+#     slot, because what goes in it is a `button` with the caller's arguments, or
+#     a cancel next to a save, or nothing at all.
+#   * `ActionButton(label, a: action)` — a button for an action that genuinely
+#     takes no arguments (`logout`, `markAllRead`, `retry`), with that action's own
+#     spinner beside it. Same body the old component had; the arity check still
+#     refuses an action with parameters, and now the name says so first.
+#
+# The error is rendered by `FieldError`, the same component a single field's error
+# line uses, so a check that failed on a field and a check that failed on the form
+# look the same — because they are the same kind of thing.
+import "fieldmessage.fct"
+import "../ui/spinner.fct"
+app FacetForms:
+    css:
+        [data-fa-mount] .x-form { display: flex; flex-direction: column; gap: 4px;
+                 border: none; background: none; padding: 0; }
+        # The `form` node's own element. It stacks its children the way this
+        # library stacks fields, and its submit button — which the node renders
+        # itself, after the children, and which no call site can put a class on —
+        # is styled here to match the one in `.x-form-actions`. Without this rule a
+        # form whose submit is the node (which is every form that carries data)
+        # gets the browser's default button under this library's fields.
+        [data-fa-mount] .x-form .fa-form { display: flex; flex-direction: column; gap: 4px;
+                 align-items: stretch; }
+        [data-fa-mount] .x-form .fa-form > button[type="submit"] { align-self: flex-end;
+                 margin-top: 8px; }
+        # The action row is a strip under the fields, not a field: it is where the
+        # spinner and the button sit together so that "working" appears next to the
+        # thing that was clicked rather than at the top of the form.
+        [data-fa-mount] .x-form-actions { display: flex; align-items: center; gap: 12px;
+                     justify-content: flex-end; padding-top: 8px; border: none;
+                     background: none; }
+        [data-fa-mount] .x-form-actions button,
+        [data-fa-mount] .x-form .fa-form > button[type="submit"] {
+                                 background: var(--fa-accent); color: #fff; border: none;
+                                 font-weight: 700; font-size: 15px; padding: 10px 20px;
+                                 border-radius: 9999px; cursor: pointer; }
+        [data-fa-mount] .x-form-actions button:hover,
+        [data-fa-mount] .x-form .fa-form > button[type="submit"]:hover { filter: brightness(1.08); }
+    component Form(a: action):
+        box class "x-form":
+            slot
+            # The actions row is inside the `if`, not around it: an always-rendered
+            # row with padding and nothing in it is 8px of unexplained air under
+            # every form that is not currently submitting.
+            if pending(a):
+                row class "x-form-actions":
+                    use Spinner("")
+            use FieldError(failed(a))
+    component FormActions():
+        row class "x-form-actions":
+            slot
+    component ActionButton(label: text, a: action):
+        row class "x-form-actions":
+            if pending(a):
+                use Spinner("")
+            button "{label}" -> a

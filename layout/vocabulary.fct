@@ -1,0 +1,194 @@
+# Layout vocabulary — the container, stack, grid and split rules that a page is
+# arranged with, shipped as a facet so that every app arranges pages the same way
+# instead of re-deriving a grid in its own `css:` block.
+#
+# WHY THIS FACET STILL HAS NO COMPONENTS — and no longer needs any. It used to
+# have none because it could not: a `component` could not accept child nodes, so
+# `use Container(): ...contents...` was unsayable and every container had to ship
+# as a rule that a call site applied with `box class "x-l-stack"`. `slot` inside a
+# `component` closed that, and the wrappers now exist — `page.fct`, `flow.fct`,
+# `grid.fct`, `split.fct`, `card.fct`, `section.fct`, each importing this file.
+#
+# The rules stayed here rather than moving into them, and that is the point of
+# this file's continued existence. A class is the seam between an atom that ships
+# a rule and an element some other facet renders: `.x-panel` is written by
+# panel.fct and applied by whatever draws the panel; `.x-navitem` is written by
+# navlink.fct and re-arranged by tabbar.fct. Splitting the vocabulary across six
+# component files would give the app-shell grid two owners (this file and
+# wireframes/shell.fct) and make `.x-l-stack` unavailable to anything that wants
+# the spacing without the wrapper — a `for` body, a slot's children, a host with
+# its own box. One substrate, many wrappers.
+#
+# Every rule is anchored on `[data-fa-mount]` for specificity, not taste: the
+# runtime's default sheet makes a nested box a bordered card via `.fa-box .fa-box`
+# (two classes), so a bare `.x-l-page` would lose to it. The anchor is an attribute
+# selector, worth the same as a class, so these are worth two and win on order.
+app FacetLayout:
+    css:
+        # ── the page ────────────────────────────────────────────────────────────
+        # A readable measure, centred, with air at the edges on a phone. `maxwidth`
+        # is the theme's own token, so an app restates its page width once, in its
+        # theme, and not here.
+        [data-fa-mount] .x-l-page { width: 100%; max-width: var(--fa-maxwidth, 1100px);
+                  margin-inline: auto; padding-inline: 16px; box-sizing: border-box;
+                  border: none; background: none; }
+        [data-fa-mount] .x-l-narrow { max-width: 680px; }
+
+        # ── flow ────────────────────────────────────────────────────────────────
+        # A stack is the default: one column, real gaps, no card. `x-l-row` is its
+        # horizontal twin and WRAPS — a row that cannot wrap is a horizontal
+        # scrollbar waiting for a narrow viewport.
+        [data-fa-mount] .x-l-stack { display: flex; flex-direction: column; gap: 20px;
+                   border: none; padding: 0; background: none; }
+        [data-fa-mount] .x-l-stack-tight { gap: 8px; }
+        [data-fa-mount] .x-l-stack-loose { gap: 40px; }
+        [data-fa-mount] .x-l-row { display: flex; flex-direction: row; align-items: center;
+                 flex-wrap: wrap; gap: 12px; border: none; padding: 0; background: none; }
+        [data-fa-mount] .x-l-row-between { justify-content: space-between; }
+        [data-fa-mount] .x-l-row-end { justify-content: flex-end; }
+        [data-fa-mount] .x-l-fill { flex: 1; min-width: 0; }
+
+        # ── grids ───────────────────────────────────────────────────────────────
+        # `auto-fit` + `minmax` rather than a media query: the columns collapse when
+        # the CONTENT runs out of room, which is the right trigger, and it keeps
+        # working inside a narrow rail as well as on a narrow screen.
+        #
+        # THE TRACK MINIMUM IS A `max()`, AND THAT IS THE WHOLE FIX. A bare
+        # `minmax(280px, 1fr)` says "no column narrower than 280px" and says
+        # nothing at all about how many there may be, so the count is whatever the
+        # container affords: two in a 600px app column, three or four across a
+        # 1120px site measure. `Grid2` yielding four columns was reported from a
+        # real site, which widened the tracks at the call site to get the name back.
+        # Widening the minimum is not the fix — it moves the point where the name
+        # stops being true, it does not make the name true.
+        #
+        # `max(min(100%, MIN), (100% - GAPS) / N)` states BOTH bounds. The second
+        # term is the width of one of N equal columns in this container: whenever
+        # the container is wide enough for N columns of MIN, that term is the larger
+        # one and auto-fit fits exactly N, because an N+1th track will not fit. When
+        # the container narrows past N × MIN the first term takes over and the grid
+        # collapses on content the way it always did — through N-1, N-2, down to one
+        # — and `min(100%, MIN)` keeps a single column inside a container narrower
+        # than MIN from overflowing it. The number in the name is now the maximum,
+        # at every measure, and `auto-fit` still collapses the empty tracks, so a
+        # two-child `Grid3` is two columns and not three with a hole.
+        #
+        # The gap is written into the formula, so a call site that changes `gap`
+        # must change the subtrahend with it. That is why the gap is a custom
+        # property: set `--x-l-gap` on the container and both follow.
+        [data-fa-mount] .x-l-grid2 { display: grid; gap: var(--x-l-gap, 20px);
+                   grid-template-columns: repeat(auto-fit,
+                       minmax(max(min(100%, 280px),
+                                  calc((100% - var(--x-l-gap, 20px)) / 2)), 1fr));
+                   border: none; padding: 0; background: none; }
+        [data-fa-mount] .x-l-grid3 { display: grid; gap: var(--x-l-gap, 20px);
+                   grid-template-columns: repeat(auto-fit,
+                       minmax(max(min(100%, 220px),
+                                  calc((100% - var(--x-l-gap, 20px) * 2) / 3)), 1fr));
+                   border: none; padding: 0; background: none; }
+
+        # ── splits ──────────────────────────────────────────────────────────────
+        # Two columns where the second is a RAIL, not a half: content takes the
+        # space and the rail takes what it needs. `minmax(0,…)` on the content
+        # column is what stops one long unbroken word from widening the grid and
+        # pushing the rail off the screen.
+        [data-fa-mount] .x-l-split { display: grid; gap: 32px; align-items: start;
+                   grid-template-columns: minmax(0,1fr) 320px;
+                   border: none; padding: 0; background: none; }
+        [data-fa-mount] .x-l-split-3 { display: grid; gap: 32px; align-items: start;
+                     grid-template-columns: 240px minmax(0,1fr) 320px;
+                     border: none; padding: 0; background: none; }
+        [data-fa-mount] .x-l-sticky { position: sticky; top: 16px; align-self: start; }
+
+        # ── the wrapper a `use` renders ─────────────────────────────────────────
+        # A `use` renders a `<div class="fa-use">` around the component's nodes.
+        # Between a grid and the card inside it that div is the grid item, and the
+        # card is merely its content — so cards in a row stop stretching to equal
+        # height and a `.x-l-split` column's own sticky/overflow rules apply to a
+        # wrapper instead of to the column. `display: contents` removes the box
+        # from layout while leaving the element (and its region id) in the DOM,
+        # which is what makes `use Card()` inside `use Grid2()` behave like the
+        # card written inline.
+        #
+        # Scoped to these containers rather than applied to `.fa-use` globally:
+        # outside a layout container the wrapper is harmless, and a blanket rule
+        # would silently change every app that styles `.fa-use` itself.
+        [data-fa-mount] .x-l-stack > .fa-use,
+        [data-fa-mount] .x-l-row > .fa-use,
+        [data-fa-mount] .x-l-grid2 > .fa-use,
+        [data-fa-mount] .x-l-grid3 > .fa-use,
+        [data-fa-mount] .x-l-split > .fa-use,
+        [data-fa-mount] .x-l-split-3 > .fa-use { display: contents; }
+        # A `use` inside a `use`: `component FeatureCard(): use Card(): …` renders
+        # TWO wrappers between the grid and the card, and flattening only the outer
+        # one leaves the inner one as the grid item — cards in a row stop matching
+        # heights again, for a reason the call site cannot see. So the ladder goes
+        # two deeper, which covers a component built on a component built on a
+        # primitive; that is as far as this library's own compositions go, and a
+        # descendant selector (`.x-l-grid2 .fa-use`) is refused deliberately —
+        # it would flatten wrappers INSIDE a card, where the wrapper is doing real
+        # work. If a fourth level ever appears, this list grows by one line and the
+        # rule stays honest about its depth.
+        [data-fa-mount] .x-l-stack > .fa-use > .fa-use,
+        [data-fa-mount] .x-l-row > .fa-use > .fa-use,
+        [data-fa-mount] .x-l-grid2 > .fa-use > .fa-use,
+        [data-fa-mount] .x-l-grid3 > .fa-use > .fa-use,
+        [data-fa-mount] .x-l-split > .fa-use > .fa-use,
+        [data-fa-mount] .x-l-split-3 > .fa-use > .fa-use,
+        [data-fa-mount] .x-l-grid2 > .fa-use > .fa-use > .fa-use,
+        [data-fa-mount] .x-l-grid3 > .fa-use > .fa-use > .fa-use { display: contents; }
+
+        # ── cards ───────────────────────────────────────────────────────────────
+        # A card is a bordered block with its own padding — the one place in this
+        # vocabulary where a box is SUPPOSED to look like a box. The runtime's
+        # default sheet already draws bordered cards; these restate it explicitly
+        # so a card keeps its shape inside a host (like home.fct) that switched the
+        # default off, and so the radius comes from the theme rather than from the
+        # default sheet's own constant.
+        [data-fa-mount] .x-l-card { display: flex; flex-direction: column; gap: 12px;
+                 border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);
+                 padding: 16px; background: none; }
+        # The raised variant drops the border and gains a surface. Two ways to say
+        # "this is a distinct block", never both at once: a card that is outlined
+        # AND filled reads as a mistake at every size.
+        [data-fa-mount] .x-l-card-raised { border-color: transparent;
+                        background: var(--x-panel, #16181c); }
+
+        # ── the app skeleton ────────────────────────────────────────────────────
+        # The three-column shell: a fixed nav rail, a feed of fixed readable width,
+        # an aside. This is the rule `wireframes/shell.fct` is built from, so the
+        # layered track and a plain app lay out identically instead of each owning
+        # a private copy of the same grid.
+        [data-fa-mount] .x-l-app3 { display: grid; justify-content: center; align-items: start;
+                  grid-template-columns: 275px minmax(0,600px) 350px;
+                  gap: 0; min-height: 100vh; }
+        # The runtime's default sheet turns a nested box into a bordered card. The
+        # three columns of a shell are structure, never cards, and scoping the
+        # reset to this container's own children is what keeps it from leaking out
+        # into an app that legitimately wants the default look.
+        [data-fa-mount] .x-l-app3 > .fa-box { border: none; border-radius: 0; padding: 0;
+                       background: none; gap: 0; }
+        [data-fa-mount] .x-l-app3-nav { position: sticky; top: 0; height: 100vh;
+                      padding: 4px 8px 12px; display: flex; flex-direction: column;
+                      align-items: stretch; }
+        [data-fa-mount] .x-l-app3-main { border-inline: 1px solid var(--x-line, #2f3336);
+                       min-height: 100vh; }
+        [data-fa-mount] .x-l-app3-aside { position: sticky; top: 0; padding: 12px 0 12px 28px; }
+
+        # Narrow viewports. The aside goes first because it is the column carrying
+        # the least — trends and suggestions — and the nav goes LAST and never
+        # disappears: a phone with no way to reach search or sign-out is not a
+        # smaller app, it is a broken one, so it un-sticks and lies down as a bar.
+        @media (max-width: 1100px) {
+            [data-fa-mount] .x-l-app3 { grid-template-columns: 275px minmax(0,600px); }
+            [data-fa-mount] .x-l-app3-aside { display: none; }
+            [data-fa-mount] .x-l-split { grid-template-columns: minmax(0,1fr); }
+            [data-fa-mount] .x-l-split-3 { grid-template-columns: minmax(0,1fr); }
+        }
+        @media (max-width: 820px) {
+            [data-fa-mount] .x-l-app3 { grid-template-columns: minmax(0,1fr); }
+            [data-fa-mount] .x-l-app3-nav { position: static; height: auto; flex-direction: row;
+                          flex-wrap: wrap; align-items: center; gap: 4px;
+                          border-bottom: 1px solid var(--x-line, #2f3336); }
+            [data-fa-mount] .x-l-app3-main { border-inline: none; }
+        }

@@ -1,0 +1,95 @@
+# Gallery — a grid of media tiles that hold their shape before the pictures land.
+#
+#     use Gallery():
+#         for m in Media where m.album == a.id by id asc limit 24:
+#             use GalleryTile(m.url, "/photo/" + m.id)
+#
+#     use GalleryWide():
+#         for m in Media where m.album == a.id by id asc limit 12:
+#             use GalleryTileWide(m.url, "")
+#
+# ── WHAT THIS ADDS OVER `layout/Grid3` PLUS `AspectSquare` ──────────────────
+#
+# Three things a host currently writes by hand every time, and gets subtly wrong:
+#
+#   * THE TILE IS THE LINK, not a link inside a tile. A gallery whose caption is
+#     clickable and whose picture is not is the most common way this pattern
+#     disappoints, and it is what falls out of nesting `Link` inside a box.
+#   * THE GRID IS DENSER THAN A CARD GRID. `Grid3` sizes columns for cards with
+#     text in them (220px minimum); a photo grid wants more, smaller tiles, and a
+#     minimum that is about how small a picture stays legible.
+#   * THE SHAPE IS RESERVED. Every tile is an `AspectSquare` or an `AspectWide`, so
+#     twenty-four images arriving over a slow connection do not each shove the rest
+#     of the page down as they land. That is the failure `ui/aspectbox.fct` exists
+#     to close, and it is invisible on a warm cache — which is where it gets
+#     written and never where it is read.
+#
+# ── THE DESTINATION MAY BE EMPTY, AND THAT IS A REAL CASE ──────────────────
+#
+# A gallery is often just pictures. Passing "" gives a tile that is not a link at
+# all — not a link to nowhere and not a link back to the page you are on. The
+# component branches on the value rather than rendering a `Link` with an empty
+# href, because `Link`'s degraded form is a muted, un-clickable SPAN, which is the
+# right answer for a broken destination and the wrong one for an absent one: a
+# photograph is not "unavailable" because nobody wrote a lightbox.
+#
+# ── THERE IS NO `alt` AND THIS FILE CANNOT ADD ONE ─────────────────────────
+#
+# The language's `image` node takes a source and nothing else — there is no `alt`
+# modifier — so nothing in this library can describe a picture to a reader who
+# cannot see it. A gallery is the worst place for that gap, since a grid of
+# undescribed images is a grid of nothing. `GalleryFigure` is here for the case
+# where there IS something to say: it puts a real caption under the tile, which is
+# visible to everyone and is read out in order. It is not a substitute for `alt`
+# and is not offered as one; it is the only thing this language can currently do.
+import "aspectbox.fct"
+import "../navigation/link.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-gal { display: grid; gap: 8px;
+                 grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+                 border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-gal-wide { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+        # Every tile arrives through a `use`, so the wrapper — not the tile — is
+        # what the grid would place. Collapsing it is what makes the loop above
+        # produce a grid rather than a single column of wrappers.
+        [data-fa-mount] .x-gal > .fa-use { display: contents; }
+        [data-fa-mount] .x-gal > .fa-use > .fa-use { display: contents; }
+        [data-fa-mount] .x-gal-tile { position: relative; display: block; border: none;
+                      background: none; padding: 0; gap: 0; }
+        # The anchor covers the whole tile. `inset: 0` over the aspect box rather
+        # than an anchor wrapped around the image, because the image is inside
+        # `AspectBox` and this file may not reach into that component's markup.
+        [data-fa-mount] .x-gal-tile a.x-link { position: absolute; inset: 0; z-index: 2;
+                      border-radius: 12px; }
+        [data-fa-mount] .x-gal-tile a.x-link:hover { background: rgba(255,255,255,.08); }
+        # The label is the anchor's own text and must not paint over the picture.
+        [data-fa-mount] .x-gal-tile a.x-link { font-size: 0; }
+        [data-fa-mount] .x-gal-cap { display: block; color: var(--fa-muted); font-size: 13px;
+                     line-height: 1.4; padding-top: 6px; }
+    component Gallery():
+        box class "x-gal":
+            slot
+    component GalleryWide():
+        box class "x-gal x-gal-wide":
+            slot
+    component GalleryTile(src: text, href: text):
+        box class "x-gal-tile":
+            use AspectSquare():
+                image "{src}"
+            if href != "":
+                use Link("Open", href)
+    component GalleryTileWide(src: text, href: text):
+        box class "x-gal-tile":
+            use AspectWide():
+                image "{src}"
+            if href != "":
+                use Link("Open", href)
+    # A tile with words under it. The caption is `text` and not a slot for the
+    # reason `ui/figure.fct` gives: a caption that can hold a whole tree is a
+    # caption that will end up holding a form.
+    component GalleryFigure(src: text, href: text, caption: text):
+        box class "x-gal-figure":
+            use GalleryTile(src, href)
+            if caption != "":
+                text "{caption}" class "x-gal-cap"

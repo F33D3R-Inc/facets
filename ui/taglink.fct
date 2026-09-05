@@ -1,0 +1,72 @@
+# TagLink — a tag that is a destination.
+#
+#     use TagLink(t.name, "/tag/" + t.name, "")
+#     use TagLink("Draft", "/drafts", "warn")
+#
+# PROMOTED FROM THE JOURNAL APP, WHICH WROTE IT LOCALLY AND SAID SO. `ui/Tag` is a
+# pill of text and there is no linked variant, so every app with tag pages writes
+# one — the journal's `TagLink(name)` hard-coded `/tag/{name}` because that is its
+# route, which is exactly the thing a library facet may not do. This version takes
+# the destination, so the route belongs to the app and the shape belongs here.
+#
+# HOW THIS DIFFERS FROM THE JOURNAL'S. Three things:
+#
+#   * the href is a parameter, in the route-expression form `Link` documents, so a
+#     destination the app does not serve renders as inert text rather than as a
+#     dead link (see navigation/link.fct — the degraded form is the feature);
+#   * it carries `Tag`'s tone vocabulary, so a linked tag and an unlinked one in
+#     the same row are the same object with and without a destination, rather than
+#     two pills that happen to look similar;
+#   * the label is rendered as given. The journal prefixed a literal `#`, which is
+#     that site's typography and not a property of tags — a tag that is a category
+#     name ("Engineering") reads wrong with a hash in front of it. A site that
+#     wants the hash passes it: `use TagLink("#" + t.name, "/tag/" + t.name, "")`.
+#
+# `Tag` IS NOT TOUCHED AND THIS IS NOT BUILT ON IT. `Tag` lowers to the language's
+# `badge` node, which is a leaf: it takes its text as a modifier and cannot hold a
+# `link` child, so a clickable pill cannot be a badge wrapping an anchor. The
+# markup is therefore a row with a `Link` in it, the same construction
+# `ui/chip.fct`'s `ChipLink` uses, and the tone rules below restate `tag.fct`'s
+# palette because that file's selectors are anchored on `.fa-badge` — which this
+# node is not, and which no rule in this file can loosen.
+#
+# THE TONE IS ONE INTERPOLATED CLASS AND NOT A `match`. `Tag` predates
+# interpolated `class` and spends five arms on what is now one line. The
+# fall-through behaviour is preserved rather than lost: an unknown tone produces a
+# class no rule matches, and `.x-taglink` alone is already the neutral pill — so a
+# tag with a tone nobody defined still renders its label, which is what a tag is
+# for. Interpolated class values are filtered to [A-Za-z0-9_-] by the compiler, so
+# a tone arriving from a database cannot open an attribute.
+#
+# THE CONTAINER IS `ui/chip.fct`'s `ChipRow` and there is deliberately no `TagRow`
+# here. A wrapping row of pills is one arrangement; two names for it is the drift
+# the library warns about everywhere else.
+import "../navigation/link.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-taglink { display: inline-flex; align-items: center;
+                     font-size: 12px; font-weight: 700; line-height: 1.4;
+                     padding: 2px 8px; border-radius: 9999px; letter-spacing: .01em;
+                     white-space: nowrap; border: none; gap: 0;
+                     background: var(--x-line, #2f3336); }
+        # The anchor takes the pill's colour rather than the accent, because the
+        # pill IS the affordance — an accent-coloured word on a coloured pill is
+        # two signals for one thing.
+        [data-fa-mount] .x-taglink a.x-link,
+        [data-fa-mount] .x-taglink span.x-link { color: inherit; font: inherit; }
+        [data-fa-mount] .x-taglink:hover { filter: brightness(1.25); }
+        # A destination this app does not serve. `Link` renders a `span` there, and
+        # the pill drops its hover so a tag that goes nowhere does not invite a
+        # click it cannot honour.
+        [data-fa-mount] .x-taglink:has(span.x-link) { opacity: .6; }
+        [data-fa-mount] .x-taglink:has(span.x-link):hover { filter: none; }
+
+        [data-fa-mount] .x-taglink-neutral { background: var(--x-line, #2f3336);
+                        color: var(--fa-fg); }
+        [data-fa-mount] .x-taglink-accent { background: var(--fa-accent); color: #fff; }
+        [data-fa-mount] .x-taglink-ok { background: #00ba7c; color: #041b12; }
+        [data-fa-mount] .x-taglink-warn { background: #ffd400; color: #241f00; }
+        [data-fa-mount] .x-taglink-danger { background: #f4212e; color: #fff; }
+    component TagLink(label: text, href: text, tone: text):
+        row class "x-taglink x-taglink-{tone}":
+            use Link(label, href)

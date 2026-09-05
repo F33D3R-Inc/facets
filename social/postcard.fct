@@ -1,16 +1,31 @@
-# PostCard — a whole post: identity, kind-aware body (text/richtext/video), and the
-# engagement bar. `kind` selects how the body renders. Counts are passed in.
+# PostCard — a whole post: avatar, byline, kind-aware body, engagement bar.
+#
+# Laid out as a grid rather than a bordered card. A timeline is a list of things
+# separated by hairlines, and the body and action bar line up under the *name*, not
+# under the avatar — which is the difference between "a feed" and "a stack of
+# boxes", and is why the avatar sits in its own column here.
+import "../ui/avatar.fct"
 import "../ui/userchip.fct"
 import "engagementbar.fct"
 app FacetSocial:
+    css:
+        [data-fa-mount] .x-post { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 12px;
+                  padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-post:hover { background: rgba(255,255,255,.02); }
+        [data-fa-mount] .x-body { font-size: 15px; line-height: 1.35; margin: 2px 0 4px; overflow-wrap: anywhere; }
     component PostCard(id: int, author: text, handle: text, verified: bool, kind: text, body: text, media: text, likes: int, replies: int, reposts: int):
-        box:
-            use UserChip(author, handle, verified)
-            match kind:
-                case "richtext":
-                    richtext "{body}"
-                case "video":
-                    video "{media}"
-                else:
-                    text "{body}"
-            use EngagementBar(id, likes, replies, reposts)
+        box class "x-post":
+            use Avatar(author)
+            box:
+                use UserChip(author, handle, verified)
+                match kind:
+                    case "richtext":
+                        richtext "{body}" class "x-body"
+                    case "video":
+                        video "{media}" class "x-body"
+                    else:
+                        # The body is the click target for the post itself, which
+                        # is how a timeline row opens: not a separate "view post"
+                        # affordance, the post.
+                        link "{body}" -> "/post/{id}" class "x-body"
+                use EngagementBar(id, likes, replies, reposts)

@@ -1,0 +1,28 @@
+# Page — the outermost wrapper of a routed screen: a readable measure, centred,
+# with air at the edges. `PageNarrow` is the same thing at prose width, for a
+# screen that is one column of reading (an article, a settings form, a sign-up)
+# rather than a layout.
+#
+#     use Page():
+#         use Section("Settings", ""):
+#             use Form(save):
+#                 ...
+#
+# The width comes from `--fa-maxwidth`, the theme's own token, so an app states
+# its page width once — in its `theme:` block — and every page in it agrees. This
+# component does not take a width parameter for the same reason `Spacer` does not
+# take a pixel count: a container that can be any width is a container that will
+# be four slightly different widths.
+#
+# The rules live in vocabulary.fct, not here. This file is the wrapper; that file
+# is the substrate, and a host that wants the measure without the wrapper (inside
+# a `for` body, say) applies `.x-l-page` to a box of its own and gets exactly the
+# same page.
+import "vocabulary.fct"
+app FacetLayout:
+    component Page():
+        box class "x-l-page":
+            slot
+    component PageNarrow():
+        box class "x-l-page x-l-narrow":
+            slot

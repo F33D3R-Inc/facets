@@ -1,0 +1,219 @@
+# Table — rows and columns of records, with a header, aligned columns, a caption,
+# and a horizontal scrollbar that belongs to the TABLE and not to the page.
+#
+#     use Table("Every plan, with its limits."):
+#         use TableHead():
+#             use TableRow():
+#                 use TableHeadCell("Plan"):
+#                 use TableHeadCell("Seats"):
+#                 use TableHeadCellRight("Price"):
+#         for p in Plan by price asc limit 50 class "x-tbody":
+#             use TableRow():
+#                 use TableCell(p.name):
+#                 use TableCellRight(p.price):
+#         if !exists(p in Plan):
+#             use EmptyRow("No plans yet.")
+#
+# ── THERE IS NO `table` NODE, AND THIS IS NOT A FAKE ONE ────────────────────────
+#
+# The language's element vocabulary is `box`, `row`, `text`, `link`, `image`,
+# `badge`, `icon`, `video`, `richtext` and the controls; none of them emits a
+# `<table>`, a `<tr>` or a `<td>`, and there is no way to put an attribute on a
+# node, so `colspan` and `scope="col"` are unreachable too. What IS reachable is
+# CSS's own table formatting model — `display: table`, `table-header-group`,
+# `table-row-group`, `table-row`, `table-cell` — which is the same LAYOUT
+# algorithm the HTML elements use. Columns line up down the block because the
+# browser is doing real table layout, not because this file guessed at widths.
+#
+# What is genuinely lost is the semantics: a screen reader announces a grid of
+# divs as a grid of divs. That is a language gap and it is named here rather than
+# papered over — the fix is a `table`/`row`/`cell` node in `fct`, or the ability
+# to write `role` and `scope` onto a node, and until one of those lands a table in
+# this library is a visual table only. Do not use it for something a reader has to
+# navigate by column; use `Specs`/`SpecRow` or `DefinitionList`, which are real
+# key-and-value lists and read correctly in every order.
+#
+# ── THE `for` IS THE ROW GROUP ─────────────────────────────────────────────────
+#
+# A `for` renders as ONE element — the tracked region the runtime refills when the
+# query changes — so a `for` dropped inside `use TableBody()` would be one row
+# containing every record. The loop IS the body: `for p in Plan class "x-tbody"`
+# puts `display: table-row-group` on the region itself and every `TableRow` in it
+# is a real row. `TableBody()` exists for the other case — a body written out by
+# hand, or one assembled from several loops — and both spell the same class.
+#
+# ── WHY THE REGION WRAPPERS ARE FLATTENED ──────────────────────────────────────
+#
+# `use`, `if` and `match` each render a `<div>` of their own, with no class when
+# they carry a region id. Between a row group and a row, or a row and its cells,
+# that div is an anonymous box the table model has to wrap in an anonymous row and
+# an anonymous cell — which is how a table of `use TableRow()` calls collapses
+# into one column of stacked blocks. So the three rules below take those wrappers
+# out of the box tree with `display: contents` (the element stays in the DOM, so
+# its region id still addresses it and hydration is unaffected), and then put them
+# BACK inside a cell, where a wrapper is doing real work and flattening it would
+# change what the caller wrote. `:not([class])` is what tells the two apart: a
+# wrapper the runtime named has no class attribute at all, and the `for` that is
+# the row group has one.
+#
+# ── SCROLLING ──────────────────────────────────────────────────────────────────
+#
+# The scroll box is a wrapper around the table, not the table itself, because
+# `overflow-x` on a `display: table` element is ignored. Cells do not wrap by
+# default (`white-space: nowrap`) — that is what gives a wide table something to
+# scroll — and `TableCellWrap` is the opt-out for the one column that holds a
+# sentence rather than a value. The caption sits OUTSIDE the scroll box so it does
+# not slide away from the table it names.
+#
+# The header does not stick. `position: sticky` needs to know which ancestor
+# scrolls vertically, a component cannot ask what it is inside, and a header
+# pinned to the wrong ancestor is worse than one that scrolls — the same argument
+# `layout/pageheader.fct` makes at length. A host that knows its scroll container
+# writes `position: sticky` on `.x-th` itself.
+app FacetData:
+    css:
+        [data-fa-mount] .x-table-wrap { display: flex; flex-direction: column; gap: 8px;
+                     min-width: 0; border: none; background: none; padding: 0; }
+        # A `text` node is a span, so the caption says `display: block` or its
+        # padding is applied to line boxes rather than down its side — the bug
+        # `layout/panel.fct` documents.
+        #
+        # `order: inherit` IS THE FIX FOR A CAPTION THAT COULD NOT BE MOVED. The
+        # caption is written under `if caption != "":`, and a conditional child is
+        # its own tracked region — so what `.x-table-wrap` saw as a flex item was
+        # the unclassed div the region rendered, and the caption span inside it was
+        # not a flex item at all. `order: 2` on `.x-table-caption` therefore did
+        # NOTHING, silently, which is the worst way for a layout property to fail:
+        # the rule is there, it is spelled correctly, and the caption does not move.
+        #
+        # The rule below flattens that region so the span IS the flex item, and
+        # `order: inherit` makes the OTHER aim work too — a host that wrote its
+        # `order` on the flattened region (the only thing that used to work) hands
+        # it down to the caption instead of losing it. Both of the two things an
+        # author could reasonably target now place the caption, so the trap has no
+        # sharp edge left rather than a differently-shaped one.
+        [data-fa-mount] .x-table-caption { display: block; color: var(--fa-muted);
+                        font-size: 13px; line-height: 1.45; order: inherit; }
+        [data-fa-mount] .x-table-scroll { max-width: 100%; min-width: 0; overflow-x: auto;
+                       border: none; background: none; padding: 0; gap: 0; }
+
+        [data-fa-mount] .x-table { display: table; width: 100%; border-collapse: collapse;
+                 border-spacing: 0; font-size: 14px;
+                 border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-table .x-thead { display: table-header-group;
+                       border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-table .x-tbody { display: table-row-group;
+                       border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-table .x-tr { display: table-row;
+                       border: none; background: none; padding: 0; gap: 0; }
+        # Three classes deep on purpose. The runtime's default sheet gives a
+        # nested box a border and padding, and a box inside a row no padding at
+        # all; both of those selectors are worth two, and a cell rule that merely
+        # TIES with them is a cell whose padding depends on stylesheet order.
+        [data-fa-mount] .x-table .x-th,
+        [data-fa-mount] .x-table .x-td { display: table-cell; vertical-align: middle;
+                       text-align: left; white-space: nowrap; padding: 10px 14px;
+                       border: none; background: none; gap: 0;
+                       border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-table .x-th { color: var(--fa-muted); font-size: 12px;
+                       font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+        [data-fa-mount] .x-table .x-td-right,
+        [data-fa-mount] .x-table .x-th-right { text-align: right;
+                       font-variant-numeric: tabular-nums; }
+        # The one column that holds a sentence. A minimum measure as well as a
+        # wrap, because a wrapping column with no floor gets squeezed to four
+        # characters by the nowrap columns beside it.
+        [data-fa-mount] .x-table .x-td-wrap { white-space: normal; min-width: 22ch;
+                       line-height: 1.45; }
+        [data-fa-mount] .x-table .x-tbody .x-tr:hover .x-td {
+                       background: var(--x-hover, rgba(239,243,244,.06)); }
+
+        # The empty state. A row cannot span its table's columns — `colspan` is an
+        # attribute and no node takes one — so this is a `table-caption` pinned to
+        # the bottom, which is the one box in the table model that IS the full
+        # width of the table by definition.
+        [data-fa-mount] .x-table .x-table-empty { display: table-caption;
+                       caption-side: bottom; color: var(--fa-muted); font-size: 14px;
+                       text-align: center; padding: 28px 16px; white-space: normal;
+                       border: none; background: none; gap: 0; }
+
+        # The wrappers. See the note above: flatten between the structural levels,
+        # restore inside a cell. A `use` that is not its own region already carries
+        # `.fa-use` and is already flat; a `use` that IS a region, and every `if`
+        # and `match`, renders a div with NO class attribute at all — which is both
+        # what has to be flattened and, conveniently, exactly what tells a runtime
+        # wrapper apart from a `for` the caller named `x-tbody`.
+        [data-fa-mount] .x-table .fa-use,
+        [data-fa-mount] .x-table div:not([class]) { display: contents; }
+        [data-fa-mount] .x-table .x-th div:not([class]),
+        [data-fa-mount] .x-table .x-td div:not([class]) { display: block; }
+        # THE CAPTION'S REGION IS FLATTENED, NOT HIDDEN-WHEN-EMPTY. Everywhere else
+        # in this library an `if` that rendered nothing is dealt with by a rule
+        # that hides an empty unclassed region, which stops it from eating a
+        # `gap`. Here the same wrapper has a second problem
+        # the hide-rule does not touch: when the caption IS present, the wrapper is
+        # the flex item and the caption is not, so no rule written on the caption
+        # can order, align or size it.
+        #
+        # `display: contents` solves both at once — this is the same technique the
+        # note above applies between a row group and its rows, for the same reason.
+        # The element stays in the DOM (its region id still addresses it, hydration
+        # is unaffected) and stops generating a box, so an empty region contributes
+        # nothing at all — no gap, no hide-rule needed — and a filled one puts the
+        # caption span directly into `.x-table-wrap`'s flex layout, where it is a
+        # first-class item like the scroll box beside it.
+        [data-fa-mount] .x-table-wrap > div:not([class]) { display: contents; }
+    component Table(caption: text):
+        box class "x-table-wrap":
+            if caption != "":
+                text "{caption}" class "x-table-caption"
+            box class "x-table-scroll":
+                box class "x-table":
+                    slot
+    component TableHead():
+        box class "x-thead":
+            slot
+    component TableBody():
+        box class "x-tbody":
+            slot
+    component TableRow():
+        box class "x-tr":
+            slot
+    # The cells take their text AND a slot, rather than shipping a text component
+    # beside a slot component for each alignment. Pass the value for the ordinary
+    # cell; pass "" and write the children for a cell holding a Tag, a Link or an
+    # Avatar. The parameters are named `headText`/`cellText` rather than `label` or
+    # `value` deliberately: a slot child is resolved against the CALLEE's
+    # parameters first (see forms/field.fct), so a cell holding
+    # `use Tag(label, tone)` would silently read this component's parameter if it
+    # were called `label`.
+    component TableHeadCell(headText: text):
+        box class "x-th":
+            if headText != "":
+                text "{headText}"
+            slot
+    component TableHeadCellRight(headText: text):
+        box class "x-th x-th-right":
+            if headText != "":
+                text "{headText}"
+            slot
+    component TableCell(cellText: text):
+        box class "x-td":
+            if cellText != "":
+                text "{cellText}"
+            slot
+    component TableCellRight(cellText: text):
+        box class "x-td x-td-right":
+            if cellText != "":
+                text "{cellText}"
+            slot
+    component TableCellWrap(cellText: text):
+        box class "x-td x-td-wrap":
+            if cellText != "":
+                text "{cellText}"
+            slot
+    # EmptyRow goes in the TABLE's slot, not in a row group — it is the table's
+    # bottom caption, which is the only full-width box the table model offers.
+    component EmptyRow(message: text):
+        box class "x-table-empty":
+            text "{message}"

@@ -1,0 +1,78 @@
+# AuthCard — the narrow centred card a sign-in, a sign-up, a password reset and a
+# "check your email" all sit in. It is one component because those four screens
+# are the same screen with different words, and a site that writes the box four
+# times gets four widths.
+#
+#     use AuthCard("Sign in", "Welcome back."):
+#         use LoginForm(signIn, "Sign in", email, password, pwShown)
+#         use AuthFooter("New here?"):
+#             use Link("Create an account", "/signup")
+#
+# ── IT CENTRES ITSELF VERTICALLY, AND THAT IS THE ONLY OPINION IT HAS ────────
+#
+# `min-height: 100vh` on the wrapper plus `justify-content: center` is what makes
+# a sign-in screen look like a sign-in screen rather than like a form that fell to
+# the top of a blank page. It is `min-height`, not `height`, so a card that grows
+# past the viewport — a long sign-up, an error, a phone in landscape — scrolls
+# instead of being clipped; `height: 100vh` is the version of this that eats the
+# submit button on a small screen.
+#
+# `AuthScreen` is that wrapper, and it is SEPARATE from the card for the reason
+# `layout/pageheader.fct` separates stickiness from the header: a component cannot
+# ask what it is inside. An auth card dropped into a page that already has a
+# layout should not seize the viewport, and one that IS the whole page should. So
+# the caller says which, by wrapping or not.
+#
+# `AuthFooter` is the line under the card — "New here? Create an account" — which
+# is outside the card's border on purpose: it is about a different page, and
+# putting it inside makes it read as another step of the form.
+#
+# THE HEADING IS NOT AN `h1`. There is no node that emits one and no way to put a
+# level on a `text`, so every heading in this library is a styled span. That is a
+# language gap, it affects the whole library rather than this file, and it is
+# named here because an authentication screen is the one page where a document
+# outline is most likely to be all a reader gets.
+app FacetAuth:
+    css:
+        [data-fa-mount] .x-authscreen { display: flex; flex-direction: column;
+                       align-items: center; justify-content: center; gap: 20px;
+                       min-height: 100vh; box-sizing: border-box; padding: 32px 16px;
+                       border: none; background: none; }
+        [data-fa-mount] .x-authcard { display: flex; flex-direction: column;
+                      align-items: stretch; gap: 6px; box-sizing: border-box;
+                      width: 100%; max-width: 400px; padding: 28px 26px;
+                      border-radius: 18px; border: 1px solid var(--x-line, #2f3336);
+                      background: var(--fa-bg); }
+        [data-fa-mount] .x-authcard-title { display: block; font-size: 24px; font-weight: 800;
+                        line-height: 1.2; letter-spacing: -.01em; }
+        [data-fa-mount] .x-authcard-sub { display: block; color: var(--fa-muted);
+                       font-size: 15px; line-height: 1.5; padding-bottom: 8px; }
+        [data-fa-mount] .x-authfoot { display: flex; flex-direction: row; flex-wrap: wrap;
+                     align-items: center; justify-content: center; gap: 6px;
+                     width: 100%; max-width: 400px; font-size: 14px;
+                     color: var(--fa-muted); border: none; background: none; padding: 0; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-authcard > div:empty:not([class]),
+        [data-fa-mount] .x-authfoot > div:empty:not([class]) { display: none; }
+    component AuthScreen():
+        box class "x-authscreen":
+            slot
+    component AuthCard(title: text, subtitle: text):
+        box class "x-authcard":
+            if title != "":
+                text "{title}" class "x-authcard-title"
+            if subtitle != "":
+                text "{subtitle}" class "x-authcard-sub"
+            slot
+    component AuthFooter(prompt: text):
+        row class "x-authfoot":
+            if prompt != "":
+                text "{prompt}"
+            slot

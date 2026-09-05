@@ -1,11 +1,31 @@
-# ComposeBox — the "what's happening?" composer. Binds the host's @client `draft`
-# and calls the host `post(draft)` action; shows reactive pending/error for free.
+# ComposeBox — the "what's happening?" composer: avatar, a borderless prompt that
+# reads as an invitation rather than a form field, and the Post button on its own
+# rule beneath. Binds the host's @client `draft` and calls the host `post(draft)`,
+# so pending/error state comes for free.
+import "../ui/avatar.fct"
 app FacetSocial:
+    css:
+        [data-fa-mount] .x-compose { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 12px;
+                     padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-compose input { border: none; background: none; font-size: 20px; padding: 12px 0;
+                           width: 100%; color: var(--fa-fg); }
+        [data-fa-mount] .x-compose input::placeholder { color: var(--fa-muted); }
+        [data-fa-mount] .x-compose-actions { display: flex; justify-content: flex-end; align-items: center;
+                             gap: 12px; border-top: 1px solid var(--x-line, #2f3336); padding-top: 12px; }
+        [data-fa-mount] .x-compose-actions button { background: var(--fa-accent); color: #fff; font-weight: 700;
+                                    padding: 9px 18px; border-radius: 9999px; }
+        [data-fa-mount] .x-error { color: #f4212e; font-size: 13px; }
     component ComposeBox():
-        box:
-            input bind draft placeholder "What's happening?"
-            row:
-                if pending(post):
-                    text "Posting…"
-                button "Post" -> post(draft)
-            text "{failed(post)}"
+        box class "x-compose":
+            use Avatar(actor)
+            box:
+                input bind draft placeholder "What's happening?"
+                row class "x-compose-actions":
+                    if pending(post):
+                        text "Posting…"
+                    # NOT `fa-error`: that class is the runtime's own. `dispatch`
+                    # calls `clearError`, which finds `:scope > .fa-error` under the
+                    # button's parent and removes it — so the first click deleted
+                    # this binding node from the DOM and it never rendered again.
+                    text "{failed(post)}" class "x-error"
+                    button "Post" -> post(draft)

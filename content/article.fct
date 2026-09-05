@@ -1,0 +1,133 @@
+# Article — the blog shape: a summary in an index, and a header on the page the
+# summary links to.
+#
+#     for p in Post where p.published by created desc limit shown:
+#         use ArticleSummary(p.title, "/post/" + p.slug, p.body):
+#             use Byline(p.author, "/author/" + p.author, p.created)
+#             use ChipRow():
+#                 for t in PostTag where t.post == p.id by id asc limit 6:
+#                     use TagLink(t.name, "/tag/" + t.name, "")
+#
+#     use ArticleHeader(p.title, p.published):
+#         use BylineEdited(p.author, "/author/" + p.author, p.created, p.updated > p.created)
+#     use Prose(p.body)
+#
+# ── THIS IS NOT `social/PostCard`, AND THE DIFFERENCE IS THE WHOLE FACET ─────
+#
+# `PostCard(id, author, handle, verified, kind, body, media, likes, replies,
+# reposts)` is a timeline entry: no title, because a status update has none; a
+# handle and a verification mark, because the author is the subject; three counts,
+# because engagement is the point; and the BODY is the link, because that is how a
+# feed row opens. An article inverts every one of those. The TITLE is the link and
+# the body is a preview of something longer; the author is a credit, not the
+# subject; and there is no engagement bar, because an article's reader arrives
+# from an index or a search and not from a follow graph.
+#
+# The journal app tried `PostCard` first, said in writing that it fought, and wrote
+# its own — correctly. This is that shape as a library facet.
+#
+# ── HOW THIS DIFFERS FROM THE JOURNAL'S `PostSummary`, WHICH HAD SEVEN
+#    PARAMETERS AND HARD-CODED TWO ROUTES ─────────────────────────────────────
+#
+# The journal's version took `slug, title, author, excerpt, created, comments,
+# draft` and built `/post/{slug}` and `/author/{author}` itself. Four of those
+# seven parameters existed only to render the meta line, and the two routes made
+# the facet unmovable. Here the meta line is a `slot`:
+#
+#   * the byline, the tags, a comment count, a "3 min read", a draft tag — whatever
+#     this site's index shows — are the caller's nodes, so the facet does not grow
+#     a parameter every time a site adds a fact;
+#   * the destination is a parameter, so the routes belong to the app;
+#   * three parameters instead of seven, and none of them is a policy decision.
+#
+# THE SLOT IS IN THE MIDDLE, WHICH IS A REAL CHOICE AND NOT AN OVERSIGHT. A
+# component has exactly one slot, so the meta strip can sit above the excerpt or
+# below it but not both. Above is where a byline goes — it answers "should I read
+# this?" before the excerpt, which is the question an index is for — and it is
+# where the journal put its own. A site that wants tags under the excerpt puts them
+# after the `use`, as a sibling.
+#
+# ── THE EXCERPT IS PLAIN TEXT AND IS CLAMPED IN CSS ─────────────────────────
+#
+# It is normally the body, handed straight in: there is no substring builtin, so a
+# component cannot cut a preview out of an article and a caller cannot either.
+# `-webkit-line-clamp` does the cutting where the cut actually belongs — in the
+# layout, at whatever width the reader's screen is — and it degrades to "the first
+# few lines, then more" rather than to a hard character count that breaks a word.
+# The node is `text` and not `richtext`, deliberately: a preview that renders the
+# article's own headings and lists is not a preview, it is the article at the wrong
+# size.
+#
+# ── `ArticleHeader` IS NOT `layout/PageHeader` ──────────────────────────────
+#
+# `PageHeader(title, subtitle)` puts its slot ABOVE the title, at subtitle size,
+# for a breadcrumb or a back link — chrome that precedes the heading. An article's
+# byline goes UNDER the title, and the title is display-sized rather than
+# section-sized. Same two ingredients, opposite arrangement; a `position: text`
+# parameter on PageHeader would need a slot per arm and a component has one.
+#
+# The draft mark is a `bool` on the header rather than something the caller
+# renders, because an unpublished article showing as though it were published is
+# the one mistake in this shape that is worth making structurally impossible.
+import "../ui/tag.fct"
+app FacetContent:
+    css:
+        [data-fa-mount] .x-art-sum { display: flex; flex-direction: column; gap: 8px;
+                     border: none; background: none; padding: 0; min-width: 0; }
+        [data-fa-mount] .x-art-sum-title { display: block; font-size: 21px; font-weight: 800;
+                       line-height: 1.25; letter-spacing: -.01em; }
+        [data-fa-mount] a.x-art-sum-title { color: var(--fa-fg); text-decoration: none; }
+        [data-fa-mount] a.x-art-sum-title:hover { text-decoration: underline; }
+        # The inert half of a route expression: a summary whose destination this app
+        # does not serve is still readable, and visibly not a link.
+        [data-fa-mount] span.x-art-sum-title { color: var(--fa-muted); cursor: default; }
+        # Three lines and then an ellipsis, cut by the layout rather than by a
+        # substring nobody can write. `-webkit-line-clamp` is the only widely
+        # implemented multi-line clamp and is honoured by every current engine.
+        [data-fa-mount] .x-art-sum-excerpt { color: var(--fa-muted); font-size: 15px;
+                        line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3;
+                        -webkit-box-orient: vertical; overflow: hidden;
+                        overflow-wrap: anywhere; }
+        [data-fa-mount] .x-art-sum > .fa-use { display: contents; }
+        # The empty-region rule this library applies everywhere a conditional child
+        # sits in a flex column: an `if` that renders nothing still leaves its
+        # element behind, and an unclassed empty element is always a region that
+        # rendered nothing, so hiding it is always right.
+        [data-fa-mount] .x-art-sum > div:empty:not([class]) { display: none; }
+
+        [data-fa-mount] .x-art-list { display: flex; flex-direction: column; gap: 0;
+                        border: none; background: none; padding: 0; }
+        # The separator belongs to the row, not to the list, so it survives a row
+        # rendered inside an `if` — where `:last-child` quietly stops being last —
+        # and it survives the `use` wrapper every row arrives in.
+        [data-fa-mount] .x-art-item { padding: 20px 0; border-bottom: 1px solid var(--x-line, #2f3336);
+                        border-radius: 0; background: none; }
+
+        [data-fa-mount] .x-art-head { display: flex; flex-direction: column; gap: 12px;
+                       border: none; background: none; padding: 0 0 8px; }
+        [data-fa-mount] .x-art-head-title { font-size: 34px; font-weight: 800; line-height: 1.15;
+                        letter-spacing: -.02em; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-art-head > .fa-use { display: contents; }
+        [data-fa-mount] .x-art-head > div:empty:not([class]) { display: none; }
+    component ArticleSummary(title: text, href: text, excerpt: text):
+        box class "x-art-sum":
+            link "{title}" -> "{href}" class "x-art-sum-title"
+            slot
+            if excerpt != "":
+                text "{excerpt}" class "x-art-sum-excerpt"
+    # One summary as a row of a list, with the hairline under it. Separate from
+    # `ArticleSummary` rather than a `bordered: bool`, because a bool that decides
+    # whether a wrapper exists would still need its own slot in each arm.
+    component ArticleItem(title: text, href: text, excerpt: text):
+        box class "x-art-item":
+            use ArticleSummary(title, href, excerpt):
+                slot
+    component ArticleList():
+        box class "x-art-list":
+            slot
+    component ArticleHeader(title: text, published: bool):
+        box class "x-art-head":
+            if !published:
+                use Tag("Draft", "warn")
+            text "{title}" class "x-art-head-title"
+            slot

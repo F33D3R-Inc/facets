@@ -1,0 +1,38 @@
+# Split — content and a rail. Two columns where the second is NOT a half: the
+# content column takes the space and the rail takes what it needs (320px), which
+# is what a sidebar actually is. `Split3` is the same idea with a nav rail on the
+# left as well.
+#
+#     use Split():
+#         use Stack():
+#             ...the page...
+#         use Sticky():
+#             use Panel...
+#
+# Exactly two children, in order. That is a convention this language cannot check
+# — a `slot` is one hole, not two typed sockets, and the thing that CAN check it
+# is a `wireframe`, whose `socket nav: ui` is the typed version of this and is
+# what `wireframes/shell.fct` is built from. So `Split` is the lightweight form
+# for a plain app, and a build that wants the arrangement enforced uses a
+# wireframe instead. Passing three children is not an error; it is a third column
+# 320px wide, which is visible immediately.
+#
+# `Sticky` is the rail's companion, separate rather than built in, because a rail
+# that always sticks is wrong as often as it is right: a short rail should stick,
+# and a rail longer than the viewport that sticks is a rail whose bottom can never
+# be reached.
+#
+# `minmax(0,1fr)` on the content column — in vocabulary.fct — is what stops one
+# long unbroken word from widening the grid and pushing the rail off the screen.
+# Below 1100px both splits become one column, the rail falling under the content.
+import "vocabulary.fct"
+app FacetLayout:
+    component Split():
+        box class "x-l-split":
+            slot
+    component Split3():
+        box class "x-l-split-3":
+            slot
+    component Sticky():
+        box class "x-l-sticky":
+            slot

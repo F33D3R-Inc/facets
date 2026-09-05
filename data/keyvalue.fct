@@ -1,0 +1,61 @@
+# KeyValueRow — a name on the left, its value hard against the right edge, on one
+# line. The summary shape: an order total, a usage panel, the facts down the side
+# of a detail page.
+#
+#     use KeyValueList():
+#         use KeyValueRow("Seats", "12")
+#         use KeyValueRow("Rate", "$8 / seat / month")
+#         use KeyValueTotal("Due today", "$96.00")
+#
+# ── WHY THIS IS NOT `SpecRow`, WHICH IS ALSO A KEY AND A VALUE ─────────────────
+#
+# They are two different alignments and each is wrong where the other is right.
+# `Specs` puts the keys in a COLUMN — a fixed measure on the left, values starting
+# at the same x down the whole block — which is what makes a reference table
+# scannable and what makes a two-item summary look like a table with a hole in it.
+# This puts the key and the value at opposite ENDS of one line, which is what a
+# receipt does, and which falls apart the moment there are fifteen rows and the
+# eye has nothing to track. Rule of thumb: reading down a list of facts is
+# `Specs`; adding up a short list of numbers is this.
+#
+# THERE ARE NO SEPARATOR HAIRLINES BETWEEN THE ROWS, and that is a limit stated
+# rather than a taste. The obvious rule is `.x-kv + .x-kv { border-top: … }`, and
+# it does not work here: a `use` renders a wrapper element around the component's
+# nodes, so two rows written as two `use` calls are never DOM siblings and the
+# adjacent-sibling selector matches nothing. (The same rule in `ui/specs.fct` has
+# the same problem, for the same reason.) What DOES work is a rule that needs no
+# sibling — so the one line this shape actually needs, the rule above a total, is
+# a component of its own, and the rows in between are separated by space.
+#
+# `KeyValueTotal` is that row: the same line, heavier, with a rule above it. It is
+# a second component rather than an `emphasis: bool` because the border is the
+# whole difference and a boolean that draws a line is a boolean nobody remembers
+# the direction of.
+app FacetData:
+    css:
+        [data-fa-mount] .x-kv-list { display: flex; flex-direction: column; gap: 10px;
+                      min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-kv { display: flex; flex-direction: row; align-items: baseline;
+                 justify-content: space-between; gap: 16px; flex-wrap: wrap;
+                 border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-kv-k { color: var(--fa-muted); font-size: 14px; }
+        # `min-width: 0` and a right-hand text alignment, so a long value wraps
+        # under itself rather than pushing the key off the row.
+        [data-fa-mount] .x-kv-v { font-size: 14px; text-align: right; min-width: 0;
+                 font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-kv-total { border-top: 1px solid var(--x-line, #2f3336);
+                      padding-top: 10px; margin-top: 2px; }
+        [data-fa-mount] .x-kv-total .x-kv-k { color: var(--fa-fg); font-weight: 700;
+                              font-size: 15px; }
+        [data-fa-mount] .x-kv-total .x-kv-v { font-weight: 800; font-size: 17px; }
+    component KeyValueList():
+        box class "x-kv-list":
+            slot
+    component KeyValueRow(key: text, value: text):
+        row class "x-kv":
+            text "{key}" class "x-kv-k"
+            text "{value}" class "x-kv-v"
+    component KeyValueTotal(key: text, value: text):
+        row class "x-kv x-kv-total":
+            text "{key}" class "x-kv-k"
+            text "{value}" class "x-kv-v"

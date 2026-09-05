@@ -1,0 +1,158 @@
+# Pager — pagination that drives ACTIONS instead of hrefs. The sibling
+# `navigation/pagination.fct` could not be, and the facet a real app had to write
+# for itself before this file existed.
+#
+#     use LoadMore(shown, total, more)                    a list that grows
+#     use LoadMoreReset(shown, total, more, reset)        …and collapses again
+#     use Pager(page, pages, prevPage, nextPage)          numbered, in a cell
+#     use CursorPager(hasPrev, hasNext, prevPage, nextPage)   no count to show
+#
+# ── WHY AN HREF PAGER IS NOT ENOUGH, WHICH IS NOT A STYLE ARGUMENT ───────────
+#
+# `Pagination(page, pages, prevHref, nextHref)` pages by URL, and that is the
+# right control when the page number is genuinely part of the address — a search
+# result a reader should be able to link to, a docs index a crawler should be able
+# to walk. It is unusable for the other half of the cases, and the journal app
+# found out exactly why:
+#
+#   * A route parameter is TEXT and there is no text-to-int builtin, so a page
+#     number that lives in `/page/:n` cannot be arithmetic on. `(page - 1) *
+#     perPage` cannot be written from the route at all.
+#   * Skipping rows needs an offset, and a `for` clause is `where` / `by` /
+#     `limit` with no `offset` and no `skip`. The one predicate that expresses a
+#     skip without one is the row's own rank — `count(o in Post where o.created >
+#     p.created) >= (page-1)*perPage` — and a sub-query in a `for … where` that
+#     references the OUTER row is silently not evaluated. It compiles, page 1
+#     looks perfect because `0 >= 0`, and page 2 comes back empty.
+#
+# What the language does support today is `limit <expr>` over a `@client` cell,
+# which GROWS a list with no round trip because the action that moves the bound
+# only touches client state. So the honest primitive is `LoadMore`, and `Pager` is
+# here for the case where the count is known and the paging is still a cell rather
+# than a route.
+#
+# ── THE STEPS ARE `action` REFERENCES, AND THAT IS THE WHOLE POINT ───────────
+#
+# `prev: action` / `next: action` name an action at the call site; the compiler
+# substitutes the name through the body, so `button "Next" -> next` becomes
+# `button "Next" -> nextPage` before anything is checked. The arity check is the
+# constraint to know before writing a call site: an action reference is invoked
+# with NO arguments, so the actions passed here must take none —
+#
+#     action nextPage:
+#         page = page + 1
+#
+# — which is what a paging action is anyway, because the bound it moves is a cell
+# it can already see. `forms/form.fct` explains the general rule and why
+# `SubmitButton` could not survive it; the same rule is a good fit here rather
+# than a limitation, since a pager that needed arguments would be a pager whose
+# state lived somewhere it could not reach.
+#
+# ── THE MARKUP IS `Pagination`'S, DELIBERATELY ──────────────────────────────
+#
+# This file imports `pagination.fct` and reuses `.x-pager`, `.x-pager-step`,
+# `.x-pager-off` and `.x-pager-count` rather than restating them, so a site that
+# moves a list from URL paging to cell paging does not change shape when it does.
+# The only new rules are the ones that make a `button` inside a step look like the
+# `Link` inside one — a browser's default button in a pill would otherwise be the
+# visible difference between the two pagers.
+#
+# ── FOUR COMPONENTS BECAUSE THEY ARE FOUR DIFFERENT CONTROLS ────────────────
+#
+#   LoadMore        a growing list that knows how long it is. One button, which
+#                   disappears at the end rather than going inert — there is no
+#                   "next page" to point at, so a dimmed step would be furniture
+#                   for a thing that does not exist. The count line stays, because
+#                   "all 42 posts" is the answer to the question the button was.
+#   LoadMoreReset   the same, plus a way back to the top of the list. Separate
+#                   rather than a `collapsible: bool`, because a bool parameter
+#                   that decides whether an ACTION reference is used would still
+#                   require the caller to pass an action it does not have.
+#   Pager           previous / "Page 3 of 9" / next, driven by two actions. The
+#                   ends are `if`s on the page number, the same as `Pagination`:
+#                   at page 1 "Previous" is inert text, not a button that fires an
+#                   action which clamps. A control should not need the action to
+#                   be defensive to be correct — though a paging action should
+#                   clamp anyway, since the button is not the only caller.
+#   CursorPager     the same two steps with no count, for a list paged by cursor
+#                   or by a `limit` the host cannot total. The host says whether
+#                   each direction exists; nothing here can work it out, and a
+#                   pager that guessed would be a pager that lies at one end.
+#
+# There is no numbered strip here for the reason `pagination.fct` gives: `for`
+# walks an entity or a `[T]` cell, not `1..pages`, so a component cannot render
+# its own steps. A host with something to iterate uses `PageNumbers` +
+# `PageNumber` from that file, whose steps are hrefs — an action-driven numbered
+# strip would need one action per number, which is not a thing a call site has.
+import "pagination.fct"
+app FacetNav:
+    css:
+        # A step that is a button. The pill is the step's own rule; this undoes
+        # the browser's button chrome inside it so the two pagers are the same
+        # object with two kinds of destination.
+        [data-fa-mount] .x-pager-step button { border: none; background: none;
+                        color: var(--fa-fg); font: inherit; padding: 0; margin: 0;
+                        cursor: pointer; border-radius: 0; }
+        [data-fa-mount] .x-pager-step button:hover { color: var(--fa-fg); }
+        # The one affordance an href pager has no equivalent for: a step that is
+        # working. `pending(a)` is not read here — a pager takes the action by
+        # reference and `pending` needs a name — so this is the resting look, and
+        # a host that wants a spinner puts `forms/ActionButton` in its own row.
+        [data-fa-mount] .x-pager-more { justify-content: center; }
+        [data-fa-mount] .x-pager-more button { font-weight: 700; }
+        # The count line under a growing list reads as a status, not as a step, so
+        # it sits on its own row rather than between two buttons.
+        [data-fa-mount] .x-pager-stack { display: flex; flex-direction: column;
+                        align-items: center; gap: 10px; padding: 20px 12px;
+                        border: none; background: none; }
+    component LoadMore(shown: int, total: int, more: action):
+        box class "x-pager-stack":
+            if shown < total:
+                text "Showing {min(shown, total)} of {total}" class "x-pager-count"
+            if shown >= total:
+                text "All {total}" class "x-pager-count"
+            if shown < total:
+                row class "x-pager-step x-pager-more":
+                    button "Show more" -> more
+    component LoadMoreReset(shown: int, total: int, more: action, reset: action):
+        box class "x-pager-stack":
+            if shown < total:
+                text "Showing {min(shown, total)} of {total}" class "x-pager-count"
+            if shown >= total:
+                text "All {total}" class "x-pager-count"
+            row class "x-pager":
+                if shown < total:
+                    row class "x-pager-step x-pager-more":
+                        button "Show more" -> more
+                if shown >= total:
+                    row class "x-pager-step x-pager-more":
+                        button "Show fewer" -> reset
+    component Pager(page: int, pages: int, prev: action, next: action):
+        row class "x-pager":
+            if page > 1:
+                row class "x-pager-step":
+                    button "← Previous" -> prev
+            if page <= 1:
+                row class "x-pager-step x-pager-off":
+                    text "← Previous"
+            text "Page {page} of {pages}" class "x-pager-count"
+            if page < pages:
+                row class "x-pager-step":
+                    button "Next →" -> next
+            if page >= pages:
+                row class "x-pager-step x-pager-off":
+                    text "Next →"
+    component CursorPager(hasPrev: bool, hasNext: bool, prev: action, next: action):
+        row class "x-pager":
+            if hasPrev:
+                row class "x-pager-step":
+                    button "← Newer" -> prev
+            if !hasPrev:
+                row class "x-pager-step x-pager-off":
+                    text "← Newer"
+            if hasNext:
+                row class "x-pager-step":
+                    button "Older →" -> next
+            if !hasNext:
+                row class "x-pager-step x-pager-off":
+                    text "Older →"

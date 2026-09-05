@@ -1,0 +1,99 @@
+# ProgressBar — how far along something is, as a bar. A file upload, an import, a
+# multi-step form, a quota being filled.
+#
+#     use ProgressBar("Importing", 3, 10)
+#     use ProgressBar("", uploadedBytes, totalBytes)
+#
+# ── WHY THERE ARE FIFTY-ONE WIDTH CLASSES IN THIS FILE ────────────────────────
+#
+# A bar's fill is a width, a width is a `style` declaration, and `style` does not
+# interpolate: the modifier takes a literal, deliberately, because "what a class
+# token may contain" is a rule that fits on one line and "what a CSS declaration
+# may safely contain" is not (see the runtime's classText note). So a component
+# cannot compute `width: 37%` — there is nowhere to put the number.
+#
+# What a component CAN compute is a class name, because `class` DOES interpolate.
+# `x-fill-{value * 50 / max}` divides the bar into fifty steps of two percent and
+# names the one this value lands in, and the fifty-one rules below give each step
+# its width. Two percent is the resolution because a bar is about eight hundred
+# device pixels at most and a step is therefore under two pixels — invisible — and
+# because a hundred and one rules to buy a resolution nobody can see is not a
+# trade this library makes.
+#
+# THE BASE WIDTH IS 100% AND THAT IS THE CLAMP. Integer division floors, so an
+# in-range value always names a rule between 0 and 50; a value ABOVE its maximum
+# names `x-fill-63`, which no rule matches, and the fill keeps the base width —
+# full. That is the right answer for "more than complete", and it is the reason
+# the base is 100% rather than 0%: an over-range bar reading empty would be a
+# finished upload showing as not started. There is no `min()` in the expression
+# language to clamp with, so the clamp is where the arithmetic already is.
+#
+# A ZERO MAXIMUM IS REFUSED RATHER THAN DIVIDED BY. `if max > 0` guards the whole
+# track: a bar with no scale is not a bar at 0%, it is a bar that does not know
+# what it is measuring, and drawing an empty one would state a fact the caller
+# never gave.
+#
+# The percentage under the label is the same arithmetic at full resolution,
+# because a number is text and text has no width problem.
+#
+# `ui/meter.fct` is built on this file's fill vocabulary: a meter is the same bar
+# measuring a level rather than a completion, in the tones `ui/alert.fct` defines.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-progress { display: flex; flex-direction: column; gap: 6px;
+                     min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-progress-head { display: flex; flex-direction: row;
+                          align-items: baseline; justify-content: space-between;
+                          gap: 12px; flex-wrap: wrap;
+                          border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-progress-label { display: block; font-size: 14px; font-weight: 600; }
+        [data-fa-mount] .x-progress-pct { display: block; color: var(--fa-muted);
+                         font-size: 13px; font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-progress-track { height: 8px; border-radius: 9999px;
+                          overflow: hidden; gap: 0; padding: 0; border: none;
+                          background: var(--x-line, #2f3336); }
+        # The fill. `width: 100%` is the base and the clamp; the `x-fill-*` rule
+        # the component names narrows it. `transition` is on the width so a bar
+        # that is re-rendered by a state change slides rather than jumps, and it
+        # is dropped for readers who asked for less motion.
+        [data-fa-mount] .x-progress-fill { height: 100%; width: 100%; border-radius: 9999px;
+                         background: var(--fa-accent); transition: width .25s ease; }
+        @media (prefers-reduced-motion: reduce) {
+            [data-fa-mount] .x-progress-fill { transition: none; }
+        }
+
+        # The fifty-one steps. Two percent apart; see the note above.
+        [data-fa-mount] .x-fill-0 { width: 0%; } [data-fa-mount] .x-fill-1 { width: 2%; } [data-fa-mount] .x-fill-2 { width: 4%; } [data-fa-mount] .x-fill-3 { width: 6%; }
+        [data-fa-mount] .x-fill-4 { width: 8%; } [data-fa-mount] .x-fill-5 { width: 10%; } [data-fa-mount] .x-fill-6 { width: 12%; } [data-fa-mount] .x-fill-7 { width: 14%; }
+        [data-fa-mount] .x-fill-8 { width: 16%; } [data-fa-mount] .x-fill-9 { width: 18%; } [data-fa-mount] .x-fill-10 { width: 20%; } [data-fa-mount] .x-fill-11 { width: 22%; }
+        [data-fa-mount] .x-fill-12 { width: 24%; } [data-fa-mount] .x-fill-13 { width: 26%; } [data-fa-mount] .x-fill-14 { width: 28%; } [data-fa-mount] .x-fill-15 { width: 30%; }
+        [data-fa-mount] .x-fill-16 { width: 32%; } [data-fa-mount] .x-fill-17 { width: 34%; } [data-fa-mount] .x-fill-18 { width: 36%; } [data-fa-mount] .x-fill-19 { width: 38%; }
+        [data-fa-mount] .x-fill-20 { width: 40%; } [data-fa-mount] .x-fill-21 { width: 42%; } [data-fa-mount] .x-fill-22 { width: 44%; } [data-fa-mount] .x-fill-23 { width: 46%; }
+        [data-fa-mount] .x-fill-24 { width: 48%; } [data-fa-mount] .x-fill-25 { width: 50%; } [data-fa-mount] .x-fill-26 { width: 52%; } [data-fa-mount] .x-fill-27 { width: 54%; }
+        [data-fa-mount] .x-fill-28 { width: 56%; } [data-fa-mount] .x-fill-29 { width: 58%; } [data-fa-mount] .x-fill-30 { width: 60%; } [data-fa-mount] .x-fill-31 { width: 62%; }
+        [data-fa-mount] .x-fill-32 { width: 64%; } [data-fa-mount] .x-fill-33 { width: 66%; } [data-fa-mount] .x-fill-34 { width: 68%; } [data-fa-mount] .x-fill-35 { width: 70%; }
+        [data-fa-mount] .x-fill-36 { width: 72%; } [data-fa-mount] .x-fill-37 { width: 74%; } [data-fa-mount] .x-fill-38 { width: 76%; } [data-fa-mount] .x-fill-39 { width: 78%; }
+        [data-fa-mount] .x-fill-40 { width: 80%; } [data-fa-mount] .x-fill-41 { width: 82%; } [data-fa-mount] .x-fill-42 { width: 84%; } [data-fa-mount] .x-fill-43 { width: 86%; }
+        [data-fa-mount] .x-fill-44 { width: 88%; } [data-fa-mount] .x-fill-45 { width: 90%; } [data-fa-mount] .x-fill-46 { width: 92%; } [data-fa-mount] .x-fill-47 { width: 94%; }
+        [data-fa-mount] .x-fill-48 { width: 96%; } [data-fa-mount] .x-fill-49 { width: 98%; } [data-fa-mount] .x-fill-50 { width: 100%; }
+
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-progress > div:empty:not([class]),
+        [data-fa-mount] .x-progress-head > div:empty:not([class]) { display: none; }
+    component ProgressBar(label: text, value: int, max: int):
+        box class "x-progress":
+            if label != "":
+                row class "x-progress-head":
+                    text "{label}" class "x-progress-label"
+                    if max > 0:
+                        text "{value * 100 / max}%" class "x-progress-pct"
+            if max > 0:
+                box class "x-progress-track":
+                    box class "x-progress-fill x-fill-{value * 50 / max}"

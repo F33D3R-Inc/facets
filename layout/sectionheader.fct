@@ -1,0 +1,29 @@
+# SectionHeader — the line that names the block under it ("Replies", "Who to
+# follow", "Posts"). It is not an h-tag chosen by a parameter, because a section
+# header that can be any level is a section header nobody can style: this is the
+# one weight a section gets, and a page that needs two levels uses PageHeader for
+# the outer one.
+#
+# The subtitle is optional by value. It is where the count usually goes —
+# `use SectionHeader("Replies", count(r in Reply where r.tweet == id))` — which is
+# why it is `text` and not `int`: a subtitle is a sentence, sometimes a number, and
+# an int argument converts into a text parameter for free while a sentence does
+# not convert into an int at all.
+#
+# THAT EXAMPLE USED TO BE WRAPPED IN QUOTES AND BRACES and it was wrong. A
+# component argument is an EXPRESSION, not a template: the quoted form is a string
+# literal containing a brace, a c, an o … and the header rendered those characters,
+# with nothing anywhere reporting a problem. The compiler refuses it now. The
+# aggregate is passed as the aggregate; this component interpolates it into the
+# node, which is the one place interpolation happens.
+app FacetLayout:
+    css:
+        [data-fa-mount] .x-section { padding: 16px; display: flex; align-items: baseline; gap: 10px;
+                   flex-wrap: wrap; }
+        [data-fa-mount] .x-section-title { font-size: 20px; font-weight: 800; }
+        [data-fa-mount] .x-section-sub { color: var(--fa-muted); font-size: 14px; }
+    component SectionHeader(title: text, subtitle: text):
+        row class "x-section":
+            text "{title}" class "x-section-title"
+            if subtitle != "":
+                text "{subtitle}" class "x-section-sub"

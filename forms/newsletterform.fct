@@ -1,0 +1,65 @@
+# NewsletterForm — email capture, whole: the entity the address lands in, the cell
+# the input binds, the action that validates and writes it, and the pending, failed
+# and confirmed states of that action. Import it and write `use NewsletterForm()`.
+#
+# A WHOLE FORM IS STILL A UNIT OF REUSE, but it is no longer the ONLY one. This
+# facet was written when a field could not be packaged at all (see fieldlabel.fct)
+# and the whole form was the smallest thing that could be shipped. Reference
+# parameters changed that, and `textfield.fct` is now the reusable field — so what
+# this facet is FOR has narrowed to what it was always best at: a form that owns
+# its cell, its validation and its entity has no wiring for a host to get wrong
+# and cannot be dropped onto a page half-connected. The host provides a place to
+# put it, and nothing else.
+#
+# Its own field is now one line of `TextField` — label, placeholder, required,
+# hint, error, cell — where it used to be a hand-assembled stack of a label, an
+# input, a hint and an error that every other form in every other app assembled
+# again slightly differently. That is the whole argument for the field set: the
+# parts of this form that are not specific to newsletters are no longer written
+# here at all.
+#
+# The three states are all read off the ONE action rather than tracked in cells of
+# their own: `pending(subscribe)` while it is in flight, `failed(subscribe)` for the
+# message from whichever `check` refused it, and the row itself for confirmation —
+# so the confirmed state survives a reload, which a client flag would not.
+import "textfield.fct"
+import "fieldmessage.fct"
+import "../ui/spinner.fct"
+app FacetForms:
+    css:
+        [data-fa-mount] .x-newsletter { display: flex; flex-direction: column; gap: 4px;
+                      padding: 16px; border-radius: 16px; background: var(--x-panel, #16181c); }
+        [data-fa-mount] .x-newsletter-actions { display: flex; align-items: center; gap: 12px;
+                              justify-content: flex-end; padding-top: 4px; }
+        [data-fa-mount] .x-newsletter-actions button { background: var(--fa-accent); color: #fff;
+                                     font-weight: 700; font-size: 15px; padding: 10px 20px;
+                                     border-radius: 9999px; }
+        [data-fa-mount] .x-newsletter-done { font-size: 15px; font-weight: 600; }
+    entity Subscriber:
+        id: int
+        email: text
+        created: int
+
+    state subscriberEmail: text = "" @client
+
+    # The checks are the validation. They run on the authority, which is the only
+    # place validation is worth anything, and each one's message is what
+    # `failed(subscribe)` renders — so the rule and the text the reader sees are
+    # the same sentence written once.
+    action subscribe(email: text):
+        check email != "" "an email address is required"
+        check contains(email, "@") "that does not look like an email address"
+        check !exists(s in Subscriber where s.email == email) "that address is already subscribed"
+        add Subscriber { email: email, created: now() }
+
+    component NewsletterForm():
+        box class "x-newsletter":
+            if exists(s in Subscriber where s.email == subscriberEmail):
+                text "You're on the list." class "x-newsletter-done"
+                use FieldHint("We'll only mail you when there is something to say.")
+            if !exists(s in Subscriber where s.email == subscriberEmail):
+                use TextField("Email", "you@example.com", true, "Unsubscribe in one click, any time.", failed(subscribe), subscriberEmail)
+                row class "x-newsletter-actions":
+                    if pending(subscribe):
+                        use Spinner("Subscribing…")
+                    button "Subscribe" -> subscribe(subscriberEmail)

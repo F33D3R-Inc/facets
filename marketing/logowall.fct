@@ -1,0 +1,67 @@
+# LogoWall — a row of marks: the stacks something runs on, the standards it
+# implements, the tools it plugs into.
+#
+#     use LogoWall("Built on"):
+#         use Logo("/logos/postgres.svg")
+#         use Logo("/logos/opentelemetry.svg")
+#
+# The images are the CALLER'S, always. This library ships no logos and names no
+# companies — a component that came with a customer list would be shipping a claim
+# rather than a layout.
+#
+# ── THE `image` DEFAULT IS UNDONE HERE, THE SAME WAY `ui/figure.fct` UNDOES IT ─
+#
+# The runtime's stylesheet makes every `image` a 44px round avatar, because the
+# app it defaults for is a social feed. A logo is a wide, transparent, aspect-
+# preserving mark, so the rule below sets a HEIGHT and lets the width follow —
+# which is the only way a set of logos of different proportions reads as one row
+# rather than as a set of squares with different amounts of white in them.
+#
+# THERE IS NO ALT TEXT AND THAT IS A LANGUAGE GAP. An `image` node takes a URL and
+# nothing else; the renderer writes `alt=""`, and there is no attribute modifier
+# to put a name on it. So a logo wall is decorative to a screen reader, and the
+# caption parameter is the mitigation rather than the fix: "Built on" at least
+# says what the row is. The fix is an `alt` on `image` in `fct`.
+#
+# GREYSCALE UNTIL HOVER is the one piece of styling here with an argument behind
+# it: a row of full-colour third-party marks pulls the eye harder than anything a
+# site says about itself, and the point of the row is that it is scanned and
+# passed. It is a `filter`, so nothing is baked into the assets, and a host that
+# disagrees overrides one property.
+app FacetMarketing:
+    css:
+        [data-fa-mount] .x-logowall { display: flex; flex-direction: column;
+                     align-items: center; gap: 18px; padding: 32px 16px;
+                     border: none; background: none; }
+        [data-fa-mount] .x-logowall-title { display: block; font-size: 12px; font-weight: 700;
+                       letter-spacing: .1em; text-transform: uppercase;
+                       color: var(--fa-muted); }
+        [data-fa-mount] .x-logowall-row { display: flex; flex-direction: row; flex-wrap: wrap;
+                       align-items: center; justify-content: center; gap: 20px 44px;
+                       border: none; background: none; padding: 0; }
+        # Height, not width — see the note above.
+        [data-fa-mount] .x-logowall .fa-image { display: block; width: auto; height: 28px;
+                       max-width: 160px; border-radius: 0; object-fit: contain;
+                       background: none; filter: grayscale(1); opacity: .72;
+                       transition: opacity .15s ease, filter .15s ease; }
+        [data-fa-mount] .x-logowall .fa-image:hover { filter: none; opacity: 1; }
+        @media (prefers-reduced-motion: reduce) {
+            [data-fa-mount] .x-logowall .fa-image { transition: none; }
+        }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-logowall > div:empty:not([class]) { display: none; }
+    component LogoWall(title: text):
+        box class "x-logowall":
+            if title != "":
+                text "{title}" class "x-logowall-title"
+            row class "x-logowall-row":
+                slot
+    component Logo(src: text):
+        image "{src}"

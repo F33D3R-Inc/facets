@@ -1,0 +1,74 @@
+# Chip — a token the reader can act on: a filter, a selected value, a category to
+# follow. `Tag` is the other one of these and they are not the same thing — a tag
+# is a STATUS the page is telling you about ("draft", "beta"), coloured by tone
+# and inert; a chip is an AFFORDANCE, neutral by default, and it either goes
+# somewhere or turns something on.
+#
+#     use ChipRow():
+#         use ChipToggle("Unread only", unreadOnly)
+#         use ChipToggle("Mine", onlyMine)
+#         use ChipLink("#facetlang", "/tag/facetlang")
+#         use Chip("12 selected")
+#
+# ── `ChipToggle` IS THE ONE THAT COULD NOT BE WRITTEN BEFORE ──────────────────
+#
+# A filter chip is a two-state control, and until `toggle` landed nothing in the
+# language could write a `@client bool` cell — so a filter row had to be a set of
+# links that changed the route, or a `tabs` node, or nothing. `toggle bind v` is
+# the control, `v: cell bool` passes the caller's cell by name, and the "on" look
+# is read off the control's own `:checked` state with `:has()` rather than off a
+# second cell that could disagree with it.
+#
+# The checkbox is hidden from the paint and left in the DOM — it is still the
+# focusable control and the label is still its click target — which is the same
+# arrangement `ui/togglebutton.fct` documents at length. This file does not import
+# that one: a chip is a smaller, squarer, denser thing than a button and sharing
+# the rule would mean one of them always being the wrong size, so what is shared
+# is the technique and not the declarations.
+#
+# `Chip` is the inert version — a value the page is showing, with no click — and
+# `ChipLink` navigates. Neither takes a tone: a row of chips in four colours is a
+# row of chips nobody can scan.
+import "../navigation/link.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-chips { display: flex; flex-direction: row; flex-wrap: wrap;
+                   align-items: center; gap: 8px;
+                   border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-chip { display: inline-flex; align-items: center; gap: 6px;
+                  padding: 6px 12px; border-radius: 9999px; font-size: 13px;
+                  font-weight: 600; line-height: 1.3; white-space: nowrap;
+                  border: 1px solid var(--x-line, #2f3336); background: none; }
+        [data-fa-mount] .x-chip a.x-link { color: var(--fa-fg); }
+        [data-fa-mount] .x-chip-link:hover { border-color: var(--fa-accent);
+                       background: var(--x-hover, rgba(239,243,244,.06)); }
+        # The toggle chip. The wrapper carries no look of its own; the label IS the
+        # chip, because the label is what a click lands on.
+        [data-fa-mount] .x-chip-toggle { position: relative; display: inline-flex;
+                       border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-chip-toggle .fa-toggle { display: inline-flex; align-items: center;
+                       gap: 0; padding: 6px 12px; border-radius: 9999px; font-size: 13px;
+                       font-weight: 600; line-height: 1.3; white-space: nowrap; cursor: pointer;
+                       border: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-chip-toggle .fa-toggle input { position: absolute; width: 1px;
+                       height: 1px; opacity: 0; margin: 0; padding: 0; border: none; }
+        [data-fa-mount] .x-chip-toggle .fa-toggle:hover {
+                       background: var(--x-hover, rgba(239,243,244,.06)); }
+        # On. A filled chip rather than a heavier border, because a row of chips is
+        # scanned at a glance and a border weight is not a glance-level difference.
+        [data-fa-mount] .x-chip-toggle .fa-toggle:has(input:checked) {
+                       background: var(--fa-accent); border-color: var(--fa-accent);
+                       color: #fff; }
+        [data-fa-mount] .x-chip-toggle .fa-toggle:has(input:focus-visible) {
+                       outline: 2px solid var(--fa-accent); outline-offset: 2px; }
+    component ChipRow():
+        row class "x-chips":
+            slot
+    component Chip(label: text):
+        text "{label}" class "x-chip"
+    component ChipLink(label: text, href: text):
+        row class "x-chip x-chip-link":
+            use Link(label, href)
+    component ChipToggle(label: text, v: cell bool):
+        box class "x-chip-toggle":
+            toggle bind v label "{label}"

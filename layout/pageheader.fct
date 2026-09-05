@@ -1,0 +1,66 @@
+# PageHeader — the bar at the top of a routed column that tells you which page you
+# are on: a leading affordance, a title, a subtitle.
+#
+# IT USED TO CARRY NO BACK LINK, and could not: a back affordance needs a
+# destination, and `link "…" -> "{href}"` was rejected before it was ever matched
+# against a route, because the compiler validated the SHAPE of a link path and a
+# fully interpolated path has no shape. Route expressions fixed that — but the
+# back link still is not a parameter here, because a header's leading affordance
+# is not always a link: it is a back arrow on a detail page, a close button in a
+# flow, an avatar on a profile, and nothing at all on a top-level screen.
+#
+# So it is a `slot`, and the caller writes what it needs:
+#
+#     use PageHeader("Post", "12 replies"):
+#         use Link("← Back", backHref)
+#
+# STICKINESS MOVED OUT OF THE HEADER AND INTO ITS OWN COMPONENT. `.x-pagehead` was
+# `position: sticky; top: 0` — written for the three-column app shell, where the
+# nav never scrolls and the centre column does, and losing the name of the thing
+# you are reading three screens down is the failure it closed. That is a property
+# of the CONTAINER, not of the header, and a site that already has a sticky top
+# bar got two of them: the page header pinned itself under a nav that was pinned
+# at the same `top: 0`, so they overlapped instead of stacking. It was reported,
+# and the call site had to write `position: static` back over an imported rule.
+#
+# A component cannot ask what it is inside, so the caller says which it wants:
+#
+#     use PageHeader("Settings", "")           # in a page that scrolls as a whole
+#     use StickyPageHeader("Home", "")         # in an app column that scrolls alone
+#
+# `StickyPageHeader` is the same header inside a sticky wrapper — the wrapper
+# forwards its own children into the header's slot, so the leading affordance still
+# works — and it pins at `var(--x-pagehead-top, 0px)`. THAT CUSTOM PROPERTY IS THE
+# OTHER HALF OF THE FIX: two sticky bars in one scroll container are not a mistake,
+# they are a nav above a header, and they stack correctly the moment the lower one
+# knows the height of the upper one. Set `--x-pagehead-top: 56px` on any ancestor
+# and the header parks under the bar instead of behind it, with no override of an
+# imported rule.
+app FacetLayout:
+    css:
+        [data-fa-mount] .x-pagehead { padding: 12px 16px; display: flex;
+                    flex-direction: column; gap: 2px;
+                    border-bottom: 1px solid var(--x-line, #2f3336);
+                    background: color-mix(in srgb, var(--fa-bg) 85%, transparent);
+                    backdrop-filter: blur(12px); }
+        [data-fa-mount] .x-pagehead-title { font-size: 20px; font-weight: 800; line-height: 1.2; }
+        [data-fa-mount] .x-pagehead-sub { color: var(--fa-muted); font-size: 13px; }
+        # The leading affordance sits above the title, at the size of the subtitle,
+        # so it reads as chrome rather than as a second heading.
+        [data-fa-mount] .x-pagehead > .fa-use { font-size: 13px; }
+        # The sticky wrapper. `position: sticky` has to be on an element that is a
+        # child of the scroll container, so it is the wrapper itself and not the
+        # header inside it — and the wrapper is exactly the header's box, because it
+        # has no padding of its own.
+        [data-fa-mount] .x-pagehead-sticky { position: sticky; top: var(--x-pagehead-top, 0px);
+                    z-index: 20; }
+    component PageHeader(title: text, subtitle: text):
+        box class "x-pagehead":
+            slot
+            text "{title}" class "x-pagehead-title"
+            if subtitle != "":
+                text "{subtitle}" class "x-pagehead-sub"
+    component StickyPageHeader(title: text, subtitle: text):
+        box class "x-pagehead-sticky":
+            use PageHeader(title, subtitle):
+                slot

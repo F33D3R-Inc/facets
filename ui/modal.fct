@@ -1,0 +1,89 @@
+# Modal — a titled sheet over the page, and the facet this library's README said
+# could not exist. The reason it can now is the same one `ui/menu.fct` records:
+# an `overlay` shows and hides on a `@client bool` cell, nothing but a control can
+# write such a cell, and `toggle` is a control. One cell, one writer, no second
+# source of truth.
+#
+#     state confirmOpen: bool = false @client
+#
+#     use ToggleButton("Delete project…", confirmOpen)
+#     use Modal("Delete this project?", confirmOpen):
+#         use Prose("Every note in it goes too. This cannot be undone.")
+#         use ModalActions():
+#             use ToggleButtonQuiet("Cancel", confirmOpen)
+#             button "Delete" -> deleteProject(id)
+#
+# ── THE TRIGGER IS NOT PART OF THE MODAL, AND THAT IS THE DIFFERENCE FROM `Menu` ─
+#
+# `Menu` bundles its own button because a menu button and its panel are one
+# affordance in one place. A modal is opened from wherever the reader is — a row
+# of actions, a table cell, an empty state, a keyboard-only path — and a `Modal`
+# that carried its own trigger could only ever be opened from the spot the sheet
+# is written in. So the sheet is this component, the trigger is a `ToggleButton`
+# on the same cell, and there may be as many triggers as the page needs.
+#
+# CLOSING IS THREE THINGS, ALL ALREADY WORKING. The runtime tags the backdrop with
+# the bound cell, so a click outside closes. Any `ToggleButton` on that cell
+# closes, including the one that opened it and the "Cancel" in the panel. And a
+# `button "…" -> someAction` in the panel does NOT close it: an action cannot
+# write a client cell, so a destructive confirm leaves the sheet up until the
+# reader dismisses it. That is worth knowing before designing a flow around it,
+# and it is the honest shape — the alternative would be a close that pretends to
+# be part of the action and races it.
+#
+# WHAT CANNOT BE BUILT ON THIS. There is no focus trap and no `Escape` handler:
+# both need to put attributes and listeners on nodes, which the language has no
+# way to express. A modal here is a sheet a pointer or a tab-key user can reach
+# and dismiss, not a fully trapped dialog, and the missing piece is a `dialog`
+# node in `fct` rather than anything this file can write.
+#
+# ── STYLING REACHES INTO THE RUNTIME'S PANEL RATHER THAN NESTING A SECOND BOX ───
+#
+# `overlay` renders its own backdrop and panel (`.fa-overlay-backdrop` /
+# `.fa-overlay-panel`) and puts the node's own class on the WRAPPER around them.
+# So `overlay bind v class "x-modal"` gives this file a handle on the panel from
+# outside, and the panel is styled directly. A `box` inside the overlay would have
+# worked too and would have given every modal two nested paddings, one of which
+# no call site can see.
+import "togglebutton.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-modal .fa-overlay-backdrop { padding: 16px; }
+        [data-fa-mount] .x-modal .fa-overlay-panel { display: flex; flex-direction: column;
+                     gap: 14px; width: 100%; max-width: 34rem; max-height: 85vh;
+                     overflow-y: auto; box-sizing: border-box; padding: 20px 22px;
+                     border-radius: var(--fa-radius, 16px);
+                     border: 1px solid var(--x-line, #2f3336);
+                     background: var(--fa-bg); color: var(--fa-fg);
+                     box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+        [data-fa-mount] .x-modal-title { display: block; font-size: 20px; font-weight: 800;
+                      line-height: 1.25; }
+        # The action strip. `flex-end` and a wrap, so a confirm and a cancel sit
+        # bottom-right on a page and stack on a phone rather than overflowing.
+        [data-fa-mount] .x-modal-actions { display: flex; flex-direction: row; flex-wrap: wrap;
+                        align-items: center; justify-content: flex-end; gap: 10px;
+                        padding-top: 4px; border: none; background: none; }
+        # A wide modal, for a sheet holding a table or a form with two columns.
+        [data-fa-mount] .x-modal-wide .fa-overlay-panel { max-width: 56rem; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-modal .fa-overlay-panel > div:empty:not([class]) { display: none; }
+    component Modal(title: text, open: cell bool):
+        overlay bind open class "x-modal":
+            if title != "":
+                text "{title}" class "x-modal-title"
+            slot
+    component ModalWide(title: text, open: cell bool):
+        overlay bind open class "x-modal x-modal-wide":
+            if title != "":
+                text "{title}" class "x-modal-title"
+            slot
+    component ModalActions():
+        row class "x-modal-actions":
+            slot

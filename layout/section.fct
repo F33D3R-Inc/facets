@@ -1,0 +1,34 @@
+# Section — a named block of a page: the heading, then the block. It is the
+# composition of two things that were already here, `SectionHeader` and the stack
+# rhythm, into the shape a page is actually written in —
+#
+#     use Section("Replies", count(r in Reply where r.tweet == id)):
+#         for r in Reply where r.tweet == id by created desc limit 50:
+#             use ReplyRow(...)
+#
+# — and the reason it is worth a facet is that the heading and its content stop
+# being two siblings a host has to remember to keep together. Before `slot`, a
+# section was a `use SectionHeader(...)` followed by a box the host indented
+# correctly by hand; a section whose heading drifted onto the wrong block still
+# compiled and still rendered.
+#
+# The subtitle is optional by value: pass "" and `SectionHeader` renders no
+# subtitle line. It is `text` rather than `int` because it is usually a count and
+# sometimes a sentence, and a count converts into text for free while a sentence
+# does not convert into an int at all.
+#
+# THE COUNT IS PASSED AS AN EXPRESSION AND NOT AS A QUOTED, BRACED ONE, which is
+# how this example used to read. A component argument is an expression, not a
+# template: the quoted form is a string literal containing braces, and it used to
+# compile clean and render the source text of the aggregate instead of its value,
+# with nothing warning. The compiler refuses it now.
+#
+# `SectionHeader` owns the heading's own rules; this file owns nothing but the
+# arrangement, which is why it has no `css:` block.
+import "vocabulary.fct"
+import "sectionheader.fct"
+app FacetLayout:
+    component Section(title: text, subtitle: text):
+        box class "x-l-stack x-l-stack-tight":
+            use SectionHeader(title, subtitle)
+            slot

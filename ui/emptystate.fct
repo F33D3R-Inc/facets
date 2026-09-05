@@ -1,0 +1,20 @@
+# EmptyState — the block a list renders INSTEAD of nothing. An empty feed with no
+# empty state is the single most common way an app looks broken while working
+# perfectly: the reader cannot tell "you follow nobody yet" from "the request
+# failed" from "the page is still loading", because all three render as blank.
+#
+# It is deliberately quiet — muted, centred, no border — because it appears in the
+# place a list would have been and must not read as an error. The loud version of
+# this box is ErrorState, which is a different thing said in a different voice.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-blank { padding: 32px 24px; text-align: center; max-width: 420px;
+                  margin: 0 auto; }
+        [data-fa-mount] .x-blank-title { font-size: 20px; font-weight: 800; }
+        [data-fa-mount] .x-blank-body { color: var(--fa-muted); font-size: 15px; margin-top: 6px;
+                       line-height: 1.4; }
+    component EmptyState(title: text, body: text):
+        box class "x-blank":
+            text "{title}" class "x-blank-title"
+            if body != "":
+                text "{body}" class "x-blank-body"

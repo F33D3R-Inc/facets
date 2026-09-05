@@ -1,0 +1,85 @@
+# Steps — a numbered how-it-works sequence: "write a facet, run one command, it is
+# live". Three or four of them, in order, with the number carrying the order so
+# the reader does not have to.
+#
+#     use Steps():
+#         use Step("Describe it"):
+#             use Prose("Entities, actions, policies and pages in one file.")
+#         use Step("Run one command"):
+#             use Code("bash", "facet run app.fct")
+#         use Step("It is live"):
+#             use Prose("Schema migrated, API generated, pages served.")
+#
+# ── THE NUMBERS ARE A CSS COUNTER, NOT A PARAMETER, AND THAT IS THE POINT ─────
+#
+# A `Step(n, title)` taking its own number is a list whose order lives in three
+# places at once — the source order, the numbers typed into it, and the reader's
+# expectation — and the first time a step is inserted in the middle two of them
+# disagree. `counter-increment` puts the number where the order already is: the
+# document. Reordering the calls renumbers the list, deleting one closes the gap,
+# and there is no argument to get wrong.
+#
+# It also survives what a parameter could not. There is no numeric range in this
+# language — `for` walks an entity or a `[T]` cell, not `1..n` — so a sequence
+# rendered from a QUERY has no counting variable to pass, and `Step(n, …)` would
+# be unusable for exactly the case that has more than four steps. Written as a
+# counter, `for s in Step by ord asc class "x-steps"` numbers itself, because the
+# counter is incremented by the elements the runtime produced and not by anything
+# the author had to know.
+#
+# ── THE RAIL, AND WHERE IT STOPS ──────────────────────────────────────────────
+#
+# Same arrangement `data/timeline.fct` documents: the connecting line is drawn by
+# the CONTAINER, because a `use` renders an element around each step and steps
+# written as `use` calls are therefore not DOM siblings — so `:last-child` cannot
+# find the last one and a per-step rail would dangle below it with no rule able to
+# say "except this one". Drawn by the container it starts at the first number and
+# stops exactly the height of a step's trailing padding short of the bottom.
+#
+# The title is a parameter and the body is a `slot`, for the reason
+# `marketing/featuregrid.fct` gives: every step has exactly one title, and what
+# hangs off it is prose, a code sample, a figure, or nothing.
+app FacetMarketing:
+    css:
+        [data-fa-mount] .x-steps { position: relative; display: flex; flex-direction: column;
+                  gap: 0; counter-reset: x-step;
+                  border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-steps::before { content: ""; position: absolute; left: 15px;
+                  top: 32px; bottom: 28px; width: 2px; border-radius: 2px;
+                  background: var(--x-line, #2f3336); }
+        # `align-items: stretch` IS LOAD-BEARING AND IS NOT THE DEFAULT BY ACCIDENT.
+        # This said `flex-start`, which in a column flex container is a statement
+        # about WIDTH: every child is sized to its own content instead of to the
+        # step. That is invisible for a title and a paragraph, which are narrower
+        # than the column anyway — and fatal for the one thing a step most often
+        # holds. A `Code` block's `pre` scrolls (`overflow-x: auto`) only if it has
+        # a width to scroll inside; sized to its content it is as wide as its
+        # longest line, the step grows with it, and the horizontal scrollbar lands
+        # on the DOCUMENT. At 390px a one-line shell command took the whole page
+        # sideways.
+        #
+        # This library's rule is that wide content scrolls inside its own container
+        # and the page body never scrolls horizontally. `stretch` is what hands the
+        # step's width down to the block that has to enforce it. A child that
+        # should NOT be full width — a button, a chip — says so with its own
+        # `align-self`, which is one declaration in one place rather than a
+        # container-wide default that silently disables every scroll box under it.
+        [data-fa-mount] .x-step { position: relative; display: flex; flex-direction: column;
+                 align-items: stretch; gap: 8px; padding: 0 0 28px 48px;
+                 counter-increment: x-step; border: none; background: none; }
+        # The numbered disc sits on the rail. `box-sizing` is stated because the
+        # ring is a border and the 32px is meant to be the outside of the disc.
+        [data-fa-mount] .x-step::before { content: counter(x-step); position: absolute;
+                 left: 0; top: 0; width: 32px; height: 32px; box-sizing: border-box;
+                 display: flex; align-items: center; justify-content: center;
+                 border-radius: 50%; font-size: 14px; font-weight: 800; line-height: 1;
+                 color: var(--fa-bg); background: var(--fa-accent); }
+        [data-fa-mount] .x-step-title { display: block; font-size: 17px; font-weight: 800;
+                       line-height: 1.35; padding-top: 5px; }
+    component Steps():
+        box class "x-steps":
+            slot
+    component Step(title: text):
+        box class "x-step":
+            text "{title}" class "x-step-title"
+            slot

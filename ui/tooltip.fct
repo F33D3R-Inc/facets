@@ -1,0 +1,60 @@
+# Tooltip — a term with its explanation attached: the label reads inline, the tip
+# appears over it on hover. Useful wherever a word has to be short and still be
+# understood ("Reposts", "Coordinate", "@optimistic").
+#
+# `Tooltip`'s trigger is TEXT. That used to be the end of the story, and the note
+# that said so — "a component cannot accept child nodes, so a tooltip that wraps
+# whatever you put inside it cannot be written here at all" — has been stale since
+# `slot` shipped. It can be written, and `TooltipOn` is it:
+#
+#     use Tooltip("Reposts", "Someone shared this with their own followers.")
+#
+#     use TooltipOn("Signed by the authority, not by the client."):
+#         use Tag("verified", "ok")
+#
+# `Tooltip` stays for the common case — a word with a gloss is one node, and a
+# component call with a slot for one word is three lines where one would do — and
+# `TooltipOn` takes the trigger as children, so an icon, a badge, a stat or a whole
+# row can carry a tip. Neither is built on the other: `Tooltip` would have to pass
+# a parameter into `TooltipOn`'s slot, and a slot child is evaluated in the
+# CALLEE's scope, so the name would resolve against `TooltipOn`'s own parameters
+# first. They share the class names and the stylesheet instead, which is the part
+# that actually has to stay in step.
+#
+# ONE THING TO KNOW BEFORE PUTTING A PARAMETER IN `TooltipOn`'S SLOT, and it is a
+# compiler bug rather than a design of this facet: slot children resolve locals
+# against the callee first. A child that interpolates a caller parameter or a
+# `for` variable named `tip` will silently render THIS component's tip instead.
+# Name it something else, or pass the value through a component of your own.
+#
+# Reveal is hover-only. The language has no way to put `tabindex` or an `aria-*`
+# attribute on a node, so the trigger cannot be focused and the tip cannot be
+# announced; it is a convenience, never the only place a fact is written down.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-tip { position: relative; display: inline-flex; align-items: center;
+                border-bottom: 1px dotted var(--fa-muted); cursor: help; }
+        [data-fa-mount] .x-tip-body { position: absolute; bottom: calc(100% + 8px); left: 50%;
+                     transform: translateX(-50%); width: max-content; max-width: 260px;
+                     padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.35;
+                     background: var(--x-panel, #16181c); color: var(--fa-fg);
+                     border: 1px solid var(--x-line, #2f3336);
+                     box-shadow: 0 6px 20px rgba(0,0,0,.4);
+                     opacity: 0; visibility: hidden; transition: opacity .12s ease; z-index: 70; }
+        [data-fa-mount] .x-tip:hover .x-tip-body { opacity: 1; visibility: visible; }
+        # The slot-bearing variant. No underline and no `cursor: help`, because the
+        # trigger is a node that already has its own affordance; the tip is an
+        # addition to it rather than a replacement for it.
+        [data-fa-mount] .x-tip-plain { border-bottom: none; cursor: inherit; gap: 0;
+                        padding: 0; background: none; }
+    component Tooltip(label: text, tip: text):
+        row class "x-tip":
+            text "{label}"
+            text "{tip}" class "x-tip-body"
+    # The same tip, over whatever the caller puts inside it. The dotted underline
+    # is dropped here: it is right under a word and wrong under an icon or a
+    # badge, and a caller who wants it back adds `.x-tip` styling of their own.
+    component TooltipOn(tip: text):
+        row class "x-tip x-tip-plain":
+            slot
+            text "{tip}" class "x-tip-body"

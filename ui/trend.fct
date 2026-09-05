@@ -1,7 +1,13 @@
-# Trend — one row in the "What's happening" rail.
+# Trend — one row of the "What's happening" panel: the category line, the tag, and
+# the volume. Three sizes of the same idea, which is all a trend row is.
 app FacetUI:
+    css:
+        [data-fa-mount] .x-trend { padding: 12px 16px; }
+        [data-fa-mount] .x-trend:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-trend-meta { color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-trend-tag { font-weight: 700; font-size: 15px; }
     component Trend(category: text, tag: text, count: text):
-        box:
-            text "{category} · Trending"
-            text "{tag}"
-            text "{count}"
+        box class "x-trend":
+            text "{category} · Trending" class "x-trend-meta"
+            text "{tag}" class "x-trend-tag"
+            text "{count}" class "x-trend-meta"

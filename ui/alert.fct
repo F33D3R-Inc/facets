@@ -1,0 +1,127 @@
+# Alert — a block that tells the reader something about the page they are on: a
+# heads-up, a warning, a confirmation, a failure. It is the IN-FLOW voice, as
+# opposed to `Toast`, which is pinned to the corner and speaks about something
+# that happened elsewhere, and `ErrorState`, which replaces content that is not
+# coming.
+#
+#     use Alert("info", "Read-only", "This project is archived.")
+#     use Alert("warn", "", "Your card expires this month.")
+#     use Alert("danger", "Could not save", failed(save))
+#
+# ── THIS FILE OWNS THE TONE VOCABULARY ────────────────────────────────────────
+#
+# Four tones — `info`, `ok`, `warn`, `danger` — as four rules that set ONE custom
+# property, `--x-tone`, which every rule in the block then mixes against. That is
+# the reason the vocabulary lives in its own set of classes rather than inside
+# `Alert`: `marketing/callout.fct` renders a different box in the same four tones,
+# and a second copy of the colour table is the copy that stops matching. A facet
+# that needs a toned surface applies `x-tone-<name>` and reads `--x-tone`.
+#
+# A facet that reads `--x-tone` also RESETS it to the accent on its own block, so
+# an untoned box inside a toned one does not inherit a tone it never asked for.
+# That reset is a competing declaration on the same box, so the four rules below
+# are written with their class doubled and OUT-SPECIFY it. The note on the block
+# says why that is the only fix that holds for a file this one has never heard of.
+#
+# The tones are the same four `ui/toast.fct` and `ui/tag.fct` already use, spelled
+# once here. Those two are not changed to import this — they ship their own
+# constants and are being rendered by live call sites — but a fifth tone belongs
+# in this file and nowhere else.
+#
+# ── THE TONE IS AN INTERPOLATED CLASS, NOT A `match` ──────────────────────────
+#
+# `Tag` and `Toast` each write a four-arm `match` and repeat their whole body in
+# every arm, because `class` took a literal when they were written. It
+# interpolates now, so the tone reaches the class list directly and the body is
+# written once. An unknown tone spells a class no rule matches, which falls
+# through to the defaults on `.x-alert` — the same "render it neutral rather than
+# fail" behaviour `Tag`'s `else` arm gives, without the repetition.
+#
+# The interpolated run is filtered to the class-token characters by the runtime,
+# so a tone carrying a space cannot silently add a second class.
+#
+# ── THE MARK IS A PSEUDO-ELEMENT ──────────────────────────────────────────────
+#
+# Its glyph differs per tone and it is decoration, not content: it repeats what
+# the colour and the words already say, and a reader who is not looking at it has
+# lost nothing. Putting it in CSS keeps it out of the text the page is made of —
+# and is the only way to vary it by tone without a `match`, since `icon "{glyph}"`
+# would need the caller to know a name per tone.
+#
+# COLOUR IS NEVER THE ONLY SIGNAL. The title carries the tone's colour, the mark
+# carries a different glyph per tone, and the words say which it is. An alert that
+# is only distinguishable by hue is an alert half the readers cannot read.
+app FacetUI:
+    css:
+        # The tone vocabulary. One property, set four ways — and EVERY SELECTOR IS
+        # DOUBLED, which is the whole reason a danger alert is red.
+        #
+        # A component that READS `--x-tone` also has to RESET it, or an untoned box
+        # nested inside a toned one inherits the outer tone. So `.x-alert` below,
+        # and `.x-callout`, `.x-banner` and `.x-meter` in the two files that import
+        # this one, each open with `--x-tone: var(--fa-accent)`. Written singly,
+        # `.x-tone-danger` and `.x-alert` are worth exactly the same — one attribute
+        # and one class each — they match the SAME box, and whichever the sheet
+        # happens to print last wins. It printed `.x-alert` last, so every alert,
+        # callout, banner and meter in this library drew in accent blue and looked
+        # deliberate: a warning that reads as information, which is the one failure
+        # mode a tone exists to prevent.
+        #
+        # ORDER CANNOT FIX IT. `.x-callout`'s reset lives in `marketing/callout.fct`,
+        # which IMPORTS this file, so its declaration is emitted AFTER this table by
+        # construction — there is no arrangement of lines in this file that puts the
+        # table last for every consumer. `:not([class*="x-tone-"])` on each reset
+        # does work, and is order-independent, but it has to be written again in
+        # every file that ever grows a toned surface: the fix is only as good as the
+        # next author's memory, and the file that forgets it is this bug again.
+        #
+        # Doubling the class is one edit, in the file that OWNS the vocabulary, and
+        # it corrects consumers that do not know it happened — including the ones
+        # not yet written. `.x-tone-danger.x-tone-danger` is worth two classes, so
+        # it beats any one-class reset in any order, forever, and still LOSES to a
+        # host's `.x-site .x-alert` — which is exactly the override a host is
+        # entitled to. Do not "tidy" the repetition away.
+        [data-fa-mount] .x-tone-info.x-tone-info { --x-tone: var(--fa-accent); }
+        [data-fa-mount] .x-tone-ok.x-tone-ok { --x-tone: #00ba7c; }
+        [data-fa-mount] .x-tone-warn.x-tone-warn { --x-tone: #ffd400; }
+        [data-fa-mount] .x-tone-danger.x-tone-danger { --x-tone: #f4212e; }
+
+        [data-fa-mount] .x-alert { --x-tone: var(--fa-accent);
+                  display: flex; flex-direction: row; align-items: flex-start;
+                  flex-wrap: nowrap; gap: 12px; padding: 12px 14px;
+                  border-radius: 12px; box-sizing: border-box;
+                  border: 1px solid color-mix(in srgb, var(--x-tone) 45%, transparent);
+                  background: color-mix(in srgb, var(--x-tone) 12%, transparent); }
+        [data-fa-mount] .x-alert-mark { flex: 0 0 auto; width: 20px; height: 20px;
+                       border-radius: 50%; display: flex; align-items: center;
+                       justify-content: center; font-size: 13px; font-weight: 800;
+                       line-height: 1; margin-top: 1px; padding: 0; gap: 0;
+                       background: var(--x-tone); color: var(--fa-bg); }
+        [data-fa-mount] .x-alert-mark::before { content: "i"; }
+        [data-fa-mount] .x-tone-ok .x-alert-mark::before { content: "\2713"; }
+        [data-fa-mount] .x-tone-warn .x-alert-mark::before { content: "!"; }
+        [data-fa-mount] .x-tone-danger .x-alert-mark::before { content: "\00d7"; }
+        [data-fa-mount] .x-alert-text { display: flex; flex-direction: column; gap: 3px;
+                       min-width: 0; flex: 1 1 auto;
+                       border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-alert-title { display: block; font-size: 15px; font-weight: 700;
+                        line-height: 1.35; color: var(--x-tone); }
+        [data-fa-mount] .x-alert-body { display: block; font-size: 14px; line-height: 1.45;
+                       overflow-wrap: anywhere; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-alert-text > div:empty:not([class]) { display: none; }
+    component Alert(tone: text, title: text, body: text):
+        row class "x-alert x-tone-{tone}":
+            box class "x-alert-mark"
+            box class "x-alert-text":
+                if title != "":
+                    text "{title}" class "x-alert-title"
+                if body != "":
+                    text "{body}" class "x-alert-body"

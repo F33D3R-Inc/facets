@@ -1,0 +1,63 @@
+# ButtonGroup — buttons joined into one control: a segmented switch, a toolbar, a
+# save-with-a-cancel-beside-it. The point is that they read as one thing with
+# several settings rather than as several unrelated presses.
+#
+#     use ButtonGroup():
+#         button "Day" -> setRange("day")
+#         button "Week" -> setRange("week")
+#         button "Month" -> setRange("month")
+#
+# The buttons are the CALLER'S, written into the slot, because a button's whole
+# content is its label and its action and both belong to the call site — there is
+# no varargs and no way to forward a call site's arguments through an `action`
+# reference, which is the same wall `forms/form.fct` records when it explains why
+# `SubmitButton` no longer exists.
+#
+# ── THE SEPARATORS ARE GAPS, NOT BORDERS, AND THAT IS DELIBERATE ──────────────
+#
+# The obvious rule is `button + button { border-left: 1px solid }`, and it is
+# fragile here for the reason this library keeps writing down: a `use` or an `if`
+# renders an element around what it produces, so two buttons written through
+# either one are not DOM siblings and the adjacent-sibling selector matches
+# nothing. So the group's own BACKGROUND is the separator: `gap: 1px` over a line
+# colour, with each button painting itself opaque. Nothing depends on sibling
+# order, and a group whose middle button is inside an `if` still looks like one
+# control.
+#
+# The `if` wrapper is flattened anyway (`display: contents`), so a conditional
+# button is a real flex item and gets its own separator. That rule is narrow on
+# purpose — direct children of the group, no class attribute, which is exactly
+# what a runtime wrapper looks like and exactly what a caller's own classed box
+# does not.
+#
+# The rounded ends come from the group clipping its children (`overflow: hidden`
+# plus its own radius), so no `:first-child` / `:last-child` rule is needed and
+# the group is round at the ends however its buttons were produced.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-btngroup { display: inline-flex; flex-direction: row;
+                     align-items: stretch; flex-wrap: nowrap; gap: 1px; padding: 0;
+                     border-radius: 10px; overflow: hidden;
+                     border: 1px solid var(--x-line, #2f3336);
+                     background: var(--x-line, #2f3336); }
+        [data-fa-mount] .x-btngroup button { border: none; border-radius: 0; margin: 0;
+                     align-self: stretch; padding: 8px 14px; font-size: 14px;
+                     font-weight: 600; line-height: 1.3; white-space: nowrap; cursor: pointer;
+                     color: var(--fa-fg); background: var(--fa-bg); }
+        [data-fa-mount] .x-btngroup button:hover { color: var(--fa-fg);
+                     background: var(--x-hover, rgba(239,243,244,.06)); }
+        # A runtime wrapper — an `if` or a region-carrying `use` — renders a div
+        # with no class. Flattening it makes the button inside a real item of this
+        # flex row, so it gets a separator like every other one.
+        [data-fa-mount] .x-btngroup > div:not([class]),
+        [data-fa-mount] .x-btngroup > .fa-use { display: contents; }
+        # The stretched variant, for a group that should fill the width it is in
+        # (a segmented control across a card, a two-button bar under a form).
+        [data-fa-mount] .x-btngroup-fill { display: flex; width: 100%; }
+        [data-fa-mount] .x-btngroup-fill button { flex: 1 1 0; }
+    component ButtonGroup():
+        row class "x-btngroup":
+            slot
+    component ButtonGroupFill():
+        row class "x-btngroup x-btngroup-fill":
+            slot

@@ -1,0 +1,98 @@
+# Timeline — a sequence of things that happened, with a rail down the side and a
+# dot on each entry. An audit log, a shipment's history, a release train, the
+# activity on a record.
+#
+#     use Timeline():
+#         use TimelineItem("09:14", "Request received"):
+#             use Prose("From **ada** on the API key ending 9f2c.")
+#         use TimelineItemCurrent("09:20", "In review"):
+#             use Tag("Waiting on you", "warn")
+#
+# The body is a `slot`, not a `text` parameter, because what hangs off a timeline
+# entry is never reliably one sentence — it is a paragraph, a tag, a link to the
+# thing that changed, a small table, or nothing at all. The time and the title ARE
+# parameters, because every entry has exactly one of each and a caller writing
+# them into the slot would have to restate their type sizes.
+#
+# `TimelineItemCurrent` is the entry the reader is at: a filled dot instead of a
+# ring. It is a second component rather than a `current: bool` for the reason
+# `navigation/sidebaritem.fct` explains — a component has at most ONE `slot`, so
+# the `if current: … / if !current: …` shape would need two of them and is
+# refused. The alternative (one component, an invisible marker element, a `:has()`
+# rule) is the right answer when the two states share a lot of markup; here the
+# whole difference is two properties on a pseudo-element, so two components with
+# one shared rule set is the smaller lie.
+#
+# ── WHERE THE RAIL STARTS AND STOPS ───────────────────────────────────────────
+#
+# The rail is drawn by the CONTAINER, not by the entries, and the reason is the
+# same wrapper problem `data/keyvalue.fct` documents: a `use` renders an element
+# around the component's nodes, so entries written as `use` calls are not DOM
+# siblings and `:last-child` does not find the last one. A rail drawn per entry
+# would therefore dangle below the final dot with no rule able to say "except this
+# one". Drawn by the container it needs no such rule: it starts at the first dot
+# (`top: 8px`) and stops `24px` short of the bottom — exactly the trailing padding
+# every entry carries — so it ends level with the last entry's content and never
+# hangs in space.
+#
+# A TIMELINE BUILT FROM A QUERY IS THE LOOP, as everywhere else in this library:
+# `for e in Event by created desc class "x-timeline"` puts the rail on the region
+# the runtime refills, and each `use TimelineItem(...)` inside it is an entry. A
+# `for` dropped into this slot would be one entry containing the whole history.
+app FacetData:
+    css:
+        [data-fa-mount] .x-timeline { position: relative; display: flex;
+                       flex-direction: column; gap: 0;
+                       border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-timeline::before { content: ""; position: absolute;
+                       left: 5px; top: 8px; bottom: 24px; width: 2px; border-radius: 2px;
+                       background: var(--x-line, #2f3336); }
+        # `stretch`, not `flex-start`: in a COLUMN flex container `align-items` sizes
+        # the children's WIDTH, and `flex-start` sizes each to its own content — which
+        # leaves a `Code` block's `pre` no width to scroll inside, so a long line
+        # sizes the whole box to max-content and the horizontal scrollbar lands on
+        # the DOCUMENT. `marketing/steps.fct` carries the full note; the invariant is
+        # that wide content scrolls inside its own container and the page body never
+        # scrolls sideways. A child that must not be full width says `align-self`.
+        [data-fa-mount] .x-tl-item { position: relative; display: flex;
+                      flex-direction: column; align-items: stretch; gap: 4px;
+                      padding: 0 0 24px 28px;
+                      border: none; background: none; }
+        # The dot sits on the rail rather than in a column of its own, so an entry
+        # is one column of content and a long title wraps under itself instead of
+        # under the dot. `box-sizing` is stated because the ring is a border and
+        # the 12px is meant to be the outside of the dot.
+        [data-fa-mount] .x-tl-item::before { content: ""; position: absolute; left: 0;
+                      top: 5px; width: 12px; height: 12px; border-radius: 50%;
+                      box-sizing: border-box; background: var(--fa-bg);
+                      border: 2px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-tl-current::before { background: var(--fa-accent);
+                        border-color: var(--fa-accent); }
+        [data-fa-mount] .x-tl-when { display: block; color: var(--fa-muted);
+                      font-size: 13px; font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-tl-title { display: block; font-size: 15px; font-weight: 700;
+                       line-height: 1.35; overflow-wrap: anywhere; }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-tl-item > div:empty:not([class]) { display: none; }
+    component Timeline():
+        box class "x-timeline":
+            slot
+    component TimelineItem(when: text, title: text):
+        box class "x-tl-item":
+            if when != "":
+                text "{when}" class "x-tl-when"
+            text "{title}" class "x-tl-title"
+            slot
+    component TimelineItemCurrent(when: text, title: text):
+        box class "x-tl-item x-tl-current":
+            if when != "":
+                text "{when}" class "x-tl-when"
+            text "{title}" class "x-tl-title"
+            slot

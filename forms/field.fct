@@ -1,0 +1,85 @@
+# Field — the scaffold around ANY control: the label with its required mark, the
+# control itself, the hint under it, and the error under that. It is the generic
+# half of this library's field set, and the half that never needs updating: it
+# takes the control as CHILDREN, so it fits controls that could not be
+# parameterised even in principle.
+#
+#     use Field("Reason", true, "", failed(submitReport)):
+#         select bind reportReason:
+#             option "Spam or scam" -> "spam"
+#             option "Harassment" -> "harassment"
+#
+# That example is the reason this exists alongside `TextField`, and HALF OF THE
+# REASON HAS SINCE EXPIRED — which is worth stating precisely, because the other
+# half has not.
+#
+# WHAT CHANGED: `select` and `radio` options may now come from data. The repeating
+# header goes inside the choice list, so a host can write
+#
+#     select bind chosen:
+#         option "— any —" -> ""
+#         for c in Category where c.rank > 0 by rank desc limit 5:
+#             option "{c.name}" -> c.slug
+#
+# and a component may walk a LIST CELL the same way — `items: cell [text]` plus
+# `for o in items:` — which is enough for a general labelled select over a cell.
+# That facet exists now: `forms/selectfield.fct`, `SelectField` / `SelectFieldReq`.
+#
+# WHAT DID NOT CHANGE, AND IS WHY THIS SCAFFOLD IS STILL THE ANSWER FOR THE OTHER
+# CASES: the loop above names an ENTITY, and there is no entity-typed parameter, so
+# no library component can write `for c in Category`. Nor can one `[text]` cell
+# carry a label that differs from its value. Options from an entity, and options
+# whose label is not their value, are still a scaffold with a hole in it and six
+# lines of `option` written into the hole. Same for `tabs`, for a `typeahead` with
+# its `from Entity.field` source, and for any control added later: the scaffold
+# does not have to learn about them.
+#
+# A `radio` GROUP IS THE SAME STORY AND IT IS WORTH WRITING DOWN, because `radio`
+# landed today and the obvious next facet — `RadioField(label, options)` — is
+# still not expressible, for the reason above and not for a missing feature. An
+# `option`'s value is an identity the compiler resolves, not a display string, so
+# the choices have to be literals in the source; a `radio` bound to a plain `text`
+# cell with no options is refused at build time with *radio on "…" needs options
+# (or a `@client` enum cell to default them)*. The other half of that message is
+# the other half of the answer: a radio bound to an ENUM cell defaults its options
+# to the enum's members, so the group needs no options at all — but a component
+# parameter typed `v: cell Layer` names a concrete enum, and a general-purpose
+# library has no enums to name. So the enum-bound radio group is a two-line facet
+# in the app that declares the enum, and this scaffold is the general answer:
+#
+#     use Field("Which layer matters most?", true, "", failed(request)):
+#         radio bind layer:
+#             option "FacetQL — the database" -> "facetql"
+#             option "FCT — the language" -> "fct"
+#
+# `TextField`, `TextAreaField`, `CheckboxField`, `ToggleField` and `UploadField`
+# are built on this rather than beside it, so a form mixing a parameterised field
+# and a hand-written one has one field layout, not two that drift.
+#
+# ONE HAZARD TO KNOW ABOUT BEFORE WRITING A CONTROL INTO THIS SLOT, and it is a
+# compiler bug rather than a design of this facet. Slot children are evaluated in
+# the CALLEE's scope: a name in a child resolves against this component's four
+# parameters first, and only falls through to the caller's when nothing here has
+# that name. So a child that interpolates a caller parameter called `label`,
+# `required`, `hint` or `error` silently renders THIS component's value instead —
+# and the case that bites is the empty one, `use Field("", …)`, where the child's
+# caption comes out blank with no error anywhere. State cells, `actor` and `route`
+# are unaffected; only locals (component parameters, `for` variables) collide.
+# Until it is fixed in `fct`, name the parameter you interpolate in a slot child
+# something these four are not, or assemble `.x-field` from `FieldLabel` /
+# `FieldHint` / `FieldError` directly the way `checkfield.fct` does.
+#
+# The four parameters are all values, deliberately: `error` is normally handed
+# `failed(someAction)`, which is the runtime's own message for the last failure
+# and "" the rest of the time, so the line appears and clears itself with nothing
+# to reset (see fieldmessage.fct). The cell is NOT a parameter here — this
+# component never binds anything; the children do, in the caller's scope.
+import "fieldlabel.fct"
+import "fieldmessage.fct"
+app FacetForms:
+    component Field(label: text, required: bool, hint: text, error: text):
+        box class "x-field":
+            use FieldLabel(label, required)
+            slot
+            use FieldHint(hint)
+            use FieldError(error)

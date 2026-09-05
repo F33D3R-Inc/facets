@@ -1,0 +1,55 @@
+# CTABand — the strip at the bottom of a marketing page that asks for the click
+# one more time: a line, a sentence, the action.
+#
+#     use CTABand("Start building today.", "No card, no sales call — a key in your inbox."):
+#         button "Request access" -> requestAccess(email)
+#         use Link("Talk to us", "/contact")
+#
+# It is `Hero`'s smaller sibling and shares its shape deliberately: same centred
+# column, same action strip, same `:empty` rule so a band with no actions costs no
+# air. What it does not share is the type scale — a hero headline is the biggest
+# thing on the page and a band's line must not compete with it — which is the
+# whole reason this is a component and not a `Hero` with a `small: bool`.
+#
+# THE SURFACE IS THE DIFFERENCE. A hero sits on the page background; a band is a
+# panel, so the eye finds it after a long scroll without needing a heading. It
+# uses `--x-panel`, the same token `layout/panel.fct` and the right-rail panels
+# use, so a site that restates that one variable restates it everywhere.
+#
+# The actions are a `slot` for the reason `marketing/hero.fct` gives: a button's
+# arguments belong to the call site, an `action` reference cannot be invoked with
+# them through a parameter, and a node is not an expression.
+app FacetMarketing:
+    css:
+        [data-fa-mount] .x-cta { display: flex; flex-direction: column; align-items: center;
+                text-align: center; gap: 12px; box-sizing: border-box;
+                padding: 40px 24px; border-radius: 20px; border: none;
+                background: var(--x-panel, #16181c); }
+        [data-fa-mount] .x-cta-title { display: block; font-weight: 800; line-height: 1.2;
+                      letter-spacing: -.01em; font-size: clamp(22px, 3.2vw, 30px); }
+        [data-fa-mount] .x-cta-sub { display: block; color: var(--fa-muted); font-size: 16px;
+                    line-height: 1.5; max-width: 56ch; }
+        [data-fa-mount] .x-cta-actions { display: flex; flex-direction: row; flex-wrap: wrap;
+                      align-items: center; justify-content: center; gap: 12px;
+                      padding-top: 6px; border: none; background: none; }
+        [data-fa-mount] .x-cta-actions:empty { display: none; }
+        [data-fa-mount] .x-cta-actions button { background: var(--fa-accent); color: #fff;
+                      border: none; border-radius: 9999px; font-weight: 700; font-size: 15px;
+                      padding: 12px 24px; cursor: pointer; align-self: auto; }
+        [data-fa-mount] .x-cta-actions button:hover { filter: brightness(1.08); }
+        # AN `if` THAT RENDERS NOTHING STILL LEAVES ITS ELEMENT BEHIND. A
+        # conditional child is its own tracked region, so `if x != "":` with an
+        # empty `x` produces an empty element — which costs nothing on its own and
+        # costs one `gap` inside a flex container, appearing as unexplained air
+        # under a stat with no delta or over a card with no title. An unclassed
+        # empty element is always a region that rendered nothing, so hiding it is
+        # always right; a classed one may be a deliberate empty box (a spinner's
+        # ring, a marker element) and is left alone.
+        [data-fa-mount] .x-cta > div:empty:not([class]) { display: none; }
+    component CTABand(title: text, sub: text):
+        box class "x-cta":
+            text "{title}" class "x-cta-title"
+            if sub != "":
+                text "{sub}" class "x-cta-sub"
+            row class "x-cta-actions":
+                slot

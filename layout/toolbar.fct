@@ -1,0 +1,86 @@
+# Toolbar — the strip above a list where the filters live on one side and the
+# actions live on the other.
+#
+#     use Toolbar():
+#         use ToolbarMain():
+#             use SearchBox()
+#             use SelectField("Tag", false, "", "", "— any —", tag, tagOptions)
+#         use ToolbarEnd():
+#             use Link("New post", "/write")
+#
+# ── WHY THIS IS NOT `layout/RowBetween` ────────────────────────────────────
+#
+# `RowBetween` is the arrangement and this is the furniture. Three differences,
+# and each of them is a bug that a bare `RowBetween` produces in this position:
+#
+#   * IT WRAPS INTO TWO ROWS RATHER THAN SQUEEZING. `space-between` on a narrow
+#     screen puts a search box and a button on one line and shrinks both; here the
+#     two groups are `flex-wrap` blocks that stack, and the search box keeps its
+#     width because it is the control the reader came for.
+#   * THE CONTROLS ARE THE SAME HEIGHT. A `SearchBox`, a `select` and a link
+#     dressed as a button have three different intrinsic heights, and a row that
+#     does not say `align-items: center` shows all three. `RowBetween` does centre,
+#     but it also centres a `TagLink` against a heading, which is a different job.
+#   * IT HAS A BOTTOM RULE AND A STICKY VARIANT. A toolbar separates itself from
+#     what it filters; a row does not.
+#
+# ── THE TWO GROUPS ARE COMPONENTS, NOT AN ASSUMPTION ABOUT ORDER ───────────
+#
+# A component has one slot, so `Toolbar` cannot take a "left" and a "right". It
+# takes children, and `ToolbarMain` / `ToolbarEnd` are the two things that go in
+# them — which is better than a two-slot version would have been, because a toolbar
+# with only actions, or only filters, is then one child rather than an empty half.
+# `ToolbarEnd` is pushed right by `margin-left: auto` on itself rather than by
+# `space-between` on the parent, so one child lands where it should in both cases.
+#
+# ── `StickyToolbar` PINS THE WRAPPER, NOT THE BAR ─────────────────────────
+#
+# `position: sticky` only does anything on an element that is a child of the
+# scrolling container, so the sticky wrapper is its own component with no padding
+# of its own and the toolbar inside it — the same construction
+# `layout/pageheader.fct` uses for `StickyPageHeader`, and for the same reason. The
+# offset is a custom property so a site with a sticky nav above it can say how tall
+# that nav is, in one place, instead of forking this facet.
+import "vocabulary.fct"
+app FacetLayout:
+    css:
+        [data-fa-mount] .x-l-toolbar { display: flex; flex-direction: row; align-items: center;
+                     flex-wrap: wrap; gap: 12px; padding: 12px 0; border: none;
+                     border-bottom: 1px solid var(--x-line, #2f3336); border-radius: 0;
+                     background: none; }
+        [data-fa-mount] .x-l-toolbar-plain { border-bottom: none; }
+        [data-fa-mount] .x-l-toolbar-main { display: flex; flex-direction: row; align-items: center;
+                     flex-wrap: wrap; gap: 10px; flex: 1 1 260px; min-width: 0;
+                     border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-l-toolbar-end { display: flex; flex-direction: row; align-items: center;
+                     flex-wrap: wrap; gap: 10px; margin-left: auto; flex: 0 0 auto;
+                     border: none; background: none; padding: 0; }
+        # A field inside a toolbar loses its stacked label spacing: the label is
+        # above the control in a form and beside the point in a filter strip.
+        [data-fa-mount] .x-l-toolbar .x-field { gap: 2px; min-width: 160px; }
+        [data-fa-mount] .x-l-toolbar .x-field-label { font-size: 12px; }
+        [data-fa-mount] .x-l-toolbar > .fa-use,
+        [data-fa-mount] .x-l-toolbar-main > .fa-use,
+        [data-fa-mount] .x-l-toolbar-end > .fa-use { display: contents; }
+        [data-fa-mount] .x-l-toolbar-sticky { position: sticky;
+                     top: var(--x-l-toolbar-top, 0px); z-index: 15;
+                     background: color-mix(in srgb, var(--fa-bg) 90%, transparent);
+                     backdrop-filter: blur(12px); border: none; padding: 0; }
+    component Toolbar():
+        row class "x-l-toolbar":
+            slot
+    # The same strip with no rule under it, for a toolbar that sits inside a card
+    # or above something that already has a border of its own.
+    component ToolbarPlain():
+        row class "x-l-toolbar x-l-toolbar-plain":
+            slot
+    component ToolbarMain():
+        row class "x-l-toolbar-main":
+            slot
+    component ToolbarEnd():
+        row class "x-l-toolbar-end":
+            slot
+    component StickyToolbar():
+        box class "x-l-toolbar-sticky":
+            use Toolbar():
+                slot

@@ -1,14 +1,24 @@
-# NotificationItem — one row in the notifications list: who did what, and an unread
-# dot. `actor`/`verb`/`subject` are passed in; `unread` styles the row. The host
-# produces rows by fanning an action out to other users (Tier-2 notifications).
+# NotificationItem — one notification, on the same two-column grid as a post so the
+# two lists share a rhythm and reading one after the other does not feel like
+# changing applications.
 import "../ui/avatar.fct"
 app FacetNotify:
+    css:
+        [data-fa-mount] .x-notif { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 12px;
+                   padding: 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        # One element carries both classes, so this is a compound selector and not a
+        # descendant — as a descendant it matched nothing and the unread dot kept
+        # the default badge colour.
+        [data-fa-mount] .fa-badge.x-unread { background: var(--fa-accent); }
+        [data-fa-mount] .x-identity { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+        [data-fa-mount] .x-name { font-weight: 700; font-size: 15px; }
+        [data-fa-mount] .x-body { font-size: 15px; line-height: 1.35; margin: 2px 0 4px; overflow-wrap: anywhere; }
     component NotificationItem(who: text, verb: text, subject: text, unread: bool):
-        row:
+        box class "x-notif":
             use Avatar(who)
             box:
-                row:
-                    text "{who}"
+                row class "x-identity":
+                    link "{who}" -> "/profile/{who}" class "x-name"
                     if unread:
-                        badge "●"
-                text "{verb} {subject}"
+                        badge "●" class "x-unread"
+                text "{verb} {subject}" class "x-body"

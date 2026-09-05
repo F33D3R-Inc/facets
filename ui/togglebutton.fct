@@ -1,0 +1,61 @@
+# ToggleButton — a `toggle` that looks like a button instead of like a switch.
+#
+# It exists because of a rule the language enforces and this library keeps running
+# into: NOTHING CAN WRITE A `@client bool` CELL EXCEPT A CONTROL BOUND TO IT. No
+# view node assigns state and no action statement touches a cell, so "open this
+# modal", "close this drawer", "turn this filter on" are all one thing — a
+# `toggle` on the cell — and the only question left is what it should look like.
+# A switch is right for a setting. It is wrong for "Open", "Close", "Cancel" and
+# "Filters", which are presses.
+#
+#     state settingsOpen: bool = false @client
+#     use ToggleButton("Settings", settingsOpen)
+#     use ToggleButtonQuiet("×", settingsOpen)
+#
+# THE INPUT IS HIDDEN FROM THE PAINT, NOT FROM THE PAGE. The runtime renders a
+# toggle as a checkbox with `role="switch"` inside its own `<label>`, and the
+# label is the click target. Taking the checkbox out of the DOM would take the
+# keyboard with it, so it is made invisible and left in place, and the focus ring
+# is put back on the label with `:has(input:focus-visible)` — without that line
+# every modal in an app built on this file becomes unreachable without a pointer.
+#
+# WHY THIS IS A FILE AND NOT A COPY. `ui/menu.fct` already dresses a toggle as a
+# button, in rules scoped to `.x-menu`, written before there was a second caller.
+# There are now four — `Modal`, `Drawer`, `ChipToggle` and whatever opens the
+# next overlay — so the shape is extracted here rather than pasted a fifth time.
+# `menu.fct` is deliberately left alone: it is being rendered by live call sites,
+# its rules are correct, and rewriting a working component to route through a new
+# one is a change with no user for the risk it carries.
+app FacetUI:
+    css:
+        # The wrapper is `inline-flex` so a toggle button sits in a row of real
+        # buttons at the same size instead of stretching like a block.
+        [data-fa-mount] .x-togglebtn { display: inline-flex; align-items: center;
+                      position: relative; border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-togglebtn .fa-toggle { display: inline-flex; align-items: center;
+                      justify-content: center; gap: 0; padding: 9px 16px; border-radius: 9999px;
+                      border: 1px solid var(--x-line, #2f3336); font-size: 15px;
+                      font-weight: 600; line-height: 1.2; cursor: pointer; }
+        # Invisible, still focusable, still the label's control.
+        [data-fa-mount] .x-togglebtn .fa-toggle input { position: absolute; width: 1px;
+                      height: 1px; opacity: 0; margin: 0; padding: 0; border: none; }
+        [data-fa-mount] .x-togglebtn .fa-toggle:hover {
+                      background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-togglebtn .fa-toggle:has(input:checked) {
+                      border-color: var(--fa-accent);
+                      background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-togglebtn .fa-toggle:has(input:focus-visible) {
+                      outline: 2px solid var(--fa-accent); outline-offset: 2px; }
+        # The quiet variant: no border, no fill, for a close mark in the corner of
+        # a panel where a bordered pill would read as a second action.
+        [data-fa-mount] .x-togglebtn-quiet .fa-toggle { border-color: transparent;
+                      padding: 6px 10px; font-size: 17px; color: var(--fa-muted); }
+        [data-fa-mount] .x-togglebtn-quiet .fa-toggle:hover { color: var(--fa-fg); }
+        [data-fa-mount] .x-togglebtn-quiet .fa-toggle:has(input:checked) {
+                      border-color: transparent; }
+    component ToggleButton(label: text, v: cell bool):
+        box class "x-togglebtn":
+            toggle bind v label "{label}"
+    component ToggleButtonQuiet(label: text, v: cell bool):
+        box class "x-togglebtn x-togglebtn-quiet":
+            toggle bind v label "{label}"

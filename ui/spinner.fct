@@ -1,0 +1,28 @@
+# Spinner — the "working on it" mark: a ring that turns, with an optional label
+# beside it. Every action in this language already exposes `pending(a)`, so what
+# was missing was never the state, only something to render for it — and an app
+# that spells that as a bare `text "Loading…"` in six places has six slightly
+# different loading states.
+#
+# The label is optional by value rather than by arity: pass "" for the bare ring.
+# A component cannot be overloaded, and a second `SpinnerWithLabel` would be the
+# same markup twice, which is how a library starts drifting.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-spinner { display: inline-flex; align-items: center; gap: 8px;
+                    color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-spinner-ring { width: 16px; height: 16px; border-radius: 50%;
+                    border: 2px solid var(--x-line, #2f3336); border-top-color: var(--fa-accent);
+                    animation: x-spin .7s linear infinite; }
+        @keyframes x-spin { to { transform: rotate(360deg); } }
+        # A ring that never stops is exactly the animation that makes some readers
+        # ill, so honour the OS setting rather than removing the motion outright:
+        # a spinner that does not move is indistinguishable from a broken one.
+        @media (prefers-reduced-motion: reduce) {
+            [data-fa-mount] .x-spinner-ring { animation-duration: 2.4s; }
+        }
+    component Spinner(label: text):
+        row class "x-spinner":
+            box class "x-spinner-ring"
+            if label != "":
+                text "{label}"
