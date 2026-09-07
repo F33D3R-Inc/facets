@@ -9,6 +9,13 @@ hand-written screens. Published via the registry, versioned independently of the
 > route-expression link destinations, interpolated `placeholder`/`upload`
 > label/`icon` attributes). The language shipped that whole batch as `1.31.0`,
 > so `facet.json` pins `>= 1.31.0` — the true lower bound, not a stand-in for it.
+>
+> v0.5.0 additionally needs the build that added the `ago` / `compact` / `commas`
+> formatting builtins (`PostCard`'s byline age, `EngagementBar`'s "1.3K"). That
+> build still reports itself as `1.31.0`, so the pin cannot yet name it; a
+> `1.31.0` from before it fails on `PostCard` with *expected .field after
+> Entity(key)*, which is the parser reading `compact(` as a row lookup. Rebuild
+> the toolchain from `fct` and the error goes away.
 
 > **v0.1.0 — the f33d3r core batch.** Value-first, not count-first: the ~20 facets
 > f33d3r's home + profile actually need, and a full exercise of the language
@@ -72,6 +79,54 @@ hand-written screens. Published via the registry, versioned independently of the
 > `Code` (the `richtext` wrappers), `Specs`/`SpecRow` (a definition list) and
 > `TextAreaField`. Its `Band`, `Rung`, `FeatureCard`, `Metric`, `SiteNav` and
 > `SiteFooter` were left where they are — see "what was not promoted" below.
+>
+> **v0.5.0 — the timeline batch.** The f33d3r reference app rebuilt its feed,
+> profile and shell against this library and the pieces it had to write locally
+> came back. Every mark in `ui/icon.fct` is now also a CLASS — `button "12" ->
+> like(id) class "x-glyph-heart"` — because a `button` and a `link` render their
+> label and nothing else, and an engagement bar is five buttons that each want a
+> mark; the set gains the social marks (reply, repost, heart, bookmark, chart,
+> pin, more, bolt, mic, list, user-plus, globe, chat). `EngagementBar` draws
+> those with `compact()` counts and takes a fifth argument, `views` (0 renders
+> nothing). `PostCard` takes `created` and renders `ago(created)` in the byline,
+> shows a video post's attachment in a `MediaCard` under the body, and has a
+> `slot` between the body and the bar for a quoted post. `ProfileHeader` takes a
+> banner (the avatar overlaps it), a joined line and the two follow counts, all
+> optional by value. `wireframes/shell.fct` and `home.fct`'s `layout Shell` both
+> wear `layout/vocabulary.fct`'s `x-l-app3` skeleton, and the rail's rows are
+> `SidebarItem`, so neither track owns a grid or a current-page flag any more.
+> Four atoms are new: `MediaCard` (a 16 : 9 frame with a LIVE pill and a view
+> count), `TopBar` (a detail page's sticky, blurred header with a back arrow),
+> `ButtonLink`/`ButtonLinkPrimary` (a destination dressed as a button — an `<a>`,
+> so it middle-clicks and crawls), and `CTABar` (`CTABand`'s fixed-to-the-viewport
+> sibling, for a signed-out reader).
+>
+> **The library that was built inside `fct/library/` is here now.** It had forked
+> from this repo at v0.1.0 and grown three categories and three apps of its own,
+> around a `look.fct` stylesheet and an `icons.fct` set. The merge keeps this
+> repo's conventions — one file per atom with its own `css:`, `ui/icon.fct` as
+> the one glyph set, the vocabulary's `x-l-app3` as the one shell — and brings
+> everything else across: `chat/` (MessageBubble, DMThread, InboxItem,
+> InboxList, NewChat), `graph/` (ContactCard, FriendRequestRow, UserMenu,
+> ReportSheet), `live/` (LivePlayer, StreamInfo, ChatPanel, ChatMessage,
+> TipSheet, GoalBar, RecentTips, SubscribeButton, CategoryChip, StreamCard,
+> BrowseGrid, GoLivePanel, StreamKeyBox, AgeGate), `ui/look.fct` (the theme and
+> the vocabulary those atoms use — trimmed of every rule an atom now owns),
+> `NavRail`/`NavItem`, `SignUpCard`, `GuestBanner` (now `CTABar` with the words
+> filled in), and the apps: `timeline.fct` (was that tree's `home.fct`: quote
+> posts, a banner profile, tag pages, sign-in), `live.fct` and `messages.fct`.
+> `CATALOG.md` — what a creator-social platform is made of, and how much of it
+> exists — came with them. Class names that collided were renamed on the
+> incoming side (`x-usermenu`, `x-tipline`, `x-streamchips`, `x-profile-tabs`),
+> and the `fct` integration tests that drove those apps now start them from
+> here.
+>
+> Three signatures changed and every call site in this repo moved with them:
+> `EngagementBar(id, likes, replies, reposts, views)`, `PostCard(…, media,
+> created, likes, replies, reposts, views)`, `ProfileHeader(…, following, banner,
+> joined, follows, followers)`. Each is an append or an insert, never a reorder,
+> so an old call fails to compile rather than passing the wrong count to the
+> wrong button.
 
 ## Import
 
@@ -79,7 +134,7 @@ hand-written screens. Published via the registry, versioned independently of the
 import "github.com/F33D3R-Inc/facets/social/postcard.fct"
 ```
 
-Locally (this repo) the same files live under `library/` and build with `facet build`.
+Locally the files build with `facet check <file>`; the atoms that name a host's cells or actions compile inside one of the reference apps (`home.fct`, `timeline.fct`, `live.fct`, `messages.fct`).
 
 ## What's in the library
 
@@ -94,16 +149,21 @@ app that owns them, which is what `home.fct` is for.
 
 | Category | Facets |
 |---|---|
-| `ui/` | Avatar · VerifiedBadge · UserChip · Trend · Trends (ui) · Nav (icon rail, ui) · Spinner · SkeletonLine/SkeletonPost · EmptyState · ErrorState · Tag · Toast · Tooltip · **Menu/MenuItem/MenuSeparator/MenuClose** · **Disclosure** · **Prose/Code** · **Specs/SpecRow** |
-| `layout/` | Layout vocabulary (page · stack · row · grid2/grid3 · split · split-3 · sticky · card · the 3-column app skeleton) · Page/PageNarrow · Stack/StackTight/StackLoose · Row/RowBetween/RowEnd · Grid2/Grid3 *(column count is a maximum now)* · Split/Split3/Sticky · Card/CardRaised · Section · SectionHeader · PageHeader *(+slot, no longer sticky)* · **StickyPageHeader** · Panel/PanelTitle/PanelNote · Divider/DividerInset · Spacer |
-| `navigation/` | Link · **NavLink** *(self-marking)* · **NavLinkWhen** · **SidebarItem** *(self-marking)* · **SidebarItemWhen** · Breadcrumb/Crumb/CrumbCurrent · Pagination/PageNumbers/PageNumber · TabBar |
-| `social/` | PostCard · EngagementBar · ComposeBox · FollowButton · WhoToFollow |
+| `ui/` | Avatar · AvatarInitials · VerifiedBadge · UserChip · **Icon** *(54 marks, each also an `x-glyph-` class)* · **MediaCard** · **Look** *(theme + vocabulary)* · **NavRail/NavItem** · **SignUpCard** · **GuestBanner** · Trend · Trends (ui) · Nav (icon rail, ui) · Figure/FigureWide · AspectBox ×4 · Gallery · Chip/ChipRow · Tag/TagLink · Alert · Toast · Tooltip · Spinner · SkeletonLine/SkeletonPost · EmptyState · ErrorState · Modal · Drawer · Menu/MenuItem/MenuSeparator/MenuClose · Disclosure · Prose/Code · Specs/SpecRow · PersonList/PersonRow/PersonBlock · Rating · Meter · ProgressBar · Kbd · ButtonGroup · ToggleButton |
+| `layout/` | Layout vocabulary (page · stack · row · grid2/grid3 · split · split-3 · sticky · card · the 3-column app skeleton) · Page/PageNarrow · Stack/StackTight/StackLoose · Row/RowBetween/RowEnd · Grid2/Grid3 *(column count is a maximum)* · Split/Split3/Sticky · Card/CardRaised · Section · SectionHeader · PageHeader · StickyPageHeader · **TopBar** · Toolbar/StickyToolbar · Panel/PanelTitle/PanelNote · Divider/DividerInset · Spacer |
+| `navigation/` | Link · **ButtonLink/ButtonLinkPrimary** · NavLink *(self-marking)* · NavLinkWhen · SidebarItem *(self-marking)* · SidebarItemWhen · Breadcrumb/Crumb/CrumbCurrent · Pagination/PageNumbers/PageNumber · Pager/CursorPager · LoadMore · TabBar |
+| `social/` | PostCard *(+created, +slot, media frame)* · EngagementBar *(glyphs, +views)* · FocusedPost · PostStats · QuoteCard · RepostBanner · ReplyRow · ReplyComposer · CharCounter · ComposeBox · FollowButton · WhoToFollow |
 | `forms/` | Field *(slot)* · TextField/NumberField · **TextAreaField** · **CheckboxField/ToggleField/Toggle** · UploadField · Form · **FormActions/ActionButton** *(`SubmitButton` removed)* · SearchBox · FieldLabel · FieldHint/FieldError · NewsletterForm · ReportForm |
+| `marketing/` | Hero/HeroLeft · FeatureGrid/FeatureItem · Steps/Step · PricingTable/PricingTier/… · LogoWall/Logo · FAQ/FAQItem · Callout · Banner · CTABand · **CTABar** *(fixed to the viewport)* |
+| `content/` | ArticleHeader · ArticleList/ArticleItem/ArticleSummary · Byline/BylineEdited/BylineAvatar · DateStamp · CommentList/CommentRow/CommentBody/CommentActions/CommentReplies |
 | `notify/` | UnreadBadge · NotificationItem |
-| `profile/` | ProfileHeader |
+| `profile/` | ProfileHeader *(+banner, +joined, +follow counts)* |
 | `data/` | Feed (a full vertical slice: entities + actions + policy + content) |
-| `wireframes/` | Shell (the 3-column app skeleton) |
-| — | f33d3r (playground baseplate) |
+| `wireframes/` | Shell (the 3-column app skeleton, on the vocabulary's `x-l-app3`) |
+| `chat/` | **MessageBubble** · **DMThread** · **InboxItem** · **InboxList** · **NewChat** |
+| `graph/` | **ContactCard** · **FriendRequestRow** · **UserMenu** · **ReportSheet** |
+| `live/` | TimeAgo · PresenceDot · TypingIndicator · NewPostsPill · **LivePlayer** · **StreamInfo** · **ChatPanel/ChatMessage** · **TipSheet** · **GoalBar** · **RecentTips** · **SubscribeButton** · **CategoryChip** · **StreamCard** · **BrowseGrid** · **GoLivePanel** · **StreamKeyBox** · **AgeGate** |
+| — | f33d3r (playground baseplate) · home (plain-app track: feed, profile, post detail, notifications, search) · **timeline** (plain-app track: quote posts, banner profile, tags, sign-in) · **live** (the streaming app: browse, `/live/:id` theater, `/dashboard`) · **messages** (inbox, `/dm/:id`, `/people`) |
 
 **Forms are fields again.** `bind` names a state cell that must be resolved at
 compile time, and a component parameter was not one — so `component Field(label,
@@ -240,16 +300,19 @@ whose mobile drawer is a toggle over an overlay — is `Menu`, and that did come
 
 The same component atoms serve both ways an app is built:
 
-- **Plain-app track** — `library/home.fct` (`app F33D3RHome`) imports the atoms and
-  assembles a home screen directly.
-- **Layered (typed-brick) track** — `library/f33d3r.fct` (`playground`) → `Shell`
+- **Plain-app track** — `home.fct` and `timeline.fct` import the atoms and
+  assemble whole screens directly.
+- **Layered (typed-brick) track** — `f33d3r.fct` (`playground`) → `Shell`
   (`wireframe`, typed sockets) → `Nav`/`Trends` (`ui`) + `Feed` (`data`). The `data`
   facet imports the **same** `PostCard`/`ComposeBox`/`SearchBox`/`WhoToFollow` atom
   files — a layered build can pull in component-only modules (closed in v1.17.0).
 
 ```
-facet dev library/home.fct      # plain-app track
-facet dev library/f33d3r.fct    # layered typed-brick track
+facet dev home.fct       # plain-app track
+facet dev timeline.fct   # plain-app track, the social reference app
+facet dev f33d3r.fct     # layered typed-brick track
+facet dev live.fct       # the streaming app
+facet dev messages.fct   # the messaging app
 ```
 
 ## Quality bar (per facet)

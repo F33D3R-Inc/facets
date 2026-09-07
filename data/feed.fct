@@ -72,10 +72,10 @@ data Feed in feed:
         tabs bind feedTab:
             tab "For you" -> "foryou":
                 for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
-                    use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id))
+                    use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id), 0)
             tab "Following" -> "following":
                 for t in Tweet where exists(f in Follow where f.follower == actor && f.followee == t.author) by created desc limit shown:
-                    use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id))
+                    use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id), 0)
         text "Who to follow"
         use WhoToFollow("Grace Hopper", "grace", true, exists(f in Follow where f.follower == actor && f.followee == "grace"))
         use WhoToFollow("Alan Turing", "alan", false, exists(f in Follow where f.follower == actor && f.followee == "alan"))
@@ -103,7 +103,7 @@ data Feed in feed:
         # row is fetched — there is no "get one" node — and the `limit 1` is what
         # makes that honest rather than incidental.
         for t in Tweet where t.id == id by id desc limit 1:
-            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id))
+            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id), 0)
         if !exists(t in Tweet where t.id == id):
             text "This post no longer exists."
 
@@ -119,4 +119,4 @@ data Feed in feed:
         if !exists(t in Tweet where t.author == handle):
             text "No posts yet."
         for t in Tweet where t.author == handle by created desc limit shown:
-            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id))
+            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id), 0)

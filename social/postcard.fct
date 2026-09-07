@@ -1,31 +1,86 @@
-# PostCard — a whole post: avatar, byline, kind-aware body, engagement bar.
+# PostCard — a whole post the way a timeline shows it: avatar in its own column,
+# the byline with a relative time, a kind-aware body, an optional media frame,
+# a slot for what the host wants under the body, and the engagement bar.
+#
+#     use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created,
+#                  count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id),
+#                  count(r in Repost where r.tweet == t.id), 0)
 #
 # Laid out as a grid rather than a bordered card. A timeline is a list of things
 # separated by hairlines, and the body and action bar line up under the *name*, not
 # under the avatar — which is the difference between "a feed" and "a stack of
 # boxes", and is why the avatar sits in its own column here.
+#
+# ── THE BYLINE CARRIES THE AGE ────────────────────────────────────────────────
+#
+# `created` is the row's timestamp and the card renders `ago(created)` after the
+# handle — "· 20h", "· Mar 3" — because a post in a stream has an age and a
+# timeline without one is a list with no order a reader can see. `ago` is a
+# render-time builtin: it reads the clock, so the server's first paint and the
+# client's re-render can differ by however long the page took to arrive, and
+# that is what "20h" means. (`live/timeago.fct` is the older answer, for a host
+# that wants every age measured against one instant it names.)
+#
+# ── EVERY BODY IS `richtext`; THE TIME IS THE CLICK TARGET ───────────────────
+#
+# Whatever its `kind`, the body renders through `richtext`, because that is what
+# turns `#tag` and `@handle` into links and lets a post carry **bold** or a list;
+# `kind` chooses the media frame under the body (`video`, `image`), not the
+# body's renderer. The frame is `ui/MediaCard`, so a video in a feed and a video
+# on a stream card are the same shape.
+#
+# The card used to make the body itself a link to the post. It cannot be both
+# — a `richtext` has links of its own, and an `<a>` inside an `<a>` is not
+# markup — so the destination moved to the one thing every card has and no body
+# ever needs: the time. "· 20h" opens the post, which is where a reader who has
+# used a timeline before already looks for it.
+#
+# ── THE SLOT SITS BETWEEN THE BODY AND THE BAR ────────────────────────────────
+#
+# For the thing a host puts INSIDE a post: a quoted post, a poll, a link
+# preview. A `use` with no block is a card with nothing there, which is the
+# common case and costs the call site nothing.
+#
+#     use PostCard(…):
+#         if t.quoted != 0:
+#             use QuoteCard(…)
 import "../ui/avatar.fct"
 import "../ui/userchip.fct"
+import "../ui/mediacard.fct"
 import "engagementbar.fct"
 app FacetSocial:
     css:
         [data-fa-mount] .x-post { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 12px;
                   padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
         [data-fa-mount] .x-post:hover { background: rgba(255,255,255,.02); }
+        [data-fa-mount] .x-post-head { display: flex; align-items: center; gap: 4px; min-width: 0;
+                       border: none; background: none; padding: 0; }
+        [data-fa-mount] a.x-post-when { color: var(--fa-muted); font-size: 15px; white-space: nowrap; text-decoration: none; }
+        [data-fa-mount] a.x-post-when:hover { text-decoration: underline; }
         [data-fa-mount] .x-body { font-size: 15px; line-height: 1.35; margin: 2px 0 4px; overflow-wrap: anywhere; }
-    component PostCard(id: int, author: text, handle: text, verified: bool, kind: text, body: text, media: text, likes: int, replies: int, reposts: int):
+        [data-fa-mount] .x-body p { margin: 0; }
+        [data-fa-mount] .x-body a { color: var(--fa-accent); text-decoration: none; }
+        [data-fa-mount] .x-body a:hover { text-decoration: underline; }
+        # A `match` arm and an `if` each leave a region element behind. The one
+        # that rendered nothing must not cost a gap; the ones that rendered
+        # something are flattened so the body and the bar are siblings in the
+        # grid's second column and nothing in between can trap them.
+        [data-fa-mount] .x-post > .fa-box > div:empty:not([class]) { display: none; }
+    component PostCard(id: int, author: text, handle: text, verified: bool, kind: text, body: text, media: text, created: int, likes: int, replies: int, reposts: int, views: int):
         box class "x-post":
             use Avatar(author)
             box:
-                use UserChip(author, handle, verified)
+                row class "x-post-head":
+                    use UserChip(author, handle, verified)
+                    link "· {ago(created)}" -> "/post/{id}" class "x-post-when"
+                if body != "":
+                    richtext "{body}" class "x-body"
                 match kind:
-                    case "richtext":
-                        richtext "{body}" class "x-body"
                     case "video":
-                        video "{media}" class "x-body"
+                        use MediaCard("video", media, false, 0)
+                    case "image":
+                        use MediaCard("image", media, false, 0)
                     else:
-                        # The body is the click target for the post itself, which
-                        # is how a timeline row opens: not a separate "view post"
-                        # affordance, the post.
-                        link "{body}" -> "/post/{id}" class "x-body"
-                use EngagementBar(id, likes, replies, reposts)
+                        text ""
+                slot
+                use EngagementBar(id, likes, replies, reposts, views)

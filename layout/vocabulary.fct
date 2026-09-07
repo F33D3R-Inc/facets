@@ -162,6 +162,9 @@ app FacetLayout:
         [data-fa-mount] .x-l-app3 { display: grid; justify-content: center; align-items: start;
                   grid-template-columns: 275px minmax(0,600px) 350px;
                   gap: 0; min-height: 100vh; }
+        # The wide variant: a browse grid or a theater wants the centre column to
+        # take what the rails leave, not a reading measure.
+        [data-fa-mount] .x-l-app3-wide { grid-template-columns: 275px minmax(0,1fr) 350px; }
         # The runtime's default sheet turns a nested box into a bordered card. The
         # three columns of a shell are structure, never cards, and scoping the
         # reset to this container's own children is what keeps it from leaking out
@@ -181,6 +184,7 @@ app FacetLayout:
         # smaller app, it is a broken one, so it un-sticks and lies down as a bar.
         @media (max-width: 1100px) {
             [data-fa-mount] .x-l-app3 { grid-template-columns: 275px minmax(0,600px); }
+            [data-fa-mount] .x-l-app3-wide { grid-template-columns: 275px minmax(0,1fr); }
             [data-fa-mount] .x-l-app3-aside { display: none; }
             [data-fa-mount] .x-l-split { grid-template-columns: minmax(0,1fr); }
             [data-fa-mount] .x-l-split-3 { grid-template-columns: minmax(0,1fr); }

@@ -34,6 +34,12 @@ import "ui/userchip.fct"
 # into it; `ui/icon.fct` is the set that fills it, so the import is what makes the
 # nav rail visible at all.
 import "ui/icon.fct"
+# The three columns and the rail's rows. The grid is the vocabulary's `x-l-app3`
+# — the same rule `wireframes/shell.fct` wears — and a rail row is `SidebarItem`,
+# which marks itself from `route`, so this file owns neither a grid nor a
+# current-page flag.
+import "layout/vocabulary.fct"
+import "navigation/sidebaritem.fct"
 import "ui/trend.fct"
 
 app F33D3RHome:
@@ -86,19 +92,14 @@ app F33D3RHome:
         [data-fa-mount] button { border: none; background: none; color: inherit; padding: 0; border-radius: 9999px; }
         [data-fa-mount] button:hover { color: inherit; }
 
-        # The three columns. `minmax(0,600px)` is what stops a long unbroken word in
-        # a post from widening the whole feed and pushing the rails off screen.
-        [data-fa-mount] .x-shell { display: grid; grid-template-columns: 275px minmax(0,600px) 350px;
-                   justify-content: center; align-items: start; gap: 0; min-height: 100vh; }
-
-        # Left rail. Sticky, because a nav that scrolls away is a nav you cannot use.
-        [data-fa-mount] .x-nav { position: sticky; top: 0; height: 100vh; padding: 4px 8px 12px;
-                 display: flex; flex-direction: column; align-items: stretch; }
+        # The three columns are `layout/vocabulary.fct`'s app skeleton — sticky
+        # rails, a 600px hairline-bordered feed, and the collapse below 1100px and
+        # 820px — so this file no longer keeps a private copy of that grid. What
+        # stays is the rail's own furniture: the brand, the Post button and the
+        # sign-out line. A rail row is `SidebarItem`, styled by its own file.
         [data-fa-mount] .x-brand { font-size: 26px; padding: 12px; }
-        [data-fa-mount] .x-navlink { display: flex; align-items: center; gap: 18px; padding: 12px;
-                     border-radius: 9999px; font-size: 20px; width: fit-content; }
-        [data-fa-mount] .x-navlink:hover { background: var(--x-hover); }
-        [data-fa-mount] .x-navlink .fa-link { color: var(--fa-fg); text-decoration: none; }
+        [data-fa-mount] .x-l-app3-nav > .fa-use { display: contents; }
+        [data-fa-mount] .x-side-item { width: fit-content; }
         [data-fa-mount] .x-post-btn button { background: var(--fa-accent); color: #fff; font-weight: 700;
                              font-size: 17px; padding: 15px 0; width: 90%; margin: 12px 0;
                              border-radius: 9999px; }
@@ -107,16 +108,12 @@ app F33D3RHome:
         [data-fa-mount] .x-whoami button { color: var(--fa-muted); font-size: 14px; }
         [data-fa-mount] .x-whoami button:hover { color: var(--fa-fg); }
 
-        # Centre column: hairlines on both sides, and posts divided rather than boxed.
-        [data-fa-mount] .x-feed { border-inline: 1px solid var(--x-line); min-height: 100vh; }
-
         # Tabs across the top of the feed, full width and equal.
         [data-fa-mount] .x-tabs .fa-tabstrip { border-bottom: 1px solid var(--x-line); }
         [data-fa-mount] .x-tabs .fa-tab { flex: 1; padding: 16px 0; font-size: 15px; font-weight: 600; }
         [data-fa-mount] .x-tabs .fa-tab[aria-selected=true] { border-bottom-width: 4px; }
 
-        # Right rail: panels, sticky, and a heading that is actually a heading.
-        [data-fa-mount] .x-aside { position: sticky; top: 0; padding: 12px 0 12px 28px; }
+        # Right rail panels, and a heading that is actually a heading.
         [data-fa-mount] .x-panel { background: var(--x-panel); border-radius: 16px; margin-bottom: 16px;
                    overflow: hidden; }
         [data-fa-mount] .x-panel-title { font-size: 20px; font-weight: 800; padding: 12px 16px; }
@@ -125,24 +122,10 @@ app F33D3RHome:
         [data-fa-mount] .x-section { font-size: 20px; font-weight: 800; padding: 16px; }
         [data-fa-mount] .x-empty { color: var(--fa-muted); padding: 32px 16px; text-align: center; }
 
-        # Narrow viewports. The rails are laid out for a desktop three-column page;
-        # below 1100px the right one goes, and below 700px the shell becomes a single
-        # column. The nav does NOT go with it — a phone with no way to reach
-        # notifications, search or log out is not a smaller version of the app, it is
-        # a broken one — so it un-sticks and lays itself out as a horizontal bar
-        # above the feed.
-        @media (max-width: 1100px) {
-            [data-fa-mount] .x-shell { grid-template-columns: minmax(0,600px) 350px; }
-            [data-fa-mount] .x-nav { display: none; }
-        }
+        # Narrow viewports: the vocabulary lays the nav down as a bar above the
+        # feed below 820px; these are the rail's own pieces following it.
         @media (max-width: 820px) {
-            [data-fa-mount] .x-shell { grid-template-columns: minmax(0,1fr); }
-            [data-fa-mount] .x-aside { display: none; }
-            [data-fa-mount] .x-nav { display: flex; flex-direction: row; flex-wrap: wrap;
-                       align-items: center; gap: 4px; position: static; height: auto;
-                       border-bottom: 1px solid var(--x-line); }
-            [data-fa-mount] .x-nav .x-brand { font-size: 20px; padding: 8px 12px; }
-            [data-fa-mount] .x-navlink { font-size: 15px; padding: 8px 10px; gap: 8px; }
+            [data-fa-mount] .x-brand { font-size: 20px; padding: 8px 12px; }
             [data-fa-mount] .x-post-btn { margin-left: auto; }
             [data-fa-mount] .x-post-btn button { width: auto; padding: 8px 18px; margin: 0 8px; font-size: 15px; }
             [data-fa-mount] .x-whoami { margin-top: 0; }
@@ -280,30 +263,24 @@ app F33D3RHome:
     # notifications and search reachable by a click from anywhere) and the right
     # "what's happening" rail. Each view drops into the `slot`.
     layout Shell:
-        row class "x-shell":
-            box class "x-nav":
+        row class "x-l-app3":
+            box class "x-l-app3-nav":
                 text "𝕏" class "x-brand"
-                row class "x-navlink":
-                    icon "home"
-                    link "Home" -> "/"
-                row class "x-navlink":
-                    icon "search"
-                    link "Explore" -> "/search"
-                row class "x-navlink":
-                    icon "bell"
-                    link "Notifications" -> "/notifications"
+                use SidebarItem("home", "Home", "/")
+                use SidebarItem("search", "Explore", "/search")
+                use SidebarItem("bell", "Notifications", "/notifications"):
                     use UnreadBadge(count(n in Notification where n.user == actor && !n.read))
                 box class "x-post-btn":
                     button "Post" -> post(draft)
-                row class "x-navlink":
-                    icon "user"
-                    link "Profile" -> "/profile/{actor}"
+                # Current on your own profile and on nobody else's, which exact
+                # match cannot say: the route carries the handle.
+                use SidebarItemWhen("user", "Profile", "/profile/" + actor, route == "/profile/" + actor)
                 box class "x-whoami":
                     text "signed in as {actor}"
                     button "log out" -> logout
-            box class "x-feed":
+            box class "x-l-app3-main":
                 slot
-            box class "x-aside":
+            box class "x-l-app3-aside":
                 use SearchBox()
                 box class "x-panel":
                     text "What's happening" class "x-panel-title"
@@ -322,10 +299,10 @@ app F33D3RHome:
             tabs bind feedTab class "x-tabs":
                 tab "For you" -> "foryou":
                     for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
-                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id))
+                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
                 tab "Following" -> "following":
                     for t in Tweet where exists(f in Follow where f.follower == actor && f.followee == t.author) by created desc limit shown:
-                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id))
+                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
 
     # Profile — the ProfileHeader atom over that user's posts. A user who has saved
     # a Profile row renders from it; one who has not still gets a page, rendered
@@ -335,9 +312,9 @@ app F33D3RHome:
         meta description "Posts by @{handle}."
         box:
             for p in Profile where p.handle == handle by id desc limit 1:
-                use ProfileHeader(p.name, p.handle, p.verified, p.bio, exists(f in Follow where f.follower == actor && f.followee == handle))
+                use ProfileHeader(p.name, p.handle, p.verified, p.bio, exists(f in Follow where f.follower == actor && f.followee == handle), "", "", count(f in Follow where f.follower == handle), count(f in Follow where f.followee == handle))
             if !exists(p in Profile where p.handle == handle):
-                use ProfileHeader(handle, handle, false, "No bio yet.", exists(f in Follow where f.follower == actor && f.followee == handle))
+                use ProfileHeader(handle, handle, false, "No bio yet.", exists(f in Follow where f.follower == actor && f.followee == handle), "", "", count(f in Follow where f.follower == handle), count(f in Follow where f.followee == handle))
             if handle == actor:
                 box:
                     input bind nameDraft placeholder "display name"
@@ -345,7 +322,7 @@ app F33D3RHome:
                     button "Save profile" -> saveProfile(nameDraft, bioDraft)
             text "Posts" class "x-section"
             for t in Tweet where t.author == handle by created desc limit shown:
-                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id))
+                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
 
     # Post detail — one post opened on its own, with the EngagementBar over real
     # counts and the conversation under it. The post is matched by row rather than
@@ -358,7 +335,7 @@ app F33D3RHome:
             for t in Tweet where t.id == id by id desc limit 1:
                 use FocusedPost(t.author, t.handle, t.verified, t.kind, t.body, t.media)
                 use PostStats(count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), count(l in Like where l.tweet == t.id))
-                use EngagementBar(t.id, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id))
+                use EngagementBar(t.id, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
                 # The button lives here and not inside ReplyComposer because
                 # `reply(t.id, replyDraft)` takes an argument, and only a call site
                 # can write a call that does.
@@ -397,7 +374,7 @@ app F33D3RHome:
         box:
             text "Posts matching \"{q}\"" class "x-section"
             for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
-                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id))
+                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
             text "People" class "x-section"
             for p in Profile where contains(lower(p.handle), lower(q)) by id desc limit 10:
                 use WhoToFollow(p.name, p.handle, p.verified, exists(f in Follow where f.follower == actor && f.followee == p.handle))

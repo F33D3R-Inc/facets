@@ -1,6 +1,13 @@
 # Shell — the 3-column app skeleton. A `wireframe`: pure structure that declares
 # typed sockets and lays them out. `ui` facets snap into nav/aside, a `data` facet
 # into feed; the kinds must match or the bricks don't fit.
+#
+# The columns wear `layout/vocabulary.fct`'s app skeleton — `x-l-app3` and its
+# three column classes — so a sticky rail, a 600px hairline-bordered feed and a
+# sticky aside come from the one rule the plain-app track's `layout Shell` uses
+# too, and the two tracks lay out identically. A wireframe has no `css:` of its
+# own; the import is what makes the grid arrive.
+import "../layout/vocabulary.fct"
 import "../ui/nav.fct"
 import "../data/feed.fct"
 import "../ui/trends.fct"
@@ -9,10 +16,10 @@ wireframe Shell:
     socket feed: data
     socket aside: ui
     frame:
-        row:
-            box:
+        row class "x-l-app3":
+            box class "x-l-app3-nav":
                 slot nav
-            box:
+            box class "x-l-app3-main":
                 slot feed
-            box:
+            box class "x-l-app3-aside":
                 slot aside

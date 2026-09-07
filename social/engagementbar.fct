@@ -1,17 +1,50 @@
-# EngagementBar — reply, repost, like, bookmark, spread across the width of the
-# post body rather than bunched at the left. Muted until hovered, which is what
-# keeps a timeline calm: the actions are present on every post and shouting on
-# none of them.
+# EngagementBar — reply, repost, like, views, bookmark: the action row under a
+# post, spread across the width of the body rather than bunched at the left.
+# Muted until hovered, which is what keeps a timeline calm: the actions are
+# present on every post and shouting on none of them.
+#
+#     use EngagementBar(t.id, likes, replies, reposts, 0)
+#
+# Each mark is a glyph from `ui/icon.fct` worn as a CLASS — `x-glyph-heart` on
+# the like button — because a `button` renders its label and nothing else, so
+# there is no way to put an `icon` node inside one. The count beside it is
+# `compact(n)`: "1.3K", not "1300", because the number on a button is a weight,
+# not a figure; `PostStats` states the figure, on the one page with room for it.
+#
+# The reply control is a LINK to the post, not a button: replying is done on the
+# post's own page, and a reply button on a timeline row that opened a composer
+# would be a second composer per row. Bookmark has no count and no label: a
+# bookmark is yours, and a public count of them is a number about other people.
+#
+# `views` renders nothing at 0. The host that counts views passes the count; a
+# host that does not passes 0 and the bar has four controls, not four and a
+# zero. The two hover colours are the two verbs a reader recognises by colour —
+# a like is pink, a repost is green — and they are set on the BUTTON, which is
+# all it takes: the mark is `currentColor`.
+import "../ui/icon.fct"
 app FacetSocial:
     css:
-        [data-fa-mount] .x-actions { display: flex; justify-content: space-between; max-width: 425px;
-                     margin-top: 4px; color: var(--fa-muted); }
-        [data-fa-mount] .x-actions button, [data-fa-mount] .x-actions .fa-text {
-                     color: var(--fa-muted); font-size: 13px; padding: 6px 8px; border-radius: 9999px; }
-        [data-fa-mount] .x-actions button:hover { background: var(--x-hover, rgba(239,243,244,.06)); color: var(--fa-accent); }
-    component EngagementBar(id: int, likes: int, replies: int, reposts: int):
+        [data-fa-mount] .x-actions { display: flex; justify-content: space-between; align-items: center;
+                     max-width: 425px; margin-top: 4px; color: var(--fa-muted); }
+        [data-fa-mount] .x-actions > button,
+        [data-fa-mount] .x-actions > .fa-text,
+        [data-fa-mount] .x-actions > .fa-link { display: inline-flex; align-items: center;
+                     color: var(--fa-muted); font-size: 13px; line-height: 1;
+                     padding: 6px 8px; border-radius: 9999px; text-decoration: none; }
+        [data-fa-mount] .x-actions > [class*="x-glyph-"]::before { width: 19px; height: 19px; }
+        [data-fa-mount] .x-actions > button:hover,
+        [data-fa-mount] .x-actions > .fa-link:hover { background: var(--x-hover, rgba(239,243,244,.06));
+                     color: var(--fa-accent); text-decoration: none; }
+        [data-fa-mount] .x-actions > .x-like:hover { color: rgb(249,24,128); }
+        [data-fa-mount] .x-actions > .x-repost:hover { color: rgb(0,186,124); }
+        # A `views` of 0 renders nothing, and the empty region it leaves behind
+        # must not take a share of `space-between`.
+        [data-fa-mount] .x-actions > div:empty:not([class]) { display: none; }
+    component EngagementBar(id: int, likes: int, replies: int, reposts: int, views: int):
         row class "x-actions":
-            link "💬 {replies}" -> "/post/{id}"
-            button "🔁 {reposts}" -> repost(id)
-            button "♡ {likes}" -> like(id)
-            button "🔖" -> bookmark(id)
+            link "{compact(replies)}" -> "/post/{id}" class "x-glyph-reply"
+            button "{compact(reposts)}" -> repost(id) class "x-repost x-glyph-repost"
+            button "{compact(likes)}" -> like(id) class "x-like x-glyph-heart"
+            if views > 0:
+                text "{compact(views)}" class "x-glyph-chart"
+            button "" -> bookmark(id) class "x-glyph-bookmark"
