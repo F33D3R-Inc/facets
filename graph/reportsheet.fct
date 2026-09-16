@@ -1,0 +1,17 @@
+# ReportSheet — pick a reason; it goes to the host's `report(target, reason)`
+# action and the sheet closes via the host's `close`. One facet for a person, a
+# post, a stream: the target is a text key the host interprets.
+app FacetGraph:
+    component ReportSheet(target: text, open: cell bool, close: action):
+        overlay bind open:
+            box class "x-sheet x-usermenu":
+                heading 3 "Report @{target}"
+                text "Why are you reporting this?" class "x-muted"
+                button "Spam" -> report(target, "spam") class "x-usermenu-item"
+                button "Harassment" -> report(target, "harassment") class "x-usermenu-item"
+                button "Hate or violence" -> report(target, "hate") class "x-usermenu-item"
+                button "Impersonation" -> report(target, "impersonation") class "x-usermenu-item"
+                button "Something else" -> report(target, "other") class "x-usermenu-item"
+                if pending(report):
+                    text "Sending…" class "x-muted"
+                button "Cancel" -> close class "x-pill x-wide"

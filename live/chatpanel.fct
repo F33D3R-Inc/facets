@@ -1,0 +1,24 @@
+# ChatPanel — the right column of a live page: a header, the broadcaster's
+# pinned line, the message list (live over SSE — a new row appears for everyone
+# watching without a reload), and the composer. A visitor who is not signed in
+# sees "Log in to chat" where the composer would be. `draft` is the host's
+# `@client` text; `say(stream, body)` the host action (`requires member`).
+import "chatmessage.fct"
+app FacetLive:
+    component ChatPanel(s: Stream, draft: cell text, mod: bool):
+        box class "x-chat":
+            row class "x-chat-head":
+                heading 3 "Stream chat"
+                text "{compact(s.viewers)} watching" class "x-muted x-small x-right"
+            if s.pinned != "":
+                row class "x-chat-pinned":
+                    icon "pin"
+                    text "{s.pinned}" class "x-small"
+            box class "x-chat-list":
+                for m in Chat where m.stream == s.id by id desc limit 100:
+                    use ChatMessage(m, mod)
+            if actor == "guest":
+                text "Log in to chat." class "x-muted x-chat-gate"
+            if actor != "guest":
+                form "Chat" -> say(s.id, draft):
+                    input bind draft placeholder "Send a message"

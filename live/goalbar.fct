@@ -1,0 +1,12 @@
+# GoalBar — "Tip goal · 60%": a labelled progress bar. One facet serves tip
+# goals, sub goals and fundraisers; only the label differs. The fill width is a
+# class in 5% steps (`x-w0` … `x-w100`, from the Look), because a `style` is
+# literal and a class interpolates.
+app FacetLive:
+    component GoalBar(label: text, current: int, target: int):
+        box class "x-goal":
+            row class "x-goal-head":
+                text "{label}" class "x-strong"
+                text "{compact(current)} / {compact(target)}" class "x-muted x-small x-right"
+            box class "x-goal-track":
+                box class "x-goal-fill x-w{min((current * 20) / max(target, 1), 20) * 5}"

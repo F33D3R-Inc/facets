@@ -1,0 +1,18 @@
+# LivePlayer — the stream frame: the video (an HLS or MP4 URL), muted autoplay so
+# it starts the moment the page does, and the corner overlay a live channel
+# wears: a LIVE pill, who is watching, and how long it has been on. Takes the
+# Stream row. When the stream is offline the frame shows the poster and an
+# OFFLINE pill instead.
+import "../ui/icon.fct"
+import "../ui/mediacard.fct"
+app FacetLive:
+    component LivePlayer(s: Stream):
+        box class "x-media x-aspect x-aspect-16x9 x-stage":
+            video "{s.hls}" poster "{s.thumb}" alt "{s.title}" autoplay loop
+            row class "x-media-overlay":
+                if s.live:
+                    badge "LIVE" class "x-media-live"
+                    badge "{compact(s.viewers)} watching" class "x-media-views"
+                    badge "{ago(s.startedAt)}" class "x-media-views"
+                if !s.live:
+                    badge "OFFLINE" class "x-media-views"

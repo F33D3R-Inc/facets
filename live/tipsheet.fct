@@ -1,0 +1,23 @@
+# TipSheet — the tipping dialog: preset amounts, a note, and the amount goes to
+# the host's `tip(stream, cents, note)` action (which writes the Tip row the
+# billing ledger settles). `open` is the host's `@client` bool that shows it;
+# `note` the host's `@client` text the note binds to; `close` the host's client
+# action that hides it again. One facet also serves
+# Kick/TikTok-style gifts: a gift is a preset with a picture.
+app FacetLive:
+    component TipSheet(s: Stream, open: cell bool, note: cell text, close: action):
+        overlay bind open:
+            box class "x-sheet":
+                heading 2 "Send a tip to {s.owner}"
+                text "Tips go straight to the channel." class "x-muted"
+                row class "x-presets":
+                    button "$1" -> tip(s.id, 100, note) class "x-pill"
+                    button "$5" -> tip(s.id, 500, note) class "x-pill"
+                    button "$10" -> tip(s.id, 1000, note) class "x-pill"
+                    button "$25" -> tip(s.id, 2500, note) class "x-pill"
+                    button "$100" -> tip(s.id, 10000, note) class "x-pill x-primary"
+                input bind note placeholder "Say something (optional)"
+                if pending(tip):
+                    text "Sending…" class "x-muted"
+                text "{failed(tip)}" class "fa-error"
+                button "Done" -> close class "x-pill"

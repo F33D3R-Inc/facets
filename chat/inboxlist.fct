@@ -1,0 +1,11 @@
+# InboxList — every conversation the actor is in, newest first, each with its
+# unread count: messages from the other side sent after this side's read marker.
+import "inboxitem.fct"
+app FacetChat:
+    component InboxList():
+        box class "x-inbox":
+            for t in Thread where t.a == actor || t.b == actor by id desc limit 50:
+                if t.a == actor:
+                    use InboxItem(t, t.b, count(m in Message where m.thread == t.id && m.from != actor && m.sent > t.readA))
+                if t.b == actor:
+                    use InboxItem(t, t.a, count(m in Message where m.thread == t.id && m.from != actor && m.sent > t.readB))

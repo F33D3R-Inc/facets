@@ -1,0 +1,18 @@
+# GuestBanner — the bar fixed along the bottom of the window for a visitor who
+# is not signed in: the invitation, and the two ways in. Render it under
+# `if actor == "guest":` in the host, after the shell.
+#
+#     if actor == "guest":
+#         use GuestBanner("/login")
+#
+# It is `marketing/CTABar` with the words filled in and both actions pointing at
+# the one sign-in page — a `ButtonLink`, not a `button`, because "Log in" is a
+# destination and a control that navigates should be an `<a>`. A host with a
+# separate sign-up page writes the three-line `CTABar` itself.
+import "../marketing/ctabar.fct"
+import "../navigation/buttonlink.fct"
+app FacetUI:
+    component GuestBanner(path: text):
+        use CTABar("Don't miss what's happening", "People on F33D3R are the first to know."):
+            use ButtonLink("Log in", path)
+            use ButtonLinkPrimary("Sign up", path)

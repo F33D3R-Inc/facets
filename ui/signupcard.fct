@@ -1,0 +1,11 @@
+# SignUpCard — the "New to X?" card in the right column for a visitor who is not
+# signed in: a title, a line of copy, full-width pill buttons, and the legal
+# small print with inline links (richtext). `path` is the sign-up page.
+app FacetUI:
+    component SignUpCard(title: text, path: text):
+        box class "x-card":
+            heading 2 "{title}"
+            text "Sign up now to get your own personalized timeline!" class "x-muted"
+            link "Create account" -> "{path}" class "x-pill x-light x-wide"
+            link "Log in" -> "{path}" class "x-pill x-wide"
+            richtext "By signing up, you agree to the [Terms of Service](/terms) and [Privacy Policy](/privacy), including Cookie Use." class "x-fine"

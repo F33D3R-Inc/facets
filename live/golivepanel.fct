@@ -1,0 +1,20 @@
+# GoLivePanel — the creator's console: title and category, and the one button
+# that starts or ends the broadcast. Calls the host's `updateStream(id, title,
+# category)`, `goLive(id)`, `endStream(id)` — each `requires owner(id)`.
+# `title`/`category` are host `@client` cells. The stream key is StreamKeyBox,
+# deliberately separate (see there).
+import "liveplayer.fct"
+app FacetLive:
+    component GoLivePanel(s: Stream, title: cell text, category: cell text):
+        box class "x-console":
+            use LivePlayer(s)
+            row class "x-console-row":
+                input bind title placeholder "Stream title"
+                input bind category placeholder "Category"
+                button "Save" -> updateStream(s.id, title, category) class "x-pill"
+            row class "x-console-row":
+                if !s.live:
+                    button "Go live" -> goLive(s.id) class "x-pill x-primary"
+                if s.live:
+                    button "End stream" -> endStream(s.id) class "x-pill x-light"
+                text "{compact(s.viewers)} watching · {compact(count(t in Tip where t.stream == s.id))} tips" class "x-muted"

@@ -1,0 +1,20 @@
+# ChatMessage — one line of stream chat: role badges (broadcaster · mod · sub),
+# the coloured name, the text. A moderator (or the broadcaster) also sees the
+# per-message tools — delete, ban — which call the host's `deleteChat(id)` and
+# `ban(stream, user)`; both `requires moderator` in the host.
+import "../ui/icon.fct"
+app FacetLive:
+    component ChatMessage(m: Chat, mod: bool):
+        row class "x-chatline":
+            if m.role == "broadcaster":
+                icon "mic" class "x-role"
+            if m.role == "mod":
+                icon "bolt" class "x-role"
+            if m.role == "sub":
+                icon "heart" class "x-role"
+            text "{m.author}" class "x-strong x-chat-name"
+            richtext "{m.body}" class "x-chat-body"
+            if mod:
+                row class "x-modtools":
+                    button "" -> deleteChat(m.id) class "x-glyph-close"
+                    button "" -> ban(m.stream, m.author) class "x-glyph-settings"

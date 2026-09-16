@@ -1,0 +1,57 @@
+# TopBar — the sticky header of a DETAIL page: a back arrow, a bold title, and a
+# muted line under it. It blurs whatever scrolls beneath, so the feed shows
+# through it rather than being cut off by it.
+#
+#     use TopBar("Post", "", "/")
+#     use TopBar(p.name, compact(n) + " posts", "/")
+#
+# ── WHY THIS IS NOT `PageHeader` ──────────────────────────────────────────────
+#
+# `PageHeader` is the top of a page that IS a destination: a title, a lede, a
+# strip of actions, at page-heading size. This is the top of a page you went INTO
+# from a list — a post, a profile, a conversation — and its first control is the
+# way back. Same file category, different object: a page header with a back
+# arrow is a header confused about whether it is a place or a step, which is why
+# there is no `back: text` on `PageHeader` and no `lede` here.
+#
+# ── THE BACK LINK IS A ROUTE EXPRESSION ───────────────────────────────────────
+#
+# `back` arrives as data — "/" for a feed, "/profile/" + handle for a thread — so
+# it is the `"{href}"` form, checked by the renderers rather than the compiler.
+# When it names a route this app does not serve the renderers emit inert text,
+# and inert text with a `font-size: 0` label is nothing at all, which is the
+# correct arrow to draw for a way back that does not exist: none.
+#
+# The label is "Back" and it is real, for a screen reader; the arrow is
+# `x-glyph-arrow-left` from `ui/icon.fct`, drawn at a size in pixels precisely
+# because the label's size is zero.
+import "../ui/icon.fct"
+app FacetLayout:
+    css:
+        [data-fa-mount] .x-topbar { position: sticky; top: 0; z-index: 5;
+                    display: flex; align-items: center; gap: 20px;
+                    min-height: 53px; padding: 6px 16px; box-sizing: border-box;
+                    border: none; border-radius: 0;
+                    border-bottom: 1px solid var(--x-line, #2f3336);
+                    background: var(--fa-bg);
+                    background: color-mix(in srgb, var(--fa-bg) 70%, transparent);
+                    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+        [data-fa-mount] a.x-topbar-back { display: inline-flex; align-items: center; justify-content: center;
+                        flex: 0 0 auto; width: 36px; height: 36px; border-radius: 9999px;
+                        color: var(--fa-fg); font-size: 0; text-decoration: none; }
+        [data-fa-mount] a.x-topbar-back:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-topbar-back::before { width: 20px; height: 20px; margin: 0; }
+        [data-fa-mount] span.x-topbar-back { display: none; }
+        [data-fa-mount] .x-topbar-lines { display: flex; flex-direction: column; gap: 0;
+                         min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-topbar-lines > div:empty:not([class]) { display: none; }
+        [data-fa-mount] .x-topbar-title { display: block; font-size: 20px; font-weight: 700; line-height: 1.2;
+                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        [data-fa-mount] .x-topbar-sub { display: block; color: var(--fa-muted); font-size: 13px; }
+    component TopBar(title: text, sub: text, back: text):
+        row class "x-topbar":
+            link "Back" -> "{back}" class "x-topbar-back x-glyph-arrow-left"
+            box class "x-topbar-lines":
+                text "{title}" class "x-topbar-title"
+                if sub != "":
+                    text "{sub}" class "x-topbar-sub"

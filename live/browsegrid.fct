@@ -1,0 +1,9 @@
+# BrowseGrid — every live channel, most watched first, as StreamCards in a
+# responsive grid. `category` narrows it ("" for all). The grid class sits on the
+# `for` itself: a list region is its own element, so a grid on a box around it
+# would have one item — the list.
+import "streamcard.fct"
+app FacetLive:
+    component BrowseGrid(category: text):
+        for s in Stream where s.live && (category == "" || s.category == category) by viewers desc limit 24 class "x-grid":
+            use StreamCard(s)

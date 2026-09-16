@@ -1,0 +1,18 @@
+# DMThread — a 1:1 conversation: the messages (newest at the bottom, live over
+# SSE), the composer, and a "mark read" control. Takes the Thread row — two
+# participants `a` and `b`, and each side's read marker `readA` / `readB`, which
+# is what makes unread counts and "Seen" receipts a pure predicate over the row
+# instead of a per-user table the language would need `let id = add …` to seed.
+# `draft` is the host's `@client` text; `send(thread, body)` and `markRead(thread)`
+# the host actions, both `requires participant(thread)`.
+import "messagebubble.fct"
+app FacetChat:
+    component DMThread(t: Thread, draft: cell text):
+        box class "x-thread":
+            box class "x-thread-list":
+                for m in Message where m.thread == t.id by sent desc limit 200:
+                    use MessageBubble(m, m.from == actor, (t.a == actor && m.sent <= t.readB) || (t.b == actor && m.sent <= t.readA))
+            row class "x-composer":
+                form "Send" -> send(t.id, draft):
+                    input bind draft placeholder "Message"
+                button "Mark read" -> markRead(t.id) class "x-pill x-small"

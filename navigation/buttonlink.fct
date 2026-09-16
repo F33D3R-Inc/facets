@@ -1,0 +1,46 @@
+# ButtonLink — a destination that looks like a button: a pill with a label, for
+# the places a page asks you to GO somewhere rather than DO something. "Sign up"
+# beside "Log in", "Post" at the foot of a rail, "See all" under a list.
+#
+#     use ButtonLink("Log in", "/login")
+#     use ButtonLinkPrimary("Create account", "/signup")
+#
+# ── A LINK, NOT A BUTTON, AND THAT IS THE POINT ───────────────────────────────
+#
+# A `button` calls an action. A page that wants a button-shaped thing leading to
+# another page has, until now, written `button "Sign up" -> goSignup` and an
+# action that does nothing, which is a control lying about its kind: it does not
+# open in a new tab, it does not show its destination, a crawler cannot follow
+# it, and a reader who middle-clicks gets nothing. This is an `<a>` with a
+# button's clothes on, so it does all of those.
+#
+# Two weights and no more. `ButtonLink` is the outlined default; `ButtonLinkPrimary`
+# is the accent-filled one, and a page has one of those or it has none — two
+# primaries side by side is the failure this pair of names exists to prevent.
+# There is no `wide` variant: the width of a link is its container's business,
+# and `.x-btnlink` inside a `Stack` is as wide as the stack tells it to be.
+#
+# The destination is the route-expression form, so a `ButtonLink` handed a route
+# this app does not serve renders as a dashed, muted pill: visibly a button that
+# goes nowhere, rather than a button that looks fine until it is clicked. See
+# `link.fct` for the two forms and the trap between them.
+app FacetNav:
+    css:
+        [data-fa-mount] .x-btnlink { display: inline-flex; align-items: center; justify-content: center;
+                     gap: 8px; box-sizing: border-box; border-radius: 9999px; padding: 8px 16px;
+                     font-weight: 700; font-size: 15px; line-height: 1.25;
+                     border: 1px solid var(--x-line, #2f3336); color: var(--fa-fg);
+                     text-decoration: none; }
+        [data-fa-mount] a.x-btnlink:hover { text-decoration: none;
+                       background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-btnlink-primary { background: var(--fa-accent); border-color: var(--fa-accent);
+                             color: rgb(255,255,255); }
+        [data-fa-mount] a.x-btnlink-primary:hover { background: var(--fa-accent); filter: brightness(1.08); }
+        # The inert half of a route expression: a pill that goes nowhere, drawn
+        # so that it says so.
+        [data-fa-mount] span.x-btnlink { color: var(--fa-muted); border-style: dashed;
+                         background: none; cursor: default; filter: none; }
+    component ButtonLink(label: text, href: text):
+        link "{label}" -> "{href}" class "x-btnlink"
+    component ButtonLinkPrimary(label: text, href: text):
+        link "{label}" -> "{href}" class "x-btnlink x-btnlink-primary"

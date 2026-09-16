@@ -1,0 +1,52 @@
+# MediaCard — a 16 / 9 frame holding a video or a picture, wearing the overlay a
+# stream wears: a LIVE pill and a view count in the bottom-left corner.
+#
+#     use MediaCard("video", t.media, false, 0)          # a post's attachment
+#     use MediaCard("image", s.thumb, s.live, s.viewers)  # a stream card
+#
+# `kind` is "video" or anything else (drawn as a picture); `live` shows the pill;
+# `views` shows "1.3K views" and shows nothing at all for 0, because a frame that
+# says "0 views" is a frame announcing that nobody came.
+#
+# ── BUILT ON `AspectWide`'S RULE, NOT ON THE COMPONENT ────────────────────────
+#
+# The frame IS an `x-aspect x-aspect-16x9` box — the same classes
+# `ui/aspectbox.fct` ships — so the shape, the crop and the undoing of the
+# runtime's 44px-avatar default all come from there and are not restated. It is
+# the class and not `use AspectWide()` because the overlay has to be a child of
+# the SAME element the ratio is on (that is what `position: absolute` is anchored
+# to), and a wrapper's slot is one level down. One substrate, many wrappers; see
+# `layout/vocabulary.fct` for the long version of that rule.
+#
+# `match` renders its arm inside an unclassed region element, which would sit
+# between the frame and the media and give `height: 100%` nothing to be 100% of.
+# `display: contents` on that wrapper is what keeps the picture filling the box.
+import "aspectbox.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-media { margin-top: 8px; border: 1px solid var(--x-line, #2f3336);
+                   border-radius: var(--fa-radius, 16px); background: rgb(0,0,0); }
+        [data-fa-mount] .x-media > div:not([class]) { display: contents; }
+        [data-fa-mount] .x-media-overlay { position: absolute; left: 12px; bottom: 12px;
+                           display: flex; align-items: center; gap: 6px;
+                           border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-media-overlay > div:empty:not([class]) { display: none; }
+        # The two pills. The live one is the one colour in this library that is
+        # not a theme token: it is a broadcast red the way a record light is.
+        [data-fa-mount] .x-media-live { background: rgb(249,24,128); color: rgb(255,255,255);
+                        font-size: 13px; font-weight: 700; letter-spacing: .02em;
+                        padding: 1px 6px; border-radius: 4px; }
+        [data-fa-mount] .x-media-views { background: rgba(0,0,0,.75); color: rgb(255,255,255);
+                         font-size: 13px; padding: 1px 6px; border-radius: 4px; }
+    component MediaCard(kind: text, src: text, live: bool, views: int):
+        box class "x-media x-aspect x-aspect-16x9":
+            match kind:
+                case "video":
+                    video "{src}"
+                else:
+                    image "{src}"
+            row class "x-media-overlay":
+                if live:
+                    badge "LIVE" class "x-media-live"
+                if views > 0:
+                    badge "{compact(views)} views" class "x-media-views"

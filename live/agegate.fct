@@ -1,0 +1,15 @@
+# AgeGate — the interstitial a mature channel sits behind: nothing inside renders
+# until the visitor confirms. `gated` says whether this content needs it at all
+# (a channel's `mature` flag), `ok` is a host `@client` bool (per browser, until
+# the tab closes), `confirm` the host's client action that sets it. Put the page
+# in the slot.
+app FacetLive:
+    component AgeGate(gated: bool, ok: cell bool, confirm: action):
+        if gated && !ok:
+            box class "x-card x-agegate":
+                heading 2 "Mature content"
+                text "This channel is intended for adults. You must be 18 or older to enter." class "x-muted"
+                button "I am 18 or older — enter" -> confirm class "x-pill x-primary x-wide"
+                link "Take me back" -> "/" class "x-pill x-wide"
+        if !gated || ok:
+            slot

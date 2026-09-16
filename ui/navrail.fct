@@ -1,0 +1,27 @@
+# NavRail — the whole left column: logo, the five rail items, the big Post
+# button, and the signed-in account chip at the bottom. The chip is the same
+# byline `UserChip` draws, written out here without the links: it names who is
+# signed in, and a rail that links you to your own profile from an app with no
+# profile page (the messages app, the live app) would be a build error, since a
+# path template is checked against the routes — and importing `UserChip` for
+# its classes would bring that link with it. `postPath` is where the
+# Post button goes (the composer lives on the home page in the reference app).
+import "icon.fct"
+import "navitem.fct"
+import "verifiedbadge.fct"
+app FacetUI:
+    component NavRail(name: text, handle: text, verified: bool, postPath: text):
+        text "𝕏" class "x-logo"
+        use NavItem("home", "Home", "/")
+        use NavItem("search", "Explore", "/")
+        use NavItem("bell", "Notifications", "/")
+        use NavItem("user-plus", "Follow", "/")
+        use NavItem("chat", "Chat", "/")
+        use NavItem("more", "More", "/")
+        link "Post" -> "{postPath}" class "x-pill x-primary x-post-btn"
+        if name != "guest":
+            box class "x-account":
+                row class "x-author":
+                    text "{name}" class "x-strong"
+                    use VerifiedBadge(verified)
+                    text "@{handle}" class "x-muted"

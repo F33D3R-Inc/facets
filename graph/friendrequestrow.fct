@@ -1,0 +1,14 @@
+# FriendRequestRow — an incoming request: who, when, Accept / Decline. Takes the
+# FriendRequest row; calls the host's accept(id) / decline(id), which `requires
+# addressee(id)`.
+import "../ui/avatar.fct"
+app FacetGraph:
+    component FriendRequestRow(r: FriendRequest):
+        row class "x-contact":
+            use Avatar(r.from)
+            box class "x-contact-body":
+                text "{r.from}" class "x-strong"
+                text "wants to be friends · {ago(r.at)}" class "x-muted x-small"
+            row class "x-contact-actions":
+                button "Accept" -> accept(r.id) class "x-pill x-primary"
+                button "Decline" -> decline(r.id) class "x-pill"

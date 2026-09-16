@@ -1,0 +1,8 @@
+# NavItem — one row of the left rail: a glyph and a label that links somewhere.
+# `icon` is a name from icon.fct.
+import "icon.fct"
+app FacetUI:
+    component NavItem(icon: text, label: text, path: text):
+        row class "x-nav-item":
+            icon "{icon}"
+            link "{label}" -> "{path}"

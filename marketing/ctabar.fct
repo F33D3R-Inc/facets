@@ -1,0 +1,68 @@
+# CTABar — the bar FIXED along the bottom of the window that asks a visitor to
+# join: a line, a sentence, and the way in. The thing a signed-out reader of a
+# social feed sees on every screen until they sign up.
+#
+#     if actor == "guest":
+#         use CTABar("Don't miss what's happening", "People on F33D3R are the first to know."):
+#             use ButtonLink("Log in", "/login")
+#             use ButtonLinkPrimary("Sign up", "/signup")
+#
+# ── `CTABand` IS IN THE FLOW; THIS IS OVER IT ─────────────────────────────────
+#
+# `CTABand` is the strip at the END of a marketing page — the reader scrolled to
+# it, so it is a panel in the page, sized like one. This one is pinned to the
+# viewport and follows the reader, so it is a BAR: one line high, accent-filled
+# so it reads as chrome rather than content, and it reserves its own height at
+# the bottom of the app (`:has(.x-ctabar)`) so the last post in a feed is not
+# hidden under it. Same title-sentence-actions shape, and a different object:
+# a band that floats is a band that has become an interruption, which is why the
+# two are not one component with a `fixed: bool`.
+#
+# The actions are a `slot`, for the reason `marketing/hero.fct` gives: a
+# button's arguments belong to the call site. Inside the bar every action wears
+# the bar's colours — white outlines on the accent — and a `ButtonLinkPrimary`
+# inverts to a white fill, so the pair reads as "the way in" and "the other way
+# in" without the call site choosing colours.
+#
+# On a narrow screen the sentence goes and the bar stacks, because a bar that is
+# three lines high on a phone is a third of the screen.
+app FacetMarketing:
+    css:
+        [data-fa-mount] .x-ctabar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+                    display: flex; align-items: center; justify-content: center; gap: 24px;
+                    padding: 12px 16px; box-sizing: border-box; border: none; border-radius: 0;
+                    background: var(--fa-accent); color: rgb(255,255,255); }
+        [data-fa-mount]:has(.x-ctabar) { padding-bottom: 96px; }
+        [data-fa-mount] .x-ctabar-lines { display: flex; flex-direction: column; gap: 2px;
+                          flex: 0 1 600px; min-width: 0; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-ctabar-lines > div:empty:not([class]) { display: none; }
+        [data-fa-mount] .x-ctabar-title { display: block; font-size: 23px; font-weight: 800; line-height: 1.2;
+                          color: rgb(255,255,255); }
+        [data-fa-mount] .x-ctabar-sub { display: block; font-size: 15px; color: rgb(255,255,255); }
+        [data-fa-mount] .x-ctabar-actions { display: flex; flex-direction: row; align-items: center; gap: 12px;
+                            flex: 0 0 auto; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-ctabar-actions:empty { display: none; }
+        [data-fa-mount] .x-ctabar-actions > .fa-use { display: contents; }
+        [data-fa-mount] .x-ctabar-actions button,
+        [data-fa-mount] .x-ctabar-actions a.x-btnlink { background: transparent; color: rgb(255,255,255);
+                           border: 1px solid rgb(255,255,255); border-radius: 9999px;
+                           font-weight: 700; font-size: 15px; padding: 8px 16px; cursor: pointer;
+                           filter: none; }
+        [data-fa-mount] .x-ctabar-actions button:hover,
+        [data-fa-mount] .x-ctabar-actions a.x-btnlink:hover { background: rgba(255,255,255,.15); }
+        [data-fa-mount] .x-ctabar-actions a.x-btnlink-primary { background: rgb(255,255,255); color: var(--fa-accent); }
+        [data-fa-mount] .x-ctabar-actions a.x-btnlink-primary:hover { background: rgb(239,243,244); }
+        @media (max-width: 700px) {
+            [data-fa-mount] .x-ctabar { flex-direction: column; gap: 10px; text-align: center; }
+            [data-fa-mount] .x-ctabar-title { font-size: 18px; }
+            [data-fa-mount] .x-ctabar-sub { display: none; }
+            [data-fa-mount]:has(.x-ctabar) { padding-bottom: 120px; }
+        }
+    component CTABar(title: text, sub: text):
+        box class "x-ctabar":
+            box class "x-ctabar-lines":
+                text "{title}" class "x-ctabar-title"
+                if sub != "":
+                    text "{sub}" class "x-ctabar-sub"
+            row class "x-ctabar-actions":
+                slot

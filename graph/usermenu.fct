@@ -1,0 +1,20 @@
+# UserMenu — the "…" sheet for a person: Block / Unblock, Mute / Unmute, Report.
+# `open` is the host's `@client` bool, `handle` the person (a `@client` text the
+# host sets when opening), `blocked`/`muted` host-computed. `report` is the host's
+# client action that opens the ReportSheet; `close` hides this one. Until the
+# language has an anchored popover this is a centered sheet.
+app FacetGraph:
+    component UserMenu(handle: text, open: cell bool, blocked: bool, muted: bool, close: action, report: action):
+        overlay bind open:
+            box class "x-sheet x-usermenu":
+                heading 3 "@{handle}"
+                if !blocked:
+                    button "Block @{handle}" -> block(handle) class "x-usermenu-item"
+                if blocked:
+                    button "Unblock @{handle}" -> unblock(handle) class "x-usermenu-item"
+                if !muted:
+                    button "Mute @{handle}" -> mute(handle) class "x-usermenu-item"
+                if muted:
+                    button "Unmute @{handle}" -> unmute(handle) class "x-usermenu-item"
+                button "Report @{handle}" -> report class "x-usermenu-item x-danger"
+                button "Cancel" -> close class "x-pill x-wide"

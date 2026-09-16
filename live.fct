@@ -1,0 +1,232 @@
+# f33d3r live — the streaming reference app, assembled from the live facets: a
+# browse grid of channels, the theater page (player · info · goal · tips · chat),
+# the creator console, and the sign-in surfaces. One set of facets serves what
+# Twitch, Kick, YouTube Live, TikTok LIVE and a cam site each call something else.
+#
+#   facet dev live.fct
+import "layout/vocabulary.fct"
+import "layout/topbar.fct"
+import "ui/look.fct"
+import "ui/navrail.fct"
+import "ui/signupcard.fct"
+import "ui/guestbanner.fct"
+import "live/liveplayer.fct"
+import "live/streaminfo.fct"
+import "live/goalbar.fct"
+import "live/tipsheet.fct"
+import "live/recenttips.fct"
+import "live/chatpanel.fct"
+import "live/browsegrid.fct"
+import "live/golivepanel.fct"
+import "live/streamkeybox.fct"
+import "live/agegate.fct"
+
+app F33D3RLive:
+    auth
+
+    entity Stream:
+        id: int
+        owner: text
+        verified: bool
+        title: text
+        category: text
+        tags: text
+        hls: text
+        thumb: text
+        live: bool
+        mature: bool
+        viewers: int
+        startedAt: int
+        pinned: text
+        goalLabel: text
+        goalTarget: money
+    entity StreamKey:
+        id: int
+        stream: Stream
+        owner: text
+        key: text @secret
+    entity Chat:
+        id: int
+        stream: Stream
+        author: text
+        role: text
+        body: text
+        sent: int
+    entity Tip:
+        id: int
+        stream: Stream
+        from: text
+        cents: money
+        note: text
+        at: int
+    entity Sub:
+        id: int
+        stream: Stream
+        user: text
+    entity Follow:
+        id: int
+        follower: text
+        followee: text
+    entity Ban:
+        id: int
+        stream: Stream
+        user: text
+
+    state chatDraft: text = "" @client
+    state tipOpen: bool = false @client
+    state tipNote: text = "" @client
+    state ageOk: bool = false @client
+    state goTitle: text = "" @client
+    state goCategory: text = "" @client
+    state revealKey: bool = false @client
+    state username: text = "" @client
+    state password: text = "" @client
+
+    policy member:
+        actor != "guest"
+    policy owner(id: int):
+        actor == Stream(id).owner
+    policy moderator(id: int):
+        actor == Stream(id).owner || role == "admin"
+    policy notBanned(id: int):
+        !exists(b in Ban where b.stream == id && b.user == actor)
+
+    # ── channel lifecycle (the creator's) ──
+    action createChannel(title: text, category: text):
+        requires member
+        add Stream { owner: actor, verified: false, title: title, category: category, tags: "", hls: "", thumb: "https://picsum.photos/seed/" + actor + "/1280/720", live: false, mature: false, viewers: 0, startedAt: 0, pinned: "", goalLabel: "Tip goal", goalTarget: 10000 }
+    action mintKey(stream: int):
+        requires owner(stream)
+        add StreamKey { stream: stream, owner: actor, key: "live_" + actor + "_" + rand(1000000000) }
+    action updateStream(id: int, title: text, category: text):
+        requires owner(id)
+        set Stream(id).title = title
+        set Stream(id).category = category
+    action setSource(id: int, hls: text, thumb: text, mature: bool):
+        requires owner(id)
+        set Stream(id).hls = hls
+        set Stream(id).thumb = thumb
+        set Stream(id).mature = mature
+    action goLive(id: int):
+        requires owner(id)
+        set Stream(id).live = true
+        set Stream(id).startedAt = now()
+    action endStream(id: int):
+        requires owner(id)
+        set Stream(id).live = false
+    action pin(id: int, body: text):
+        requires moderator(id)
+        set Stream(id).pinned = body
+    action heartbeat(id: int, viewers: int):
+        requires owner(id)
+        set Stream(id).viewers = viewers
+
+    # ── the audience ──
+    action say(stream: int, body: text):
+        requires member
+        requires notBanned(stream)
+        add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now() }
+    action tip(stream: int, cents: money, note: text):
+        requires member
+        add Tip { stream: stream, from: actor, cents: cents, note: note, at: now() }
+        add Chat { stream: stream, author: actor, role: "sub", body: "tipped " + money(cents) + " " + note, sent: now() }
+    action subscribe(stream: int):
+        requires member
+        add Sub { stream: stream, user: actor }
+    action unsubscribe(stream: int):
+        requires member
+        remove s in Sub where s.stream == stream && s.user == actor
+    action follow(handle: text):
+        requires member
+        add Follow { follower: actor, followee: handle }
+    action unfollow(handle: text):
+        requires member
+        remove f in Follow where f.follower == actor && f.followee == handle
+
+    # ── moderation ──
+    action deleteChat(id: int):
+        requires moderator(Chat(id).stream)
+        remove Chat(id)
+    action ban(stream: int, user: text):
+        requires moderator(stream)
+        add Ban { stream: stream, user: user }
+    action unban(stream: int, user: text):
+        requires moderator(stream)
+        remove b in Ban where b.stream == stream && b.user == user
+
+    # ── local ──
+    action openTip:
+        tipOpen = true
+    action closeTip:
+        tipOpen = false
+    action confirmAge:
+        ageOk = true
+
+    view Browse at "/":
+        row class "x-l-app3 x-l-app3-wide":
+            box class "x-l-app3-nav":
+                use NavRail(actor, actor, false, "/dashboard")
+            box class "x-l-app3-main":
+                use TopBar("Live now", compact(count(s in Stream where s.live)) + " channels", "/")
+                use BrowseGrid("")
+            box class "x-l-app3-aside":
+                if actor == "guest":
+                    use SignUpCard("New to F33D3R Live?", "/login")
+        if actor == "guest":
+            use GuestBanner("/login")
+
+    view Category at "/browse/:category":
+        row class "x-l-app3 x-l-app3-wide":
+            box class "x-l-app3-nav":
+                use NavRail(actor, actor, false, "/dashboard")
+            box class "x-l-app3-main":
+                use TopBar(category, compact(count(s in Stream where s.live && s.category == category)) + " live", "/")
+                use BrowseGrid(category)
+            box class "x-l-app3-aside":
+                if actor == "guest":
+                    use SignUpCard("New to F33D3R Live?", "/login")
+
+    view Theater at "/live/:id":
+        use AgeGate(Stream(id).mature, ageOk, confirmAge):
+            row class "x-theater":
+                box class "x-stagecol":
+                    use LivePlayer(Stream(id))
+                    use StreamInfo(Stream(id), exists(f in Follow where f.follower == actor && f.followee == Stream(id).owner), exists(s in Sub where s.stream == id && s.user == actor), openTip)
+                    use GoalBar(Stream(id).goalLabel, sum(t.cents in Tip where t.stream == id), Stream(id).goalTarget)
+                    use RecentTips(Stream(id))
+                box class "x-chatcol":
+                    use ChatPanel(Stream(id), chatDraft, actor == Stream(id).owner || role == "admin")
+            use TipSheet(Stream(id), tipOpen, tipNote, closeTip)
+        if actor == "guest":
+            use GuestBanner("/login")
+
+    view Dashboard at "/dashboard" requires member:
+        row class "x-l-app3":
+            box class "x-l-app3-nav":
+                use NavRail(actor, actor, false, "/dashboard")
+            box class "x-l-app3-main":
+                use TopBar("Creator console", "", "/")
+                if !exists(s in Stream where s.owner == actor):
+                    box class "x-console":
+                        heading 2 "Create your channel"
+                        input bind goTitle placeholder "Stream title"
+                        input bind goCategory placeholder "Category"
+                        button "Create channel" -> createChannel(goTitle, goCategory) class "x-pill x-primary"
+                for s in Stream where s.owner == actor limit 1:
+                    use GoLivePanel(s, goTitle, goCategory)
+                for k in StreamKey where k.owner == actor limit 1:
+                    use StreamKeyBox(k, revealKey)
+                if exists(s in Stream where s.owner == actor) && !exists(k in StreamKey where k.owner == actor):
+                    for s in Stream where s.owner == actor limit 1:
+                        button "Mint a stream key" -> mintKey(s.id) class "x-pill"
+            box class "x-l-app3-aside":
+                text "Your channel, your key, your goal."  class "x-muted"
+
+    view Login at "/login":
+        box class "x-card" style "max-width: 400px; margin: 10vh auto;":
+            text "𝕏" class "x-logo"
+            heading 2 "Go live. Watch live."
+            input bind username placeholder "Username"
+            input bind password placeholder "Password"
+            button "Create account" -> signup(username, password) class "x-pill x-light x-wide"
+            button "Log in" -> login(username, password) class "x-pill x-wide"

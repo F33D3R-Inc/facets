@@ -1,0 +1,7 @@
+# NewChat — start a conversation by handle. `handle` is a host `@client` text;
+# `startChat(handle)` the host action.
+app FacetChat:
+    component NewChat(handle: cell text):
+        row class "x-newchat":
+            input bind handle placeholder "Message someone by handle"
+            button "Message" -> startChat(handle) class "x-pill x-primary"

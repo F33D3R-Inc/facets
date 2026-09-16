@@ -9,6 +9,31 @@
 # data facet — one atom set, both tracks (v1.17.0 closed the shareable-component gap).
 #
 #   facet dev library/home.fct
+#
+# ── 2026 CREATOR PASS ─────────────────────────────────────────────────────────
+#
+# The rail/feed/aside shell below still carries the original Twitter-shaped app;
+# this pass folds in a "creator who is live or online all day" power-user layer
+# on top of it, built entirely from `live/`'s existing Stream/Chat/Tip typed
+# sockets — the same entities `live.fct` (the standalone streaming reference app)
+# already proves out, ported in here rather than reinvented. What's real:
+# go-live/end-stream, live chat with a basic auto-hold-on-link scan (never
+# dropped — held messages still show in chat, just also queued for the
+# broadcaster to review), tipping (both per-stream and per-post), subscriptions,
+# a follow-weighted algorithm control and a mutable interest list, bookmarks,
+# and an all-time wallet ledger computed live from the Tip/PostTip rows rather
+# than a hand-incremented balance (so it can't drift out of sync).
+#
+# What's deliberately NOT here, so nothing below is a dead link: `now()` is an
+# effectful builtin usable only inside actions (verified against the compiler,
+# not assumed), so a strict "resets at 00:00" daily figure can't be computed at
+# render time — the earnings panel is all-time + recent, not a calendar-day
+# counter. There's no DM system in this app, so "streamer mode" hides
+# notification bodies (a real field this app has) rather than DM previews (a
+# feature it doesn't). And the tab row is For you / Following / Live — no
+# Music/Visions/Sports/NSFW tabs, because `ComposeBox` (the shared atom) posts
+# through a fixed `post(draft)` call with no category argument, and a tab with
+# no way to ever populate it is a dead end wearing a label.
 import "social/postcard.fct"
 import "social/composebox.fct"
 import "social/whotofollow.fct"
@@ -25,11 +50,22 @@ import "live/timeago.fct"
 import "live/presencedot.fct"
 import "live/typing.fct"
 import "live/newposts.fct"
+import "live/liveplayer.fct"
+import "live/streaminfo.fct"
+import "live/subscribebutton.fct"
+import "live/goalbar.fct"
+import "live/tipsheet.fct"
+import "live/recenttips.fct"
+import "live/chatpanel.fct"
+import "live/golivepanel.fct"
 import "forms/searchbox.fct"
 import "profile/profileheader.fct"
 import "notify/notificationitem.fct"
 import "notify/unreadbadge.fct"
 import "ui/userchip.fct"
+import "ui/meter.fct"
+import "ui/tag.fct"
+import "data/stat.fct"
 # The rail's four marks. `icon "home"` places a span and the runtime draws nothing
 # into it; `ui/icon.fct` is the set that fills it, so the import is what makes the
 # nav rail visible at all.
@@ -84,7 +120,8 @@ app F33D3RHome:
     #   * the shell is a grid, not three flexed columns. A feed has a fixed readable
     #     width; the rails do not grow to fill a wide monitor.
     css:
-        :root { --x-line: #2f3336; --x-panel: #16181c; --x-hover: rgba(239,243,244,.06); }
+        :root { --x-line: #2f3336; --x-panel: #16181c; --x-hover: rgba(239,243,244,.06);
+                --x-live: #00ba7c; --x-warn: #ffd400; }
         body { margin: 0; max-width: none; padding: 0; background: var(--fa-bg); }
 
         [data-fa-mount] .fa-box { border: none; border-radius: 0; padding: 0; gap: 0; background: none; }
@@ -115,12 +152,39 @@ app F33D3RHome:
 
         # Right rail panels, and a heading that is actually a heading.
         [data-fa-mount] .x-panel { background: var(--x-panel); border-radius: 16px; margin-bottom: 16px;
-                   overflow: hidden; }
-        [data-fa-mount] .x-panel-title { font-size: 20px; font-weight: 800; padding: 12px 16px; }
+                   overflow: hidden; padding: 12px 16px 16px; }
+        [data-fa-mount] .x-panel-title { font-size: 20px; font-weight: 800; padding: 0 0 12px; }
         # Section headings and empty states, which belong to the page rather
         # than to any atom.
         [data-fa-mount] .x-section { font-size: 20px; font-weight: 800; padding: 16px; }
         [data-fa-mount] .x-empty { color: var(--fa-muted); padding: 32px 16px; text-align: center; }
+
+        # The live/creator layer: the rail's Go Live ticker, the stories row,
+        # the Studio strip pinned above the feed, and the post-level tip row.
+        [data-fa-mount] .x-stories { display: flex; flex-direction: row; gap: 16px; overflow-x: auto;
+                     padding: 12px 16px; border-bottom: 1px solid var(--x-line); }
+        [data-fa-mount] .x-story { display: flex; flex-direction: column; align-items: center; gap: 4px;
+                     width: 64px; flex: 0 0 auto; }
+        [data-fa-mount] .x-story image { width: 56px; height: 56px; border-radius: 9999px;
+                     border: 2px solid var(--x-live); }
+        [data-fa-mount] .x-story-self image { border-color: var(--x-line); }
+        [data-fa-mount] .x-studiostrip { margin: 12px 16px; padding: 12px 16px; border-radius: 16px;
+                     border: 1px solid var(--x-live); background: rgba(0,186,124,.08); }
+        [data-fa-mount] .x-studiostrip-actions { gap: 8px; margin-top: 8px; }
+        [data-fa-mount] .x-studiostrip-actions button,
+        [data-fa-mount] .x-studiostrip-actions a { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 6px 14px; font-size: 13px; font-weight: 700; }
+        [data-fa-mount] .x-post-extra { padding: 0 16px 8px 52px; gap: 8px; align-items: center; }
+        [data-fa-mount] .x-post-extra button { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 4px 10px; font-size: 13px; font-weight: 700; color: var(--x-warn); }
+        [data-fa-mount] .x-interests { flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+        [data-fa-mount] .x-interest { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 4px 6px 4px 10px; font-size: 13px; align-items: center; gap: 6px; }
+        [data-fa-mount] .x-interest button { color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-held-row { padding: 6px 0; border-bottom: 1px solid var(--x-line);
+                     justify-content: space-between; align-items: center; gap: 8px; }
+        [data-fa-mount] .x-held-row button { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 4px 10px; font-size: 12px; }
 
         # Narrow viewports: the vocabulary lays the nav down as a bar above the
         # feed below 820px; these are the rail's own pieces following it.
@@ -142,6 +206,7 @@ app F33D3RHome:
         body: text
         media: text
         created: int
+        aiAssisted: bool
     entity Like:
         id: int
         tweet: Tweet
@@ -188,6 +253,77 @@ app F33D3RHome:
         read: bool
         created: int
 
+    # ── the creator layer ────────────────────────────────────────────────────
+    # Stream/Chat/Tip/Sub/Ban mirror `live.fct` (the standalone streaming
+    # reference app) field-for-field, ported rather than reinvented — the same
+    # entities the `live/` component library's typed sockets already expect, so
+    # LivePlayer/StreamInfo/GoalBar/TipSheet/RecentTips/ChatPanel/GoLivePanel
+    # drop straight in with zero adaptation.
+    entity Stream:
+        id: int
+        owner: text
+        verified: bool
+        title: text
+        category: text
+        tags: text
+        hls: text
+        thumb: text
+        live: bool
+        viewers: int
+        startedAt: int
+        pinned: text
+        goalLabel: text
+        goalTarget: money
+    entity Chat:
+        id: int
+        stream: Stream
+        author: text
+        role: text
+        body: text
+        sent: int
+        # Basic auto-scan: a message holding a link is flagged for the
+        # broadcaster's review queue. Held messages still render in the normal
+        # ChatPanel list (nothing is silently dropped) — `held` only adds a
+        # second, reviewable copy in Studio's queue.
+        held: bool
+    entity Tip:
+        id: int
+        stream: Stream
+        from: text
+        cents: money
+        note: text
+        at: int
+    entity Sub:
+        id: int
+        stream: Stream
+        user: text
+    entity Ban:
+        id: int
+        stream: Stream
+        user: text
+    # PostTip — the OTHER ledger: tipping a single post rather than a live
+    # stream. Kept as its own entity rather than reusing Tip/Stream, because a
+    # post's author does not need a channel for someone to tip it.
+    entity PostTip:
+        id: int
+        tweet: Tweet
+        from: text
+        cents: money
+        at: int
+    # AlgoWeight — "Your algorithm": how much of the feed favors people you
+    # follow vs. discovery. One row per user, upserted (remove-then-add, the
+    # same pattern `saveProfile` already uses below).
+    entity AlgoWeight:
+        id: int
+        user: text
+        followPct: int
+    # Interest — a mutable tag list behind the algorithm panel's chip row.
+    entity Interest:
+        id: int
+        user: text
+        label: text
+        muted: bool
+
     state draft: text = "" @client
     state feedTab: text = "foryou" @client
     state q: text = "" @client
@@ -195,6 +331,16 @@ app F33D3RHome:
     state replyDraft: text = "" @client
     state bioDraft: text = "" @client
     state nameDraft: text = "" @client
+    state chatDraft: text = "" @client
+    state tipOpen: bool = false @client
+    state tipNote: text = "" @client
+    state goTitle: text = "" @client
+    state goCategory: text = "" @client
+    state interestDraft: text = "" @client
+    # Hides notification bodies on screen — the one DM-adjacent affordance this
+    # app can actually back with a real field (there is no DM system here to
+    # hide previews of).
+    state streamerMode: bool = false @client
 
     policy member:
         actor != "guest"
@@ -205,6 +351,14 @@ app F33D3RHome:
     # another member's notification read.
     policy ownsNotification(id: int):
         Notification(id).user == actor
+    policy ownsInterest(id: int):
+        Interest(id).user == actor
+    policy owner(id: int):
+        actor == Stream(id).owner
+    policy moderator(id: int):
+        actor == Stream(id).owner
+    policy notBanned(id: int):
+        !exists(b in Ban where b.stream == id && b.user == actor)
 
     # The nav's Post button lives in the layout, so it renders on pages that have
     # no composer and therefore no `draft` — this refuses that click instead of
@@ -212,7 +366,7 @@ app F33D3RHome:
     action post(body: text):
         requires member
         check body != "" "say something"
-        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", created: now() }
+        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", created: now(), aiAssisted: false }
     action like(id: int):
         requires member
         add Like { tweet: id, user: actor }
@@ -224,6 +378,9 @@ app F33D3RHome:
     action bookmark(id: int):
         requires member
         add Bookmark { tweet: id, user: actor }
+    action unbookmark(id: int):
+        requires member
+        remove b in Bookmark where b.tweet == id && b.user == actor
     action follow(handle: text):
         requires member
         add Follow { follower: actor, followee: handle }
@@ -259,6 +416,81 @@ app F33D3RHome:
         requires member
         remove n in Notification where n.user == actor
 
+    # ── the creator layer's actions ──────────────────────────────────────────
+    action createChannel(title: text, category: text):
+        requires member
+        check title != "" "give your channel a title"
+        add Stream { owner: actor, verified: false, title: title, category: category, tags: "", hls: "", thumb: "https://picsum.photos/seed/" + actor + "/1280/720", live: false, viewers: 0, startedAt: 0, pinned: "", goalLabel: "Tip goal", goalTarget: 20000 }
+    action updateStream(id: int, title: text, category: text):
+        requires owner(id)
+        set Stream(id).title = title
+        set Stream(id).category = category
+    action goLive(id: int):
+        requires owner(id)
+        set Stream(id).live = true
+        set Stream(id).startedAt = now()
+    action endStream(id: int):
+        requires owner(id)
+        set Stream(id).live = false
+    action say(stream: int, body: text):
+        requires member
+        requires notBanned(stream)
+        check body != "" "say something"
+        add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now(), held: contains(lower(body), "http") }
+    action tip(stream: int, cents: money, note: text):
+        requires member
+        add Tip { stream: stream, from: actor, cents: cents, note: note, at: now() }
+        add Chat { stream: stream, author: actor, role: "sub", body: "tipped " + money(cents) + " " + note, sent: now(), held: false }
+    action subscribe(stream: int):
+        requires member
+        add Sub { stream: stream, user: actor }
+    action unsubscribe(stream: int):
+        requires member
+        remove s in Sub where s.stream == stream && s.user == actor
+    action deleteChat(id: int):
+        requires moderator(Chat(id).stream)
+        remove Chat(id)
+    action ban(stream: int, user: text):
+        requires moderator(stream)
+        add Ban { stream: stream, user: user }
+    action unban(stream: int, user: text):
+        requires moderator(stream)
+        remove b in Ban where b.stream == stream && b.user == user
+    action releaseHeld(id: int):
+        requires moderator(Chat(id).stream)
+        set Chat(id).held = false
+    action tipPost(id: int, cents: money):
+        requires member
+        add PostTip { tweet: id, from: actor, cents: cents, at: now() }
+    action setAlgoFollowPct(pct: int):
+        requires member
+        remove a in AlgoWeight where a.user == actor
+        add AlgoWeight { user: actor, followPct: pct }
+    action addInterest(label: text):
+        requires member
+        check label != "" "say what you're interested in"
+        add Interest { user: actor, label: label, muted: false }
+    action removeInterest(id: int):
+        requires ownsInterest(id)
+        remove Interest(id)
+
+    # ── local (client-only) actions ──────────────────────────────────────────
+    action openTip:
+        tipOpen = true
+    action closeTip:
+        tipOpen = false
+
+    # PostExtras — the tip row a post-level tip and its AI-assisted badge live
+    # in, factored out of PostCard's slot so it is written once instead of once
+    # per feed/profile/search/bookmarks call site.
+    component PostExtras(id: int, aiAssisted: bool):
+        if aiAssisted:
+            use Tag("AI-ASSISTED", "accent")
+        row class "x-post-extra":
+            button "⚡ Tip 5" -> tipPost(id, 500)
+            if sum(pt.cents in PostTip where pt.tweet == id) > 0:
+                text "{money(sum(pt.cents in PostTip where pt.tweet == id))} tipped" class "x-muted x-small"
+
     # Shell — the chrome every screen shares: the left nav rail (which is what makes
     # notifications and search reachable by a click from anywhere) and the right
     # "what's happening" rail. Each view drops into the `slot`.
@@ -270,39 +502,145 @@ app F33D3RHome:
                 use SidebarItem("search", "Explore", "/search")
                 use SidebarItem("bell", "Notifications", "/notifications"):
                     use UnreadBadge(count(n in Notification where n.user == actor && !n.read))
+                use SidebarItem("bookmark", "Bookmarks", "/bookmarks")
+                # The Go Live rail item doubles as a live ticker the instant the
+                # actor's own channel is live, so ending a stream is never more
+                # than one click away without leaving the feed.
+                for s in Stream where s.owner == actor && s.live limit 1:
+                    use SidebarItem("bolt", "Live · " + ago(s.startedAt) + " · " + compact(s.viewers), "/studio")
+                if !exists(s in Stream where s.owner == actor && s.live):
+                    use SidebarItem("bolt", "Go Live", "/studio")
+                use SidebarItem("wallet", "Wallet", "/wallet")
                 box class "x-post-btn":
                     button "Post" -> post(draft)
                 # Current on your own profile and on nobody else's, which exact
                 # match cannot say: the route carries the handle.
                 use SidebarItemWhen("user", "Profile", "/profile/" + actor, route == "/profile/" + actor)
+                if actor != "guest":
+                    use Meter("R5 Guardian", count(t in Tweet where t.author == actor) * 10 + count(n in Notification where n.user == actor) * 2 - ((count(t in Tweet where t.author == actor) * 10 + count(n in Notification where n.user == actor) * 2) / 500) * 500, 500, "accent")
                 box class "x-whoami":
+                    toggle bind streamerMode label "Streamer mode"
                     text "signed in as {actor}"
                     button "log out" -> logout
             box class "x-l-app3-main":
                 slot
             box class "x-l-app3-aside":
                 use SearchBox()
-                box class "x-panel":
-                    text "What's happening" class "x-panel-title"
-                    use Trend("Tech", "#FacetLang", "1,234 posts")
-                    use Trend("News", "#Facet", "987 posts")
-                box class "x-panel":
-                    text "Who to follow" class "x-panel-title"
-                    use WhoToFollow("Grace Hopper", "grace", true, exists(f in Follow where f.follower == actor && f.followee == "grace"))
-                    use WhoToFollow("Alan Turing", "alan", false, exists(f in Follow where f.follower == actor && f.followee == "alan"))
+                # While the actor is live, the aside becomes control + money +
+                # audience instead of Trending/Who to follow.
+                for s in Stream where s.owner == actor && s.live limit 1:
+                    box class "x-panel":
+                        text "Live chat" class "x-panel-title"
+                        use ChatPanel(s, chatDraft, true)
+                    box class "x-panel":
+                        text "Held for review" class "x-panel-title"
+                        if !exists(c in Chat where c.stream == s.id && c.held):
+                            text "Nothing held." class "x-muted x-small"
+                        for c in Chat where c.stream == s.id && c.held by id desc limit 5:
+                            row class "x-held-row":
+                                text "{c.author}: {c.body}"
+                                button "Release" -> releaseHeld(c.id)
+                    box class "x-panel":
+                        text "Today" class "x-panel-title"
+                        use StatGroup():
+                            use Stat("AET all-time", money(sum(t.cents in Tip where t.stream == s.id) + sum(pt.cents in PostTip where Tweet(pt.tweet).author == actor)))
+                            use Stat("Tips", count(t in Tip where t.stream == s.id) + count(pt in PostTip where Tweet(pt.tweet).author == actor) + "")
+                    box class "x-panel":
+                        text "Your algorithm" class "x-panel-title"
+                        use AlgorithmPanel()
+                    box class "x-panel":
+                        text "Live from people you follow" class "x-panel-title"
+                        if !exists(other in Stream where other.live && other.owner != actor && exists(f in Follow where f.follower == actor && f.followee == other.owner)):
+                            text "Nobody you follow is live." class "x-muted x-small"
+                        for other in Stream where other.live && other.owner != actor && exists(f in Follow where f.follower == actor && f.followee == other.owner) by viewers desc limit 5:
+                            row:
+                                use Avatar(other.owner)
+                                box:
+                                    text "{other.owner}" class "x-strong"
+                                    text "{compact(other.viewers)} · {other.category}" class "x-muted x-small"
+                                link "raid" -> "/live/{other.id}"
+                if !exists(s in Stream where s.owner == actor && s.live):
+                    box class "x-panel":
+                        text "What's happening" class "x-panel-title"
+                        use Trend("Tech", "#FacetLang", "1,234 posts")
+                        use Trend("News", "#Facet", "987 posts")
+                    box class "x-panel":
+                        text "Who to follow" class "x-panel-title"
+                        use WhoToFollow("Grace Hopper", "grace", true, exists(f in Follow where f.follower == actor && f.followee == "grace"))
+                        use WhoToFollow("Alan Turing", "alan", false, exists(f in Follow where f.follower == actor && f.followee == "alan"))
+
+    # AlgorithmPanel is its own component (rather than inline in Shell) purely
+    # because it is used from Shell's aside, which already sits three levels
+    # of `for`/`if` deep — a fifth level of nesting for the same markup would
+    # cost more to read than a named `use` costs to add.
+    component AlgorithmPanel():
+        for a in AlgoWeight where a.user == actor limit 1:
+            use Meter("Follows vs. discovery", a.followPct, 100, "accent")
+            row:
+                button "75%" -> setAlgoFollowPct(75)
+                button "90%" -> setAlgoFollowPct(90)
+                button "100%" -> setAlgoFollowPct(100)
+        if !exists(a in AlgoWeight where a.user == actor):
+            text "Default: 80% people you follow, 20% discovery." class "x-muted x-small"
+            button "Customize" -> setAlgoFollowPct(80)
+        row class "x-interests":
+            for i in Interest where i.user == actor && !i.muted by id asc limit 10:
+                row class "x-interest":
+                    text "{i.label}"
+                    button "×" -> removeInterest(i.id)
+        form "Add interest" -> addInterest(interestDraft):
+            input bind interestDraft placeholder "music, nfl, markets…"
 
     view Home at "/" in Shell:
         meta title "Home / F33D3R"
         meta description "What's happening, newest first."
         box:
+            # Stories row: your own channel first, then everyone you follow
+            # who is currently live — the "Visions" strip, folded into the
+            # feed's own top rather than a separate tab with nothing but this
+            # in it.
+            row class "x-stories":
+                box class "x-story x-story-self":
+                    use Avatar(actor)
+                    link "Your Vision" -> "/studio"
+                for s in Stream where s.live && s.owner != actor && exists(f in Follow where f.follower == actor && f.followee == s.owner) by startedAt desc limit 10:
+                    box class "x-story":
+                        use Avatar(s.owner)
+                        link "{s.owner}" -> "/live/{s.id}"
+            # Studio strip: pinned above the feed for exactly as long as the
+            # actor is live, with a live goal bar and the held-message count so
+            # a broadcaster never has to leave the feed to check the stream.
+            for s in Stream where s.owner == actor && s.live limit 1:
+                box class "x-studiostrip":
+                    row:
+                        text "You're live · {s.title}" class "x-strong"
+                        text "{ago(s.startedAt)} · {compact(s.viewers)} watching" class "x-muted x-small"
+                    use GoalBar(s.goalLabel, sum(t.cents in Tip where t.stream == s.id), s.goalTarget)
+                    row class "x-studiostrip-actions":
+                        text "{count(c in Chat where c.stream == s.id)} chat" class "x-muted x-small"
+                        if count(c in Chat where c.stream == s.id && c.held) > 0:
+                            text "{count(c in Chat where c.stream == s.id && c.held)} held by scan" class "x-muted x-small"
+                        link "Studio" -> "/studio"
+                        button "End stream" -> endStream(s.id)
             use ComposeBox()
             tabs bind feedTab class "x-tabs":
                 tab "For you" -> "foryou":
                     for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
-                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
+                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                            use PostExtras(t.id, t.aiAssisted)
                 tab "Following" -> "following":
                     for t in Tweet where exists(f in Follow where f.follower == actor && f.followee == t.author) by created desc limit shown:
-                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
+                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                            use PostExtras(t.id, t.aiAssisted)
+                tab "Live · {count(s in Stream where s.live)}" -> "live":
+                    if !exists(s in Stream where s.live):
+                        text "Nobody is live right now." class "x-empty"
+                    for s in Stream where s.live by viewers desc limit shown:
+                        row:
+                            use Avatar(s.owner)
+                            box:
+                                link "{s.title}" -> "/live/{s.id}" class "x-strong"
+                                text "{s.owner} · {s.category} · {compact(s.viewers)} watching" class "x-muted x-small"
 
     # Profile — the ProfileHeader atom over that user's posts. A user who has saved
     # a Profile row renders from it; one who has not still gets a page, rendered
@@ -322,7 +660,8 @@ app F33D3RHome:
                     button "Save profile" -> saveProfile(nameDraft, bioDraft)
             text "Posts" class "x-section"
             for t in Tweet where t.author == handle by created desc limit shown:
-                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
+                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                    use PostExtras(t.id, t.aiAssisted)
 
     # Post detail — one post opened on its own, with the EngagementBar over real
     # counts and the conversation under it. The post is matched by row rather than
@@ -336,6 +675,7 @@ app F33D3RHome:
                 use FocusedPost(t.author, t.handle, t.verified, t.kind, t.body, t.media)
                 use PostStats(count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), count(l in Like where l.tweet == t.id))
                 use EngagementBar(t.id, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
+                use PostExtras(t.id, t.aiAssisted)
                 # The button lives here and not inside ReplyComposer because
                 # `reply(t.id, replyDraft)` takes an argument, and only a call site
                 # can write a call that does.
@@ -351,6 +691,9 @@ app F33D3RHome:
 
     # Notifications — the notify/ atoms over the rows the like/repost/follow/reply
     # actions fanned out. The ✓ marks one read; "Clear all" empties the inbox.
+    # Streamer mode blanks the subject line (what the notification is ABOUT) so
+    # nothing readable is on screen for anyone screensharing — the who/verb stays,
+    # since "someone liked something" carries nothing to leak.
     view Notifications at "/notifications" in Shell:
         meta title "Notifications / F33D3R"
         box:
@@ -360,9 +703,110 @@ app F33D3RHome:
                 button "Clear all" -> clearNotifications
             for n in Notification where n.user == actor by created desc limit 50:
                 row:
-                    use NotificationItem(n.who, n.verb, n.subject, !n.read)
+                    if !streamerMode:
+                        use NotificationItem(n.who, n.verb, n.subject, !n.read)
+                    if streamerMode:
+                        use NotificationItem(n.who, n.verb, "", !n.read)
                     if !n.read:
                         button "✓" -> markRead(n.id)
+
+    # Bookmarks — your saved posts, with a way back off the list (there was no
+    # `unbookmark` before this pass, which made Bookmark a write-only entity).
+    view Bookmarks at "/bookmarks" in Shell requires member:
+        meta title "Bookmarks / F33D3R"
+        box:
+            text "Bookmarks" class "x-section"
+            if !exists(b in Bookmark where b.user == actor):
+                text "Nothing bookmarked yet." class "x-empty"
+            for b in Bookmark where b.user == actor by id desc limit 50:
+                for t in Tweet where t.id == b.tweet limit 1:
+                    use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                        use PostExtras(t.id, t.aiAssisted)
+                        button "Remove bookmark" -> unbookmark(t.id)
+
+    # Wallet — every AET the actor has ever earned, computed live from the Tip
+    # and PostTip ledgers rather than a mutable balance field, so it can never
+    # drift out of sync with the rows that back it.
+    view Wallet at "/wallet" in Shell requires member:
+        meta title "Wallet / F33D3R"
+        box:
+            text "Wallet" class "x-section"
+            use StatGroup():
+                use Stat("AET all-time", money(sum(t.cents in Tip where Stream(t.stream).owner == actor) + sum(pt.cents in PostTip where Tweet(pt.tweet).author == actor)))
+                use Stat("Tips received", count(t in Tip where Stream(t.stream).owner == actor) + count(pt in PostTip where Tweet(pt.tweet).author == actor) + "")
+            text "Recent stream tips" class "x-section"
+            if !exists(t in Tip where Stream(t.stream).owner == actor):
+                text "None yet." class "x-empty"
+            for t in Tip where Stream(t.stream).owner == actor by at desc limit 20:
+                row:
+                    text "{t.from}" class "x-strong"
+                    text "{money(t.cents)}"
+                    if t.note != "":
+                        text "— {t.note}" class "x-muted"
+            text "Recent post tips" class "x-section"
+            if !exists(pt in PostTip where Tweet(pt.tweet).author == actor):
+                text "None yet." class "x-empty"
+            for pt in PostTip where Tweet(pt.tweet).author == actor by at desc limit 20:
+                row:
+                    text "{pt.from}" class "x-strong"
+                    link "{money(pt.cents)} on a post" -> "/post/{pt.tweet}"
+
+    # Studio — the creator's console: create a channel if there isn't one yet,
+    # go live / end stream / edit title+category, the live goal, chat, the
+    # held-for-review queue, and the tip rail. Everything a broadcaster needs
+    # without leaving this one page.
+    view Studio at "/studio" in Shell requires member:
+        meta title "Studio / F33D3R"
+        box:
+            if !exists(s in Stream where s.owner == actor):
+                box class "x-panel":
+                    text "Create your channel" class "x-panel-title"
+                    input bind goTitle placeholder "Stream title"
+                    input bind goCategory placeholder "Category"
+                    button "Create channel" -> createChannel(goTitle, goCategory)
+            for s in Stream where s.owner == actor limit 1:
+                use GoLivePanel(s, goTitle, goCategory)
+                use GoalBar(s.goalLabel, sum(t.cents in Tip where t.stream == s.id), s.goalTarget)
+                use RecentTips(s)
+                text "Held for review" class "x-section"
+                if !exists(c in Chat where c.stream == s.id && c.held):
+                    text "Nothing held — scan hasn't flagged anything." class "x-muted"
+                for c in Chat where c.stream == s.id && c.held by id desc limit 10:
+                    row class "x-held-row":
+                        text "{c.author}: {c.body}"
+                        button "Release" -> releaseHeld(c.id)
+                text "Chat" class "x-section"
+                use ChatPanel(s, chatDraft, true)
+
+    # Theater — watching someone else's channel: player, info, goal, tips, chat,
+    # and the tip sheet the "Tip" pill in StreamInfo opens.
+    view Theater at "/live/:id" in Shell:
+        meta title "{Stream(id).owner} is live / F33D3R"
+        box:
+            for s in Stream where s.id == id limit 1:
+                use LivePlayer(s)
+                use StreamInfo(s, exists(f in Follow where f.follower == actor && f.followee == s.owner), exists(sub in Sub where sub.stream == id && sub.user == actor), openTip)
+                use GoalBar(s.goalLabel, sum(t.cents in Tip where t.stream == id), s.goalTarget)
+                use RecentTips(s)
+                use ChatPanel(s, chatDraft, actor == s.owner)
+                use TipSheet(s, tipOpen, tipNote, closeTip)
+            if !exists(s in Stream where s.id == id):
+                text "This channel doesn't exist." class "x-empty"
+
+    # Browse — every live channel in one category. What `StreamInfo`'s
+    # CategoryChip (and the Live tab's category text) actually link to.
+    view Browse at "/browse/:category" in Shell:
+        meta title "{category} · Live / F33D3R"
+        box:
+            text "{category}" class "x-section"
+            if !exists(s in Stream where s.live && s.category == category):
+                text "Nobody live in this category right now." class "x-empty"
+            for s in Stream where s.live && s.category == category by viewers desc limit 50:
+                row:
+                    use Avatar(s.owner)
+                    box:
+                        link "{s.title}" -> "/live/{s.id}" class "x-strong"
+                        text "{s.owner} · {compact(s.viewers)} watching" class "x-muted x-small"
 
     # Search — the same SearchBox atom the home feed binds, given its own screen so
     # the nav can point at it. Posts and people, both filtered by the `q` cell.
@@ -374,7 +818,8 @@ app F33D3RHome:
         box:
             text "Posts matching \"{q}\"" class "x-section"
             for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
-                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
+                use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                    use PostExtras(t.id, t.aiAssisted)
             text "People" class "x-section"
             for p in Profile where contains(lower(p.handle), lower(q)) by id desc limit 10:
                 use WhoToFollow(p.name, p.handle, p.verified, exists(f in Follow where f.follower == actor && f.followee == p.handle))

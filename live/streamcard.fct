@@ -1,0 +1,20 @@
+# StreamCard — a live tile for the browse grid: 16:9 thumbnail with the LIVE pill
+# and viewer count, then avatar, title (a link to the stream), channel, category.
+import "../ui/avatar.fct"
+import "../ui/icon.fct"
+import "../ui/mediacard.fct"
+app FacetLive:
+    component StreamCard(s: Stream):
+        box class "x-streamcard":
+            box class "x-media x-aspect x-aspect-16x9":
+                image "{s.thumb}" alt "{s.title}"
+                row class "x-media-overlay":
+                    if s.live:
+                        badge "LIVE" class "x-media-live"
+                        badge "{compact(s.viewers)} watching" class "x-media-views"
+            row class "x-streamcard-row":
+                use Avatar(s.owner)
+                box:
+                    link "{s.title}" -> "/live/{s.id}" class "x-strong x-streamcard-title"
+                    text "{s.owner}" class "x-muted x-small"
+                    text "{s.category}" class "x-muted x-small"

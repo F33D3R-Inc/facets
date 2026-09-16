@@ -1,0 +1,8 @@
+# SubscribeButton — subscribe to a channel, as a pill. `subscribed` (compute with
+# exists() in the host) picks the state. Calls the host subscribe(stream).
+app FacetLive:
+    component SubscribeButton(stream: int, subscribed: bool):
+        if subscribed:
+            button "Subscribed" -> unsubscribe(stream) class "x-pill"
+        if !subscribed:
+            button "Subscribe" -> subscribe(stream) class "x-pill x-primary"

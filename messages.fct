@@ -1,0 +1,217 @@
+# f33d3r messages — the messaging reference app, assembled from the chat and
+# graph facets: an inbox with unread counts, 1:1 threads with read receipts, a
+# people page with friend requests, and block / mute / report for anyone.
+#
+# To make every thread end-to-end sealed, add `@e2e` to Message.body below;
+# nothing else changes (see chat/messagebubble.fct).
+#
+#   facet dev messages.fct
+import "layout/vocabulary.fct"
+import "layout/topbar.fct"
+import "ui/look.fct"
+import "ui/navrail.fct"
+import "ui/signupcard.fct"
+import "ui/guestbanner.fct"
+import "chat/inboxlist.fct"
+import "chat/dmthread.fct"
+import "chat/newchat.fct"
+import "graph/contactcard.fct"
+import "graph/friendrequestrow.fct"
+import "graph/usermenu.fct"
+import "graph/reportsheet.fct"
+
+app F33D3RMessages:
+    auth
+
+    enum Status: pending, accepted, declined
+
+    entity Thread:
+        id: int
+        a: text
+        b: text
+        readA: int
+        readB: int
+        created: int
+    entity Message:
+        id: int
+        thread: Thread
+        from: text
+        body: text
+        sent: int
+    entity FriendRequest:
+        id: int
+        from: text
+        to: text
+        status: Status
+        at: int
+    entity Block:
+        id: int
+        user: text
+        blocked: text
+    entity Mute:
+        id: int
+        user: text
+        muted: text
+    entity Report:
+        id: int
+        by: text
+        target: text
+        reason: text
+        at: int
+
+    state draft: text = "" @client
+    state newHandle: text = "" @client
+    state addHandle: text = "" @client
+    state menuOpen: bool = false @client
+    state menuTarget: text = "" @client
+    state reportOpen: bool = false @client
+    state username: text = "" @client
+    state password: text = "" @client
+
+    policy member:
+        actor != "guest"
+    policy participant(id: int):
+        actor == Thread(id).a || actor == Thread(id).b
+    policy addressee(id: int):
+        actor == FriendRequest(id).to
+    policy notBlockedBy(handle: text):
+        !exists(b in Block where b.user == handle && b.blocked == actor)
+
+    # ── threads ──
+    action startChat(handle: text):
+        requires member
+        requires notBlockedBy(handle)
+        check handle != actor "you cannot message yourself"
+        add Thread { a: actor, b: handle, readA: now(), readB: 0, created: now() }
+    action send(thread: int, body: text):
+        requires participant(thread)
+        check body != "" "write something first"
+        add Message { thread: thread, from: actor, body: body, sent: now() }
+        set t in Thread where t.id == thread && t.a == actor:
+            readA = now()
+        set t in Thread where t.id == thread && t.b == actor:
+            readB = now()
+    action markRead(thread: int):
+        requires participant(thread)
+        set t in Thread where t.id == thread && t.a == actor:
+            readA = now()
+        set t in Thread where t.id == thread && t.b == actor:
+            readB = now()
+
+    # ── the graph ──
+    action request(handle: text):
+        requires member
+        requires notBlockedBy(handle)
+        check handle != actor "you are already your own friend"
+        add FriendRequest { from: actor, to: handle, status: Status.pending, at: now() }
+    action accept(id: int):
+        requires addressee(id)
+        set FriendRequest(id).status = Status.accepted
+    action decline(id: int):
+        requires addressee(id)
+        set FriendRequest(id).status = Status.declined
+    action block(handle: text):
+        requires member
+        add Block { user: actor, blocked: handle }
+    action unblock(handle: text):
+        requires member
+        remove b in Block where b.user == actor && b.blocked == handle
+    action mute(handle: text):
+        requires member
+        add Mute { user: actor, muted: handle }
+    action unmute(handle: text):
+        requires member
+        remove m in Mute where m.user == actor && m.muted == handle
+    action report(target: text, reason: text):
+        requires member
+        add Report { by: actor, target: target, reason: reason, at: now() }
+
+    # ── local ──
+    action openMenu(handle: text):
+        menuTarget = handle
+        menuOpen = true
+    action closeMenu:
+        menuOpen = false
+    action openReport:
+        menuOpen = false
+        reportOpen = true
+    action closeReport:
+        reportOpen = false
+
+    view Inbox at "/":
+        row class "x-l-app3":
+            box class "x-l-app3-nav":
+                use NavRail(actor, actor, false, "/")
+            box class "x-l-app3-main":
+                use TopBar("Messages", compact(count(t in Thread where t.a == actor || t.b == actor)) + " conversations", "/")
+                if actor != "guest":
+                    use NewChat(newHandle)
+                    use InboxList()
+                if actor == "guest":
+                    text "Log in to see your messages." class "x-muted x-chat-gate"
+            box class "x-l-app3-aside":
+                if actor == "guest":
+                    use SignUpCard("New to F33D3R?", "/login")
+                if actor != "guest":
+                    box class "x-card":
+                        heading 2 "Friend requests"
+                        for r in FriendRequest where r.to == actor && r.status == Status.pending by id desc limit 10:
+                            use FriendRequestRow(r)
+                        if !exists(r in FriendRequest where r.to == actor && r.status == Status.pending):
+                            text "None right now." class "x-muted"
+        if actor == "guest":
+            use GuestBanner("/login")
+
+    view ThreadPage at "/dm/:id":
+        row class "x-l-app3":
+            box class "x-l-app3-nav":
+                use NavRail(actor, actor, false, "/")
+            box class "x-l-app3-main":
+                if actor == Thread(id).a:
+                    use TopBar(Thread(id).b, "direct message", "/")
+                if actor == Thread(id).b:
+                    use TopBar(Thread(id).a, "direct message", "/")
+                if actor == Thread(id).a || actor == Thread(id).b:
+                    use DMThread(Thread(id), draft)
+                if actor != Thread(id).a && actor != Thread(id).b:
+                    text "This conversation is between other people." class "x-muted x-chat-gate"
+            box class "x-l-app3-aside":
+                if actor == Thread(id).a:
+                    use ContactCard(Thread(id).b, exists(r in FriendRequest where r.status == Status.accepted && ((r.from == actor && r.to == Thread(id).b) || (r.to == actor && r.from == Thread(id).b))), exists(r in FriendRequest where r.from == actor && r.to == Thread(id).b && r.status == Status.pending), openMenu)
+                if actor == Thread(id).b:
+                    use ContactCard(Thread(id).a, exists(r in FriendRequest where r.status == Status.accepted && ((r.from == actor && r.to == Thread(id).a) || (r.to == actor && r.from == Thread(id).a))), exists(r in FriendRequest where r.from == actor && r.to == Thread(id).a && r.status == Status.pending), openMenu)
+        use UserMenu(menuTarget, menuOpen, exists(b in Block where b.user == actor && b.blocked == menuTarget), exists(m in Mute where m.user == actor && m.muted == menuTarget), closeMenu, openReport)
+        use ReportSheet(menuTarget, reportOpen, closeReport)
+
+    view People at "/people":
+        row class "x-l-app3":
+            box class "x-l-app3-nav":
+                use NavRail(actor, actor, false, "/")
+            box class "x-l-app3-main":
+                use TopBar("People", "", "/")
+                if actor != "guest":
+                    row class "x-newchat":
+                        input bind addHandle placeholder "Add a friend by handle"
+                        button "Add friend" -> request(addHandle) class "x-pill x-light"
+                    heading 3 "Friends" class "x-heading x-pad"
+                    for r in FriendRequest where r.status == Status.accepted && r.from == actor by id desc limit 50:
+                        use ContactCard(r.to, true, false, openMenu)
+                    for r in FriendRequest where r.status == Status.accepted && r.to == actor by id desc limit 50:
+                        use ContactCard(r.from, true, false, openMenu)
+                    heading 3 "Sent requests" class "x-heading x-pad"
+                    for r in FriendRequest where r.status == Status.pending && r.from == actor by id desc limit 50:
+                        use ContactCard(r.to, false, true, openMenu)
+            box class "x-l-app3-aside":
+                if actor == "guest":
+                    use SignUpCard("New to F33D3R?", "/login")
+        use UserMenu(menuTarget, menuOpen, exists(b in Block where b.user == actor && b.blocked == menuTarget), exists(m in Mute where m.user == actor && m.muted == menuTarget), closeMenu, openReport)
+        use ReportSheet(menuTarget, reportOpen, closeReport)
+
+    view Login at "/login":
+        box class "x-card" style "max-width: 400px; margin: 10vh auto;":
+            text "𝕏" class "x-logo"
+            heading 2 "Say hello."
+            input bind username placeholder "Username"
+            input bind password placeholder "Password"
+            button "Create account" -> signup(username, password) class "x-pill x-light x-wide"
+            button "Log in" -> login(username, password) class "x-pill x-wide"

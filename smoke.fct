@@ -1,0 +1,525 @@
+# Smoke — imports and exercises every `component` atom in `auth/`, `marketing/`,
+# `content/`, `layout/`, `navigation/`, `forms/`, `data/` and `ui/`: the exact
+# categories a 2026-09-06 audit found the real compiler had never actually
+# checked, because nothing in the workspace imported them (see AGENT_LOG.md,
+# "the catalog is behind the tree"). `facet check smoke.fct` compiling clean is
+# the proof that every atom in these eight categories has now been run through
+# `internal/parser` / `internal/compile` at least once, standing in for the
+# five reference apps (`home`/`timeline`/`live`/`messages`/`f33d3r`) and the
+# three downstream apps (`journal`/`storefront`/`website`) that between them
+# already proved everything OUTSIDE these eight categories (`chat/`, `graph/`,
+# `live/`, `social/`, `notify/`, `profile/`).
+#
+# `ui/nav.fct`, `ui/trends.fct` and `data/feed.fct` are deliberately absent:
+# they are `ui`/`data` SOCKET facets for the layered wireframe track (see
+# `wireframes/shell.fct`), a different declaration kind from a `component` a
+# plain view can `use`, and they are already proven through `f33d3r.fct`.
+#
+# Every value below is placeholder data chosen only to satisfy a parameter's
+# type — a name, a count, a boolean — and none of it is meant to read as a
+# real product surface. Where an atom needs an `action` reference (a form's
+# submit, a pager's step) this file declares the smallest real action that
+# satisfies the arity the atom requires, the same way `apps/journal/data.fct`
+# writes `action nextPage: page = page + 1` for its own pager.
+import "auth/authcard.fct"
+import "auth/loginform.fct"
+import "auth/signupform.fct"
+import "auth/signedinas.fct"
+import "auth/passwordfield.fct"
+
+import "content/byline.fct"
+import "content/article.fct"
+import "content/comments.fct"
+
+import "data/stat.fct"
+import "data/table.fct"
+import "data/keyvalue.fct"
+import "data/definitionlist.fct"
+import "data/timeline.fct"
+
+import "forms/field.fct"
+import "forms/fieldlabel.fct"
+import "forms/fieldmessage.fct"
+import "forms/textfield.fct"
+import "forms/textareafield.fct"
+import "forms/checkfield.fct"
+import "forms/selectfield.fct"
+import "forms/uploadfield.fct"
+import "forms/searchbox.fct"
+import "forms/form.fct"
+import "forms/newsletterform.fct"
+import "forms/reportform.fct"
+
+import "layout/page.fct"
+import "layout/flow.fct"
+import "layout/card.fct"
+import "layout/panel.fct"
+import "layout/divider.fct"
+import "layout/section.fct"
+import "layout/sectionheader.fct"
+import "layout/pageheader.fct"
+import "layout/split.fct"
+import "layout/topbar.fct"
+import "layout/grid.fct"
+import "layout/spacer.fct"
+import "layout/toolbar.fct"
+
+import "marketing/hero.fct"
+import "marketing/featuregrid.fct"
+import "marketing/steps.fct"
+import "marketing/pricing.fct"
+import "marketing/ctaband.fct"
+import "marketing/ctabar.fct"
+import "marketing/callout.fct"
+import "marketing/faq.fct"
+import "marketing/logowall.fct"
+
+import "navigation/link.fct"
+import "navigation/buttonlink.fct"
+import "navigation/navlink.fct"
+import "navigation/sidebaritem.fct"
+import "navigation/breadcrumb.fct"
+import "navigation/pagination.fct"
+import "navigation/pager.fct"
+import "navigation/tabbar.fct"
+
+import "ui/avatar.fct"
+import "ui/avatarinitials.fct"
+import "ui/verifiedbadge.fct"
+import "ui/userchip.fct"
+import "ui/icon.fct"
+import "ui/mediacard.fct"
+import "ui/trend.fct"
+import "ui/navitem.fct"
+import "ui/navrail.fct"
+import "ui/signupcard.fct"
+import "ui/guestbanner.fct"
+import "ui/aspectbox.fct"
+import "ui/gallery.fct"
+import "ui/figure.fct"
+import "ui/chip.fct"
+import "ui/tag.fct"
+import "ui/taglink.fct"
+import "ui/alert.fct"
+import "ui/toast.fct"
+import "ui/tooltip.fct"
+import "ui/spinner.fct"
+import "ui/skeleton.fct"
+import "ui/emptystate.fct"
+import "ui/errorstate.fct"
+import "ui/modal.fct"
+import "ui/drawer.fct"
+import "ui/menu.fct"
+import "ui/prose.fct"
+import "ui/specs.fct"
+import "ui/personrow.fct"
+import "ui/rating.fct"
+import "ui/meter.fct"
+import "ui/progress.fct"
+import "ui/kbd.fct"
+import "ui/buttongroup.fct"
+import "ui/togglebutton.fct"
+
+app FacetsSmoke:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    # `forms/searchbox.fct` binds a hardcoded cell named `q` — not a parameter,
+    # so every host that uses `SearchBox()` declares one with this exact name.
+    state q: text = "" @client
+
+    state loginEmail: text = "" @client
+    state loginPassword: text = "" @client
+    state loginShown: bool = false @client
+    state signupName: text = "" @client
+    state signupEmail: text = "" @client
+    state signupPassword: text = "" @client
+    state signupShown: bool = false @client
+    state standalonePassword: text = "" @client
+    state standaloneShown: bool = false @client
+    state newPassword: text = "" @client
+
+    state textVal: text = "" @client
+    state numberVal: int = 0 @client
+    state textareaVal: text = "" @client
+    state uploadVal: text = "" @client
+    state checkVal: bool = false @client
+    state toggleVal: bool = false @client
+    state toggleVal2: bool = false @client
+    state selectVal: text = "" @client
+    state selectVal2: text = "" @client
+    state selectItems: [text] = ["one", "two", "three"] @client
+
+    state chipToggleVal: bool = false @client
+    state toggleButtonVal: bool = false @client
+    state modalOpen: bool = false @client
+    state modalWideOpen: bool = false @client
+    state drawerOpen: bool = false @client
+    state drawerLeftOpen: bool = false @client
+    state menuOpen: bool = false @client
+    state disclosureOpen: bool = false @client
+    state faqOpen: bool = false @client
+
+    state shown: int = 3 @client
+    state total: int = 9 @client
+    state page: int = 1 @client
+    state pages: int = 4 @client
+    state hasPrev: bool = false @client
+    state hasNext: bool = true @client
+
+    state doneFlag: bool = false @client
+
+    action signIn(email: text, password: text):
+        check email != "" "an email address is required"
+        check password != "" "a password is required"
+
+    action register(name: text, email: text, password: text):
+        check name != "" "tell us what to call you"
+        check email != "" "an email address is required"
+        check password != "" "a password is required"
+
+    action more:
+        shown = shown + 3
+    action resetShown:
+        shown = 3
+    action nextPage:
+        page = page + 1
+    action prevPage:
+        page = page - 1
+    action nextCursor:
+        hasPrev = true
+    action prevCursor:
+        hasPrev = false
+    action doThing:
+        doneFlag = true
+
+    # `UserChip` links to "/profile/{handle}" — a path template, route-checked
+    # at compile time because it starts with a literal "/" — so this route has
+    # to exist somewhere in the app, the same way `home.fct` and `timeline.fct`
+    # each serve a `/profile/:handle` view for the same atom.
+    view Profile at "/profile/:handle":
+        text "Profile placeholder for {handle}."
+
+    view Home at "/":
+        meta title "Facets smoke host"
+        meta description "Imports and exercises every component atom in auth/, marketing/, content/, layout/, navigation/, forms/, data/ and ui/."
+        box:
+            text "Auth" class "smoke-h2"
+            use AuthScreen():
+                text "Auth screen placeholder."
+            use AuthCard("Sign in", "Welcome back."):
+                use LoginForm(signIn, "Sign in", loginEmail, loginPassword, loginShown)
+                use AuthFooter("New here?"):
+                    use Link("Create an account", "/signup")
+            use AuthCard("Create an account", "Free while it is in beta."):
+                use SignupForm(register, "Create account", signupName, signupEmail, signupPassword, signupShown, "At least 12 characters.")
+            use SignedInAs()
+            use SignedInAsLink("/profile")
+            use SignOutButton("Sign out", logout)
+            use PasswordField("Password", "", true, "", "", standalonePassword, standaloneShown)
+            use NewPasswordField("Password", "", true, "At least 12 characters.", "", newPassword)
+
+            text "Content" class "smoke-h2"
+            use DateStamp(1700000000)
+            use Byline("Ada Lovelace", "/author/ada", 1700000000)
+            use BylineEdited("Ada Lovelace", "/author/ada", 1700000000, true)
+            use BylineAvatar("Ada Lovelace", "/author/ada", 1700000000)
+            use ArticleHeader("A title", true):
+                use Byline("Ada Lovelace", "/author/ada", 1700000000)
+            use ArticleList():
+                use ArticleItem("Post one", "/post/1", "An excerpt of the first post."):
+                    use Byline("Ada Lovelace", "/author/ada", 1700000000)
+                use ArticleItem("Post two", "/post/2", "An excerpt of the second post."):
+                    use Byline("Grace Hopper", "/author/grace", 1700000000)
+            use ArticleSummary("A standalone summary", "/post/3", "Another excerpt.")
+            use CommentList():
+                use CommentRow("Ada Lovelace", "/author/ada", 1700000000):
+                    use CommentBody("A first comment.")
+                    use CommentActions():
+                        text "delete"
+                use CommentRow("Grace Hopper", "/author/grace", 1700000000):
+                    use CommentBody("A comment with a reply.")
+                    use CommentReplies():
+                        use CommentRow("Alan Turing", "/author/alan", 1700000000):
+                            use CommentBody("A reply.")
+
+            text "Data" class "smoke-h2"
+            use StatGroup():
+                use Stat("Members", "1,204")
+                use StatDelta("Requests today", "18,930", "12%", "up")
+                use StatDelta("p95 latency", "84ms", "6ms", "down")
+            use Table("A caption"):
+                use TableHead():
+                    use TableRow():
+                        use TableHeadCell("Name")
+                        use TableHeadCellRight("Count")
+                use TableBody():
+                    use TableRow():
+                        use TableCell("Rust")
+                        use TableCellRight("12")
+                    use TableRow():
+                        use TableCellWrap("A long wrapped value that spans the width of the cell.")
+                        use TableCellRight("3")
+                use EmptyRow("Nothing yet")
+            use KeyValueList():
+                use KeyValueRow("Seats", "12")
+                use KeyValueRow("Rate", "$8 / seat / month")
+                use KeyValueTotal("Due today", "$96.00")
+            use DefinitionList():
+                use DefinitionRow("Status"):
+                    use Tag("Beta", "warn")
+                use DefinitionRow("Notes"):
+                    use Prose("Two paragraphs of **actual writing**.")
+            use Timeline():
+                use TimelineItem("09:14", "Request received"):
+                    use Prose("From **ada** on the API key ending 9f2c.")
+                use TimelineItemCurrent("09:20", "In review"):
+                    use Tag("Waiting on you", "warn")
+
+            text "Forms" class "smoke-h2"
+            use Field("Label", true, "A hint.", ""):
+                input bind textVal placeholder "type here"
+            use FieldLabel("Standalone label", true)
+            use FieldHint("A standalone hint.")
+            use FieldError("A standalone error.")
+            use TextField("Name", "Ada Lovelace", true, "", "", textVal)
+            use NumberField("Age", "0", false, "", "", numberVal)
+            use TextAreaField("Bio", "Tell us about yourself.", false, "", "", textareaVal)
+            use CheckboxField("Subscribe to updates", "", "", checkVal)
+            use ToggleField("Public profile", "Anyone can see your posts.", "", toggleVal)
+            use ToggleList():
+                use Toggle("Reduce motion", toggleVal)
+                use Toggle("Autoplay video", toggleVal2)
+            use SelectField("Tag", false, "", "", "— any —", selectVal, selectItems)
+            use SelectFieldReq("Tag", true, "", "", selectVal2, selectItems)
+            use UploadField("Avatar", "Choose file", false, "", "", uploadVal)
+            use SearchBox()
+            use Form(doThing):
+                text "A form-styled block."
+                use FormActions():
+                    use ActionButton("Do it", doThing)
+            use NewsletterForm()
+            use ReportForm("post:1")
+
+            text "Layout" class "smoke-h2"
+            use Page():
+                text "Page content."
+            use PageNarrow():
+                text "Narrower page content."
+            use Stack():
+                text "One"
+                text "Two"
+            use StackTight():
+                text "One"
+            use StackLoose():
+                text "One"
+            use Row():
+                text "A"
+                text "B"
+            use RowBetween():
+                text "Left"
+                text "Right"
+            use RowEnd():
+                text "Right-aligned"
+            use Card():
+                text "Card content."
+            use CardRaised():
+                text "Raised card content."
+            use Panel():
+                use PanelTitle("A panel")
+                use PanelNote("A note under the panel.")
+            use Divider()
+            use DividerInset()
+            use Section("A section", "With a subtitle"):
+                text "Section content."
+            use SectionHeader("A header", "With a subtitle")
+            use PageHeader("A page", "With a subtitle"):
+                use Breadcrumb():
+                    use Crumb("Home", "/")
+                    use CrumbCurrent("Here")
+            use StickyPageHeader("A sticky page", "With a subtitle")
+            use Split():
+                text "Left"
+                text "Right"
+            use Split3():
+                text "One"
+            use Sticky():
+                text "Sticky content"
+            use TopBar("A title", "A sub", "/")
+            use Grid2():
+                use Card():
+                    text "One"
+                use Card():
+                    text "Two"
+            use Grid3():
+                use Card():
+                    text "One"
+            use Spacer("sm")
+            use Spacer("md")
+            use Spacer("lg")
+            use Toolbar():
+                use ToolbarMain():
+                    use SearchBox()
+                use ToolbarEnd():
+                    use Link("New", "/new")
+            use ToolbarPlain():
+                text "Plain toolbar"
+            use StickyToolbar():
+                text "Sticky toolbar"
+
+            text "Navigation" class "smoke-h2"
+            use Link("A link", "/somewhere")
+            use ButtonLink("A button link", "/somewhere")
+            use ButtonLinkPrimary("A primary button link", "/somewhere")
+            use NavLink("Nav item", "/somewhere")
+            use NavLinkWhen("Docs", "/docs", true)
+            use SidebarItem("home", "Home", "/")
+            use SidebarItemWhen("gear", "Settings", "/settings", false)
+            use Breadcrumb():
+                use Crumb("Home", "/")
+                use Crumb("Section", "/section")
+                use CrumbCurrent("Here")
+            use Pagination(2, 5, "/page/1", "/page/3")
+            use PageNumbers():
+                use PageNumber(1, "/page/1", false)
+                use PageNumber(2, "/page/2", true)
+            use LoadMore(shown, total, more)
+            use LoadMoreReset(shown, total, more, resetShown)
+            use Pager(page, pages, prevPage, nextPage)
+            use CursorPager(hasPrev, hasNext, prevCursor, nextCursor)
+            use TabBar():
+                use NavLink("Posts", "/somewhere")
+                use NavLink("Replies", "/somewhere")
+
+            text "UI" class "smoke-h2"
+            use Avatar("ada")
+            use AvatarInitials("Ada Lovelace")
+            use AvatarInitialsLarge("Ada Lovelace")
+            use AvatarSwatch(3, "Ada Lovelace")
+            use AvatarSwatchLarge(3, "Ada Lovelace")
+            use VerifiedBadge(true)
+            use UserChip("Ada Lovelace", "ada", true)
+            use Icon("heart")
+            use MediaCard("video", "/media/1.mp4", false, 128)
+            use Trend("Tech", "#FacetLang", "1,234 posts")
+            use NavItem("home", "Home", "/")
+            use NavRail("Ada Lovelace", "ada", true, "/compose")
+            use SignUpCard("Join now", "/signup")
+            use GuestBanner("/signup")
+            use AspectSquare():
+                image "/media/square.png"
+            use AspectWide():
+                image "/media/wide.png"
+            use AspectUltraWide():
+                image "/media/ultrawide.png"
+            use AspectPortrait():
+                image "/media/portrait.png"
+            use Gallery():
+                use GalleryTile("/media/1.png", "/photo/1")
+                use GalleryTile("/media/2.png", "")
+            use GalleryWide():
+                use GalleryTileWide("/media/3.png", "/photo/3")
+            use GalleryFigure("/media/4.png", "/photo/4", "A caption.")
+            use Figure("/media/5.png", "A figure caption.")
+            use FigureWide("/media/6.png", "A wide figure caption.")
+            use ChipRow():
+                use Chip("Tag one")
+                use ChipLink("Tag two", "/tag/two")
+                use ChipToggle("Tag three", chipToggleVal)
+            use Tag("Beta", "warn")
+            use TagLink("Beta", "/tag/beta", "warn")
+            use Alert("ok", "All good", "Everything is working.")
+            use Toast("ok", "Copied")
+            use Tooltip("Hover me", "A tooltip.")
+            use TooltipOn("A tooltip."):
+                text "Hover me"
+            use Spinner("Loading…")
+            use SkeletonLine("full")
+            use SkeletonPost()
+            use EmptyState("Nothing here", "When something happens it will appear here.")
+            use ErrorState("Something went wrong", "")
+            use Modal("A modal", modalOpen):
+                use Prose("Modal body.")
+                use ModalActions():
+                    use ToggleButtonQuiet("Close", modalOpen)
+            use ModalWide("A wide modal", modalWideOpen):
+                use Prose("Wide modal body.")
+            use Drawer("A drawer", drawerOpen):
+                use CheckboxField("Only mine", "", "", checkVal)
+            use DrawerLeft("A left drawer", drawerLeftOpen):
+                text "Left drawer content."
+            use Menu("Menu", menuOpen):
+                use MenuItem("Docs", "/docs")
+                use MenuSeparator()
+                use MenuClose("Close", menuOpen)
+            use Disclosure("Show advanced", disclosureOpen):
+                text "Advanced settings."
+            use Prose("Some **prose** with a bit of formatting.")
+            use Code("fct", "component Example(): text \"hi\"")
+            use Specs():
+                use SpecRow("Version", "1.32.0")
+            use PersonList():
+                use PersonRow("Ada Lovelace", "Admin", "/u/ada"):
+                    use ActionButton("Remove", doThing)
+            use PersonBlock("Grace Hopper", "Member", "/u/grace")
+            use Rating(4, 128)
+            use Meter("Storage", 41, 50, "warn")
+            use ProgressBar("Uploading", 60, 100)
+            use Keys():
+                use Kbd("Ctrl")
+                use KbdPlus()
+                use Kbd("K")
+            use ButtonGroup():
+                button "Day" -> doThing
+                button "Week" -> doThing
+            use ButtonGroupFill():
+                button "Save" -> doThing
+                button "Cancel" -> doThing
+            use ToggleButton("Follow", toggleButtonVal)
+            use ToggleButtonQuiet("Dismiss", toggleButtonVal)
+
+            text "Marketing" class "smoke-h2"
+            use Hero("New", "Ship components faster", "A library of reusable facets."):
+                use ButtonLinkPrimary("Get started", "/signup")
+                use ButtonLink("Learn more", "/docs")
+            use HeroLeft("New", "Ship components faster", "A library of reusable facets."):
+                use ButtonLinkPrimary("Get started", "/signup")
+            use FeatureGrid():
+                use FeatureItem("bolt", "Fast", "Compiles in milliseconds.")
+                use FeatureItem("shield", "Safe", "Checked end to end.")
+            use Steps():
+                use Step("Import the library"):
+                    text "Add the import line to your app."
+                use Step("Use a component"):
+                    text "Write a use line with your own arguments."
+            use PricingTable():
+                use PricingTier("Free", "$0", "forever", "", false):
+                    use PricingFeatures():
+                        use PricingFeature("One project")
+                    use PricingActions():
+                        button "Start free" -> doThing
+                use PricingTier("Team", "$12", "per seat / month", "Billed monthly.", true):
+                    use PricingFeatures():
+                        use PricingFeature("Unlimited projects")
+                    use PricingActions():
+                        button "Start a team" -> doThing
+            use CTABand("Ready to ship?", "Start free, no card required."):
+                use ButtonLinkPrimary("Get started", "/signup")
+            use CTABar("Ready to ship?", "Start free, no card required."):
+                use ButtonLinkPrimary("Get started", "/signup")
+            use Callout("info", "Note"):
+                use Prose("This is a callout with a slot.")
+            use Banner("warn", "Something needs your attention.")
+            use FAQ():
+                use FAQItem("Is it free?", faqOpen):
+                    text "Yes, while it is in beta."
+            use LogoWall("Built on"):
+                use Logo("/logos/example.svg")

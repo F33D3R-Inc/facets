@@ -1,0 +1,17 @@
+# InboxItem — one conversation in the inbox: the other participant's avatar and
+# name, the last message as a one-line preview with its time, and the unread
+# count as a pill. Links to the thread. `unread` is the host's count (see
+# InboxList). `other` is the participant who is not the actor.
+import "../notify/unreadbadge.fct"
+app FacetChat:
+    component InboxItem(t: Thread, other: text, unread: int):
+        row class "x-inbox-item":
+            image "https://api.dicebear.com/7.x/thumbs/svg?seed={other}" alt "{other}"
+            box class "x-inbox-body":
+                row class "x-author":
+                    link "{other}" -> "/dm/{t.id}" class "x-strong x-inbox-title"
+                    for m in Message where m.thread == t.id by sent desc limit 1:
+                        text "· {ago(m.sent)}" class "x-muted x-small"
+                for m in Message where m.thread == t.id by sent desc limit 1:
+                    text "{m.body}" class "x-muted x-preview"
+            use UnreadBadge(unread)

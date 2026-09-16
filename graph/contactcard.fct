@@ -1,0 +1,21 @@
+# ContactCard — a person: avatar, name, and the one right action for where you
+# stand with them — Add friend, Requested (pending), or Message (friends). Plus a
+# "…" that opens the UserMenu (block · mute · report). `friend`/`requested` are
+# host-computed (`exists` over FriendRequest); `menu` is the host's client action
+# that opens the menu for this handle.
+import "../ui/avatar.fct"
+app FacetGraph:
+    component ContactCard(handle: text, friend: bool, requested: bool, menu: action):
+        row class "x-contact":
+            use Avatar(handle)
+            box class "x-contact-body":
+                text "{handle}" class "x-strong"
+                text "@{handle}" class "x-muted x-small"
+            row class "x-contact-actions":
+                if friend:
+                    button "Message" -> startChat(handle) class "x-pill x-primary"
+                if !friend && requested:
+                    text "Requested" class "x-pill x-muted"
+                if !friend && !requested:
+                    button "Add friend" -> request(handle) class "x-pill x-light"
+                button "" -> menu(handle) class "x-glyph-more x-iconbtn"

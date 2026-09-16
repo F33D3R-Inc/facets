@@ -315,6 +315,17 @@ facet dev live.fct       # the streaming app
 facet dev messages.fct   # the messaging app
 ```
 
+**`smoke.fct` is a third thing, and it is not an app.** The five apps above
+each import and prove the atoms THEY use; a 2026-09-06 audit found 72 atoms —
+all of `auth/`, `marketing/`, `content/`, most of `layout/`, `navigation/`,
+`forms/`, `data/` and 22 of `ui/` — imported by no file anywhere in the
+workspace, so `facet build`/`check` had never actually run over them.
+`smoke.fct` imports and `use`s every `component` atom in those eight
+categories with placeholder arguments, so `facet check smoke.fct` compiling
+clean is the proof the real compiler has checked the whole library, not just
+the fraction the reference apps happen to touch. It has no visual design and
+is not meant to be browsed with `facet dev` — check it, don't run it.
+
 ## Quality bar (per facet)
 
 - Compiles (`facet build`); runs where it makes sense (`facet dev`).

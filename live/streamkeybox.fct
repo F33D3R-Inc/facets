@@ -1,0 +1,16 @@
+# StreamKeyBox — the broadcaster's stream key, masked until revealed. The key is
+# its OWN entity (StreamKey), not a field of Stream, and that is the security
+# design, not a convenience: a row a page renders travels to the browser whole,
+# so a key on the Stream row would reach every visitor of the browse grid and the
+# theater. A StreamKey row is only ever ranged by `where k.owner == actor`, so the
+# only browser that ever holds one is its owner's. `reveal` is a host `@client`
+# bool.
+app FacetLive:
+    component StreamKeyBox(k: StreamKey, reveal: cell bool):
+        row class "x-console-row":
+            text "Stream key" class "x-strong"
+            if !reveal:
+                text "{take(k.key, 5)}••••••••••••" class "x-mono"
+            if reveal:
+                text "{k.key}" class "x-mono"
+            checkbox bind reveal label "reveal"

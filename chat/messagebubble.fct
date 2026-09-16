@@ -1,0 +1,17 @@
+# MessageBubble — one message in a thread: theirs on the left with a small
+# avatar, mine on the right in the accent colour, the time underneath and "Seen"
+# once the other side has read past it. Takes the Message row. The body is a
+# standalone text node, so a host that declares `body: text @e2e` gets a sealed
+# thread for free: the authority only ever holds ciphertext and the bubble opens
+# it on the reader's device.
+app FacetChat:
+    component MessageBubble(m: Message, mine: bool, seen: bool):
+        row class "x-msg x-mine-{mine}":
+            if !mine:
+                image "https://api.dicebear.com/7.x/thumbs/svg?seed={m.from}" alt "{m.from}" class "x-avatar-sm"
+            box class "x-msg-col":
+                text "{m.body}" class "x-bubble"
+                row class "x-msg-meta":
+                    text "{ago(m.sent)}" class "x-muted x-small"
+                    if mine && seen:
+                        text "Seen" class "x-muted x-small"

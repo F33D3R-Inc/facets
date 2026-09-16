@@ -1,0 +1,14 @@
+# RecentTips — the alert rail: the latest tips as they land, live over SSE. Until
+# the language has a timer this is the standing list a stream overlay would
+# animate; it is also the "top supporters" strip when sorted by amount.
+import "../ui/icon.fct"
+app FacetLive:
+    component RecentTips(s: Stream):
+        box class "x-tips":
+            for t in Tip where t.stream == s.id by id desc limit 5:
+                row class "x-tipline":
+                    icon "bolt"
+                    text "{t.from}" class "x-strong"
+                    text "tipped {money(t.cents)}"
+                    if t.note != "":
+                        text "— {t.note}" class "x-muted"

@@ -1,0 +1,25 @@
+# StreamInfo — the row under the player: avatar, title, channel name with verified
+# check, category and tags as chips, and the action pills on the right — Follow,
+# Subscribe, Tip. `open` is the host's client action that opens the TipSheet.
+import "../ui/avatar.fct"
+import "../ui/verifiedbadge.fct"
+import "../social/followbutton.fct"
+import "subscribebutton.fct"
+import "categorychip.fct"
+app FacetLive:
+    component StreamInfo(s: Stream, following: bool, subscribed: bool, open: action):
+        row class "x-streaminfo":
+            use Avatar(s.owner)
+            box class "x-streaminfo-body":
+                heading 2 "{s.title}"
+                row class "x-author":
+                    text "{s.owner}" class "x-strong"
+                    use VerifiedBadge(s.verified)
+                row class "x-streamchips":
+                    use CategoryChip(s.category)
+                    if s.tags != "":
+                        text "{s.tags}" class "x-muted x-small"
+            row class "x-streaminfo-actions":
+                use FollowButton(s.owner, following)
+                use SubscribeButton(s.id, subscribed)
+                button "Tip" -> open class "x-pill x-glyph-bolt"
