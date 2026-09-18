@@ -1,0 +1,197 @@
+# Smoke (new atoms, round 6) — imports and exercises the twelve components
+# added this round to grow the four thin categories CATALOG.md names
+# (`commerce/`, `profile/`, `notify/`, `media/`): ProductCard, OrderHistoryList
+# / OrderRow, ReviewList / ReviewRow, CouponField, ShippingAddressForm,
+# ProfileCard, FollowList / FollowListRow, SecurityStatusRow,
+# NotificationToggleRow, ToastStack / ToastRow, ImageGalleryTile / Lightbox,
+# and FileAttachment. `facet check smoke_new6.fct` compiling clean is the
+# proof each one runs through the real compiler, the same role
+# `smoke_new.fct` through `smoke_new5.fct` play for their own rounds.
+import "commerce/productcard.fct"
+import "commerce/orderhistory.fct"
+import "commerce/reviews.fct"
+import "commerce/couponfield.fct"
+import "commerce/shippingaddressform.fct"
+import "profile/profilecard.fct"
+import "profile/followlist.fct"
+import "profile/accountsecurity.fct"
+import "profile/settingspage.fct"
+import "notify/notificationpreferences.fct"
+import "notify/toaststack.fct"
+import "forms/checkfield.fct"
+import "media/imagegallery.fct"
+import "media/fileattachment.fct"
+import "ui/rating.fct"
+
+app FacetsSmokeNew6:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state couponCode: text = "" @client
+    state shipFullName: text = "" @client
+    state shipLine1: text = "" @client
+    state shipLine2: text = "" @client
+    state shipCity: text = "" @client
+    state shipRegion: text = "" @client
+    state shipPostal: text = "" @client
+    state shipCountry: text = "" @client
+    state lightboxOpen: bool = false @client
+    state lightboxSrc: text = "" @client
+    state justAddedToCart: bool = false @client
+    state pushLikes: bool = true @client
+    state pushReplies: bool = true @client
+    state pushMentions: bool = true @client
+    state pushFollows: bool = false @client
+    state emailDigest: bool = true @client
+    state emailProduct: bool = false @client
+
+    entity Product:
+        id: int
+        image: text
+        title: text
+        priceCents: int
+        stock: int
+    entity Order:
+        id: int
+        buyer: text
+        placed: int
+        statusLabel: text
+        statusTone: text
+        totalCents: int
+        itemCount: int
+    entity Review:
+        id: int
+        product: int
+        author: text
+        rating: int
+        created: int
+        body: text
+    entity Address:
+        id: int
+        owner: text
+        fullName: text
+        line1: text
+        line2: text
+        city: text
+        region: text
+        postal: text
+        country: text
+    entity Follow:
+        id: int
+        follower: text
+        followee: text
+    entity Media:
+        id: int
+        url: text
+
+    action addToCart(id: int):
+        check id > -1 "nothing to add"
+        justAddedToCart = true
+    action applyCoupon(code: text):
+        check code != "" "enter a code"
+        check code == "SAVE10" "that code is not valid"
+    action saveAddress(fullName: text, line1: text, line2: text, city: text, region: text, postal: text, country: text):
+        check fullName != "" "a name is required"
+        check line1 != "" "an address is required"
+        add Address { owner: actor, fullName: fullName, line1: line1, line2: line2, city: city, region: region, postal: postal, country: country }
+    action follow(handle: text):
+        check handle != "" "no handle"
+        check !exists(f in Follow where f.follower == actor && f.followee == handle) "already following"
+        add Follow { follower: actor, followee: handle }
+    action unfollow(handle: text):
+        remove f in Follow where f.follower == actor && f.followee == handle
+
+    # ── local (client-only) actions ──────────────────────────────────────────
+    action openLightbox(src: text):
+        lightboxSrc = src
+        lightboxOpen = true
+
+    view OrderDetail at "/orders/:id":
+        text "Order placeholder for {id}."
+    view PasswordSettings at "/settings/password":
+        text "Password settings placeholder."
+    view TwoFactorSettings at "/settings/2fa":
+        text "Two-factor settings placeholder."
+    view DownloadFile at "/download/:id":
+        text "Download placeholder for {id}."
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 6"
+        box:
+            text "ProductCard" class "smoke-h2"
+            for p in Product by id asc limit 6 class "x-l-grid3":
+                use ProductCard(p.id, p.image, p.title, p.priceCents, p.stock > 0):
+                    use Rating(4, 12)
+            if justAddedToCart:
+                text "Added to cart." class "x-muted x-small"
+
+            text "OrderHistoryList / OrderRow" class "smoke-h2"
+            use OrderHistoryList():
+                if !exists(o in Order where o.buyer == actor):
+                    use OrderHistoryEmpty()
+                for o in Order where o.buyer == actor by placed desc limit 20:
+                    use OrderRow(o.id, o.placed, o.statusLabel, o.statusTone, o.totalCents, o.itemCount)
+
+            text "ReviewList / ReviewRow (ReviewStars = ui/Rating, reused)" class "smoke-h2"
+            for p in Product where p.id == 1 limit 1:
+                use Rating(4, count(r in Review where r.product == p.id))
+                use ReviewList():
+                    if !exists(r in Review where r.product == p.id):
+                        use ReviewListEmpty()
+                    for r in Review where r.product == p.id by created desc limit 20:
+                        use ReviewRow(r.author, r.rating, r.created, r.body)
+
+            text "CouponField" class "smoke-h2"
+            use CouponField(couponCode)
+
+            text "ShippingAddressForm" class "smoke-h2"
+            use ShippingAddressForm(saveAddress, shipFullName, shipLine1, shipLine2, shipCity, shipRegion, shipPostal, shipCountry)
+
+            text "ProfileCard" class "smoke-h2"
+            use ProfileCard("Grace Hopper", "grace", true, "Compiler pioneer.", exists(f in Follow where f.follower == actor && f.followee == "grace"), count(f in Follow where f.followee == "grace"))
+
+            text "FollowList / FollowListRow" class "smoke-h2"
+            use FollowList("Followers", count(f in Follow where f.followee == actor)):
+                for f in Follow where f.followee == actor by id desc limit 50:
+                    use FollowListRow(f.follower, false, "", exists(g in Follow where g.follower == actor && g.followee == f.follower))
+
+            text "SecurityStatusRow" class "smoke-h2"
+            use SettingsSection("Password & security", ""):
+                use SecurityStatusRow("Password", "Changed 3 months ago", "neutral", "/settings/password")
+                use SecurityStatusRow("Two-factor authentication", "Off", "warn", "/settings/2fa")
+
+            text "NotificationToggleRow" class "smoke-h2"
+            use SettingsSection("Push notifications", ""):
+                use ToggleList():
+                    use NotificationToggleRow("Likes", "When someone likes your post", pushLikes)
+                    use NotificationToggleRow("Replies", "When someone replies to you", pushReplies)
+                    use NotificationToggleRow("Mentions", "When someone mentions you", pushMentions)
+                    use NotificationToggleRow("New followers", "When someone follows you", pushFollows)
+            use SettingsSection("Email notifications", ""):
+                use ToggleList():
+                    use NotificationToggleRow("Weekly digest", "A summary of your activity", emailDigest)
+                    use NotificationToggleRow("Product updates", "News about new features", emailProduct)
+
+            text "ImageGalleryTile / Lightbox" class "smoke-h2"
+            for m in Media by id asc limit 12 class "x-imggal":
+                use ImageGalleryTile(m.url, openLightbox)
+            use Lightbox(lightboxOpen, lightboxSrc)
+
+            text "FileAttachment" class "smoke-h2"
+            use FileAttachment("file", "Q3 report.pdf", "1.2 MB", "/download/1")
+            use FileAttachment("image", "cover.png", "480 KB", "/download/2")
+
+            text "ToastStack / ToastRow" class "smoke-h2"
+            use ToastStack():
+                if justAddedToCart:
+                    use ToastRow("ok", "Added to cart")
+                if failed(applyCoupon) != "":
+                    use ToastRow("danger", failed(applyCoupon))
