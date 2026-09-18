@@ -104,6 +104,8 @@ app FacetsSmokeNew3:
         check id > -1 "nothing to share"
     action bookmark(id: int):
         check id > -1 "nothing to bookmark"
+    action repost(id: int):
+        check id > -1 "nothing to repost"
     action subscribe(stream: int):
         check stream > -1 "no channel"
     action unsubscribe(stream: int):
@@ -111,6 +113,10 @@ app FacetsSmokeNew3:
 
     view Watch at "/watch/:id":
         text "Video placeholder for {id}."
+    view Profile at "/profile/:handle":
+        text "Profile placeholder for {handle}."
+    view PostDetail at "/post/:id":
+        text "Post placeholder for {id}."
     view CommunityPage at "/community/:id":
         text "Community placeholder for {id}."
     view ListPage at "/list/:id":

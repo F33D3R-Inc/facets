@@ -1,0 +1,161 @@
+# Wallet — the balance card, top-up / transfer / red-packet sheets, and the
+# history line under them: WeChat Pay's own three verbs, on the same ledger
+# shape `live/TipSheet` and `live/RecentTips` already settle tips on. A wallet
+# invents no new payments primitive — it is a `WalletTx` row per movement
+# (`cents: money`, signed by direction) and a `sum` for the balance, the exact
+# arrangement `live/Leaderboard`'s own doc comment names for a ledger with no
+# group-by: the host owns the entity, this file owns the read side and the
+# three dialogs that write to it.
+#
+#     entity WalletTx:
+#         id: int
+#         user: text
+#         kind: text        # "topup" | "transfer_out" | "transfer_in" | "redpacket_out" | "redpacket_in"
+#         counterparty: text
+#         cents: money       # signed: negative leaves the wallet, positive enters it
+#         note: text
+#         created: int
+#
+#     action topUp(cents: money):
+#         add WalletTx { user: actor, kind: "topup", counterparty: "", cents: cents, note: "", created: now() }
+#     action transfer(to: text, cents: money, note: text):
+#         check cents > 0 "nothing to send"
+#         add WalletTx { user: actor, kind: "transfer_out", counterparty: to, cents: -cents, note: note, created: now() }
+#         add WalletTx { user: to, kind: "transfer_in", counterparty: actor, cents: cents, note: note, created: now() }
+#     action sendRedPacket(to: text, cents: money, note: text):
+#         check cents > 0 "nothing to send"
+#         add WalletTx { user: actor, kind: "redpacket_out", counterparty: to, cents: -cents, note: note, created: now() }
+#         add WalletTx { user: to, kind: "redpacket_in", counterparty: actor, cents: cents, note: note, created: now() }
+#
+#     use WalletCard(sum(w.cents in WalletTx where w.user == actor)):
+#         use WalletActions(topUpOpen, transferOpen, redPacketOpen)
+#     use TopUpSheet(topUpOpen, closeTopUp)
+#     use TransferSheet(transferOpen, transferTo, transferNote, closeTransfer)
+#     use RedPacketSheet(redPacketOpen, packetTo, packetNote, closeRedPacket)
+#     use WalletHistory():
+#         for w in WalletTx where w.user == actor by id desc limit 50:
+#             use WalletTxRow(w.kind, w.counterparty, w.cents, w.note, w.created)
+#
+# ── A TRANSFER IS TWO `add`s IN ONE ACTION, NOT ONE ROW READ TWICE ────────────
+#
+# CATALOG.md's own language backlog names the gap this would otherwise hit —
+# "`let id = add Entity {…}`", for an action that has to create a row and then
+# reference the id it just got — but a transfer never needs that: both sides of
+# the movement are known before the action runs (`actor` and `to`), so it adds
+# both rows outright, the same way `home.fct`'s `like`/`follow` already add a
+# `Notification` alongside the row they are really about.
+#
+# ── EACH SHEET IS TIPSHEET'S SHAPE, WITH PRESETS INSTEAD OF A CUSTOM FIELD ────
+#
+# `live/TipSheet` still lists "custom amount" as an open gap, for the reason
+# named there: an amount typed into an `input bind` arrives as `text`, this
+# language has no text-to-money conversion builtin, and an action parameter
+# typed `money` cannot take a `text` cell directly. These three sheets have the
+# exact same limitation and do not pretend otherwise — presets only, same as
+# `TipSheet`.
+import "../ui/togglebutton.fct"
+import "../ui/relativetime.fct"
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-wallet-card { display: flex; flex-direction: column; gap: 4px;
+                        padding: 20px; border-radius: var(--fa-radius, 16px);
+                        background: var(--fa-accent); color: #fff; }
+        [data-fa-mount] .x-wallet-label { font-size: 13px; font-weight: 600; opacity: .85; }
+        [data-fa-mount] .x-wallet-balance { font-size: 34px; font-weight: 800;
+                          font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+        [data-fa-mount] .x-wallet-actions { display: flex; flex-direction: row; gap: 10px; padding: 4px 0; }
+        [data-fa-mount] .x-wallet-actions .x-togglebtn .fa-toggle { border-color: var(--x-line, #2f3336); }
+        # `.x-sheet`/`.x-presets` are the shared vocabulary `live/TipSheet` and
+        # `graph/ReportSheet` already lean on (`ui/look.fct`'s own gap/flex-wrap
+        # rules for a dialog and its row of preset buttons) — reused rather than
+        # restated, the same way every sheet in this library already does.
+        [data-fa-mount] .x-wallet-history { display: flex; flex-direction: column; gap: 0; }
+        [data-fa-mount] .x-wallet-row { display: flex; align-items: center; gap: 10px;
+                        padding: 10px 4px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-wallet-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        [data-fa-mount] .x-wallet-row-kind { font-size: 14px; font-weight: 700; }
+        [data-fa-mount] .x-wallet-row-note { color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-wallet-row-amount { flex: none; font-weight: 800;
+                             font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-wallet-in { color: #00ba7c; }
+        [data-fa-mount] .x-wallet-out { color: var(--fa-fg); }
+        [data-fa-mount] .x-wallet-card > div:empty:not([class]) { display: none; }
+    component WalletCard(balanceCents: int):
+        box class "x-wallet-card":
+            text "Balance" class "x-wallet-label"
+            text "{money(balanceCents)}" class "x-wallet-balance"
+            slot
+    component WalletActions(topUpOpen: cell bool, transferOpen: cell bool, redPacketOpen: cell bool):
+        row class "x-wallet-actions":
+            use ToggleButton("Top up", topUpOpen)
+            use ToggleButton("Transfer", transferOpen)
+            use ToggleButton("Red packet", redPacketOpen)
+    component TopUpSheet(open: cell bool, close: action):
+        overlay bind open:
+            box class "x-sheet":
+                heading 2 "Top up your wallet"
+                row class "x-presets":
+                    button "$5" -> topUp(500) class "x-pill"
+                    button "$10" -> topUp(1000) class "x-pill"
+                    button "$25" -> topUp(2500) class "x-pill"
+                    button "$100" -> topUp(10000) class "x-pill x-primary"
+                if pending(topUp):
+                    text "Adding funds…" class "x-muted"
+                text "{failed(topUp)}" class "fa-error"
+                button "Done" -> close class "x-pill"
+    component TransferSheet(open: cell bool, to: cell text, note: cell text, close: action):
+        overlay bind open:
+            box class "x-sheet":
+                heading 2 "Send money"
+                input bind to placeholder "Recipient's handle"
+                input bind note placeholder "Add a note (optional)"
+                row class "x-presets":
+                    button "$5" -> transfer(to, 500, note) class "x-pill"
+                    button "$10" -> transfer(to, 1000, note) class "x-pill"
+                    button "$25" -> transfer(to, 2500, note) class "x-pill"
+                    button "$100" -> transfer(to, 10000, note) class "x-pill x-primary"
+                if pending(transfer):
+                    text "Sending…" class "x-muted"
+                text "{failed(transfer)}" class "fa-error"
+                button "Done" -> close class "x-pill"
+    component RedPacketSheet(open: cell bool, to: cell text, note: cell text, close: action):
+        overlay bind open:
+            box class "x-sheet":
+                heading 2 "Send a red packet"
+                text "A little something, wrapped up." class "x-muted"
+                input bind to placeholder "Recipient's handle"
+                input bind note placeholder "A wish for them (optional)"
+                row class "x-presets":
+                    button "$1.88" -> sendRedPacket(to, 188, note) class "x-pill"
+                    button "$8.88" -> sendRedPacket(to, 888, note) class "x-pill"
+                    button "$18.88" -> sendRedPacket(to, 1888, note) class "x-pill x-primary"
+                if pending(sendRedPacket):
+                    text "Wrapping…" class "x-muted"
+                text "{failed(sendRedPacket)}" class "fa-error"
+                button "Done" -> close class "x-pill"
+    component WalletHistory():
+        box class "x-wallet-history":
+            slot
+    component WalletTxRow(kind: text, counterparty: text, cents: int, note: text, created: int):
+        row class "x-wallet-row":
+            box class "x-wallet-row-body":
+                match kind:
+                    case "topup":
+                        text "Top-up" class "x-wallet-row-kind"
+                    case "transfer_out":
+                        text "Sent to {counterparty}" class "x-wallet-row-kind"
+                    case "transfer_in":
+                        text "Received from {counterparty}" class "x-wallet-row-kind"
+                    case "redpacket_out":
+                        text "Red packet to {counterparty}" class "x-wallet-row-kind"
+                    case "redpacket_in":
+                        text "Red packet from {counterparty}" class "x-wallet-row-kind"
+                    else:
+                        text "{kind}" class "x-wallet-row-kind"
+                if note != "":
+                    text "{note}" class "x-wallet-row-note"
+                use RelativeTime(created)
+            if cents >= 0:
+                text "+{money(cents)}" class "x-wallet-row-amount x-wallet-in"
+            if cents < 0:
+                text "{money(cents)}" class "x-wallet-row-amount x-wallet-out"

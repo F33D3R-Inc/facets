@@ -1,0 +1,72 @@
+# LocationCard / NearbyRow — a place, shown two ways: the map card a shared pin
+# renders as (a static image with a label under it), and the row a "Nearby"
+# list is made of (name, distance, a link to the detail page).
+#
+#     use LocationCard(m.staticMapUrl, "Blue Bottle Coffee", "300 Water St", "0.4 mi")
+#     use NearbyList():
+#         for p in Place by distanceMeters asc limit 30:
+#             use NearbyRow(p.name, p.distanceLabel, "/place/" + p.id)
+#
+# ── THE MAP IS AN IMAGE THE HOST BUILT, NOT A URL THIS FILE ASSEMBLES ────────
+#
+# CATALOG.md names the honest way to close this gap — "needs an embed node or
+# an `image` static map" — and this is the second half of that sentence: there
+# is no `embed`/`iframe` node in this language, so a live, pannable map is
+# out of reach, but a STATIC map is exactly a picture at a URL, which `image`
+# already renders (`ui/avatar.fct` and `commerce/PayButton`'s `MyQRCode` are
+# the same move for a generated picture rather than an uploaded one). What
+# this file will not do is pick a provider: Google Static Maps, Mapbox,
+# MapTiler and OSM's own static renderer each want a different query string
+# and most want an API key, so `mapImage` arrives pre-built, the same
+# convention `media/VideoPage`/`content/LinkPreview` use for a field the host
+# had to do real work to produce. A blank `mapImage` renders the label and
+# address with no picture, rather than a broken image icon.
+#
+# ── THIS IS NOT LIVE LOCATION, AND NOTHING HERE CLAIMS TO BE ─────────────────
+#
+# "Nearby" on a real super-app means the DEVICE's live coordinates, which is a
+# browser geolocation API this language has no builtin for — nothing here
+# reads where the reader actually is. `distanceMeters`/`distanceLabel` are
+# numbers the host already computed (against whatever position it already
+# has), the same way `ui/StatChip` takes a raw number rather than a query.
+import "../navigation/link.fct"
+import "icon.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-loc-card { display: flex; flex-direction: column;
+                       border: 1px solid var(--x-line, #2f3336); border-radius: 14px;
+                       overflow: hidden; background: none; }
+        [data-fa-mount] .x-loc-map { display: block; width: 100%; height: auto;
+                     aspect-ratio: 16 / 9; object-fit: cover; border-radius: 0; }
+        [data-fa-mount] .x-loc-body { display: flex; flex-direction: column; gap: 2px;
+                      padding: 12px 14px; border: none; background: none; }
+        [data-fa-mount] .x-loc-label { display: block; font-size: 15px; font-weight: 800; }
+        [data-fa-mount] .x-loc-address { display: block; color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-loc-dist { display: block; color: var(--fa-muted); font-size: 13px; margin-top: 4px; }
+        [data-fa-mount] .x-loc-body > div:empty:not([class]) { display: none; }
+        [data-fa-mount] .x-nearby-list { display: flex; flex-direction: column; gap: 0; }
+        [data-fa-mount] .x-nearby-row { display: flex; align-items: center; gap: 10px;
+                        padding: 12px 4px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-nearby-row .fa-icon { color: var(--fa-muted); }
+        [data-fa-mount] .x-nearby-row-name { flex: 1; min-width: 0; }
+        [data-fa-mount] .x-nearby-row-dist { flex: none; color: var(--fa-muted); font-size: 13px; }
+    component LocationCard(mapImage: text, label: text, address: text, distanceLabel: text):
+        box class "x-loc-card":
+            if mapImage != "":
+                image "{mapImage}" class "x-loc-map"
+            box class "x-loc-body":
+                text "{label}" class "x-loc-label"
+                if address != "":
+                    text "{address}" class "x-loc-address"
+                if distanceLabel != "":
+                    text "{distanceLabel}" class "x-loc-dist"
+    component NearbyList():
+        box class "x-nearby-list":
+            slot
+    component NearbyRow(label: text, distanceLabel: text, href: text):
+        row class "x-nearby-row":
+            icon "pin"
+            box class "x-nearby-row-name":
+                use Link(label, href)
+            if distanceLabel != "":
+                text "{distanceLabel}" class "x-nearby-row-dist"

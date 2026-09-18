@@ -1,0 +1,88 @@
+# Moments — the WeChat shape: a friends-only feed of short updates, each with
+# up to nine photos in a grid, opened from a page whose own header is a cover
+# image over your name (the surface `MomentsHeader` draws, distinct from the
+# feed itself).
+#
+#     use MomentsHeader("Ada Lovelace", "https://picsum.photos/seed/ada/1200/500")
+#     use MomentsFeed():
+#         for m in Moment where exists(f in Friend where
+#                 (f.a == actor && f.b == m.author) || (f.b == actor && f.a == m.author))
+#                 by created desc limit 30:
+#             use MomentCard(m.id, m.author, m.body, m.created,
+#                        count(l in MomentLike where l.moment == m.id),
+#                        exists(l in MomentLike where l.moment == m.id && l.user == actor)):
+#                 use Gallery():
+#                     for p in MomentPhoto where p.moment == m.id by id asc limit 9:
+#                         use GalleryTile(p.url, "")
+#
+# ── "FRIENDS-ONLY" IS THE HOST'S QUERY, NOT A PARAMETER HERE ─────────────────
+#
+# Same split CATALOG.md's own line for this facet names — "PostCard + Gallery +
+# policy" — and the same one `social/CommunityGrid`/`social/BookmarksList`
+# already make: a component cannot see the caller's schema, so it cannot filter
+# by "are we friends". The `for` above is the whole policy, expressed as an
+# `exists` over whatever row a host uses to record a friendship (`graph/
+# ContactCard`'s own note calls this `FriendRequest` once accepted; the example
+# uses a plain symmetric `Friend` table for a host that materializes one).
+# `MomentCard` itself renders whatever rows it is handed and enforces nothing —
+# exactly like `ThreadView` rendering whatever replies its `for` already
+# filtered.
+#
+# ── THE GALLERY IS A SLOT, NOT A NINTH PARAMETER ──────────────────────────────
+#
+# A moment's photos are zero to nine rows from a second entity (`MomentPhoto`),
+# which is a `for`, and a `for` cannot be assembled from inside a facet that
+# does not own the query. So the grid is composed at the call site — `use
+# Gallery(): for p in MomentPhoto …` — inside `MomentCard`'s slot, precisely the
+# arrangement `media/VideoPage`'s own doc comment uses for its Up-next rail.
+# `ui/gallery.fct` already reserves the tile shape and gives the 1–9 grid its
+# density; nothing here repeats it.
+import "../ui/avatar.fct"
+import "../ui/relativetime.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-moments-hdr { position: relative; display: flex; align-items: flex-end;
+                         height: 220px; padding: 16px; box-sizing: border-box;
+                         border-radius: var(--fa-radius, 16px); overflow: hidden;
+                         background: var(--x-panel, #16181c); }
+        [data-fa-mount] .x-moments-hdr-cover { position: absolute; inset: 0; z-index: 0;
+                              width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+        [data-fa-mount] .x-moments-hdr-name { position: relative; z-index: 1; color: #fff;
+                              font-size: 20px; font-weight: 800; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+        [data-fa-mount] .x-moments-feed { display: flex; flex-direction: column; gap: 0; }
+        [data-fa-mount] .x-moment { display: flex; flex-direction: column; gap: 8px;
+                     padding: 16px 0; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-moment-head { display: flex; align-items: center; gap: 10px; }
+        [data-fa-mount] .x-moment-head .fa-image { width: 40px; height: 40px; border-radius: 9999px; }
+        [data-fa-mount] .x-moment-body { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-moment-actions { display: flex; align-items: center; gap: 16px;
+                         color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-moment-actions > button { color: var(--fa-muted); font-size: 13px;
+                         padding: 4px 8px; border-radius: 9999px; }
+        [data-fa-mount] .x-moment-actions > button:hover { background: var(--x-hover, rgba(239,243,244,.06));
+                         color: var(--fa-accent); }
+        [data-fa-mount] .x-moment > div:empty:not([class]) { display: none; }
+    component MomentsHeader(name: text, cover: text):
+        box class "x-moments-hdr":
+            if cover != "":
+                image "{cover}" class "x-moments-hdr-cover"
+            text "{name}" class "x-moments-hdr-name"
+    component MomentsFeed():
+        box class "x-moments-feed":
+            slot
+    component MomentCard(id: int, author: text, body: text, created: int, likes: int, liked: bool):
+        box class "x-moment":
+            row class "x-moment-head":
+                use Avatar(author)
+                box:
+                    text "{author}" class "x-strong"
+                    use RelativeTime(created)
+            if body != "":
+                text "{body}" class "x-moment-body"
+            slot
+            row class "x-moment-actions":
+                if liked:
+                    button "{compact(likes)} liked" -> unlikeMoment(id)
+                if !liked:
+                    button "{compact(likes)} Like" -> likeMoment(id)
+                link "Comment" -> "/moment/{id}"

@@ -1,0 +1,65 @@
+# OfficialAccount — a WeChat/Telegram-channel page: a publisher's identity (a
+# logo, not a face), a Subscribe action, a custom menu of a few destinations,
+# and a feed of articles underneath. CATALOG.md's own note says the two hard
+# parts already exist — richtext (`content/Prose`/`content/Article`) and tabs
+# (`navigation/TabBar`) — so this file is the one thing neither of those is:
+# the header for a BRAND rather than a PERSON.
+#
+#     use OfficialAccountHeader("Acme Weekly", a.logo, "News from the team.", a.id, subscribed)
+#     use TabBar():
+#         use NavLink("Articles", "/channel/" + a.handle)
+#         use NavLink("About", "/channel/" + a.handle + "/about")
+#     use ArticleList():
+#         for p in Post where p.channel == a.id by created desc limit 20:
+#             use ArticleItem(p.title, "/post/" + p.id, p.body):
+#                 use Byline(a.name, "/channel/" + a.handle, p.created)
+#
+# ── WHY THIS IS NOT `profile/ProfileHeader` WITH DIFFERENT WORDS ─────────────
+#
+# `ProfileHeader` is built around a banner behind an overlapping round avatar,
+# a bio, "Joined …", and a following/followers count — every one of those is a
+# fact about a PERSON's account. A channel has none of them: its picture is a
+# square logo, it has a one-line tagline instead of a bio, nobody "joined" it
+# and nobody follows-back, and the one action on it is Subscribe, not Follow.
+# Reusing `ProfileHeader` here would mean passing "" through four parameters
+# that do not apply and getting `:has()` rules built for a photo tuned for a
+# logo instead — the same reasoning `content/article.fct`'s own doc comment
+# gives for why it is not `social/PostCard`.
+#
+# ── SUBSCRIBE IS `live/SubscribeButton`, REUSED WHOLE ────────────────────────
+#
+# A channel subscription and a stream subscription are the identical shape —
+# one id, one bool, `subscribe(id)`/`unsubscribe(id)` — so this file imports
+# the existing component rather than shipping a second one with the same two
+# branches. CATALOG.md already lists "Channels (video) = ShortsCard feed" and
+# "Sticker keyboard = Emote picker" as reuse rather than new facets; this is a
+# third.
+import "../ui/verifiedbadge.fct"
+import "../live/subscribebutton.fct"
+app FacetContent:
+    css:
+        [data-fa-mount] .x-oa-head { display: flex; align-items: center; gap: 14px;
+                     padding: 16px 0; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-oa-head .fa-image { width: 56px; height: 56px; border-radius: 14px;
+                      object-fit: cover; flex: none; }
+        [data-fa-mount] .x-oa-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        [data-fa-mount] .x-oa-name { display: flex; align-items: center; gap: 4px;
+                     font-size: 17px; font-weight: 800; }
+        [data-fa-mount] .x-oa-tagline { color: var(--fa-muted); font-size: 13px; line-height: 1.4; }
+        [data-fa-mount] .x-oa-body > div:empty:not([class]) { display: none; }
+    # The mark is fixed rather than a `verified: bool` parameter: on
+    # `profile/ProfileHeader` verification is a status a person's account may
+    # or may not have earned, but a page rendering `OfficialAccountHeader` at
+    # all has already decided the row in front of it IS an official account —
+    # the same way `content/Article` never asks whether a post is an article.
+    component OfficialAccountHeader(name: text, logo: text, tagline: text, id: int, subscribed: bool):
+        row class "x-oa-head":
+            if logo != "":
+                image "{logo}"
+            box class "x-oa-body":
+                row class "x-oa-name":
+                    text "{name}"
+                    use VerifiedBadge(true)
+                if tagline != "":
+                    text "{tagline}" class "x-oa-tagline"
+            use SubscribeButton(id, subscribed)

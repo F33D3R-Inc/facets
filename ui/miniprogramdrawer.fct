@@ -1,0 +1,58 @@
+# MiniProgramTile / MiniProgramDrawer — WeChat's grid of little apps: a tile per
+# program (its own icon and name) in a grid, and the drawer that rises over
+# whatever page you were on to show that grid. CATALOG.md already has the two
+# things a mini-program itself needs — `import` to bring in another `.fct` and
+# a `route` to mount it at — so this file is only the launcher: the tile and
+# the sheet it lives in.
+#
+#     state programsOpen: bool = false @client
+#
+#     use ToggleButton("Mini programs", programsOpen)
+#     use Sheet("Mini programs", programsOpen):
+#         use MiniProgramGrid():
+#             for p in MiniProgram by name asc limit 24:
+#                 use MiniProgramTile(p.name, p.icon, p.route)
+#         use SheetClose("Close", programsOpen)
+#
+# ── THE TILE IS A `Link`, NOT A `button` ─────────────────────────────────────
+#
+# A mini-program is a real page at a real address — `import "programs/
+# splitbill.fct"` mounted with its own `view … at "/mp/splitbill"`, per
+# CATALOG.md's own note — so opening one is navigation, the same distinction
+# `ui/gallery.fct`'s tile makes for a photo: the whole tile is the link, so a
+# grid of icons behaves like the grid of app icons it is copying rather than
+# like a list of buttons that happen to look square. Same as `SidebarItem`, the
+# destination degrades to inert text rather than a dead link if the host's
+# route table does not actually serve it (`navigation/link.fct`'s own rule).
+#
+# ── THE ICON IS AN IMAGE, NOT A GLYPH FROM `ui/icon.fct` ─────────────────────
+#
+# A mini-program's icon is its own brand mark — every one of them is a
+# different picture, the way every stream's thumbnail and every avatar is —
+# and `ui/icon.fct`'s fifty-four glyphs are a closed, shared set drawn for
+# chrome, not a place for a third-party program to register its own art. So
+# the icon here is `image "{icon}"`, exactly the convention `ui/avatar.fct`
+# and `live/streamcard.fct` already use for a per-row picture.
+import "../navigation/link.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-mp-grid { display: grid; gap: 16px;
+                      grid-template-columns: repeat(auto-fill, minmax(min(100%, 84px), 1fr));
+                      border: none; background: none; padding: 4px; }
+        [data-fa-mount] .x-mp-grid > .fa-use { display: contents; }
+        [data-fa-mount] .x-mp-tile { display: flex; flex-direction: column; align-items: center;
+                     gap: 6px; text-align: center; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-mp-tile .fa-image { width: 52px; height: 52px; border-radius: 14px;
+                      object-fit: cover; }
+        [data-fa-mount] .x-mp-tile a.x-link { color: var(--fa-fg); font-size: 12px;
+                      line-height: 1.25; text-decoration: none; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-mp-tile span.x-link { color: var(--fa-muted); font-size: 12px;
+                      line-height: 1.25; }
+    component MiniProgramGrid():
+        box class "x-mp-grid":
+            slot
+    component MiniProgramTile(name: text, icon: text, href: text):
+        box class "x-mp-tile":
+            if icon != "":
+                image "{icon}"
+            use Link(name, href)

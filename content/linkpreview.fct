@@ -1,0 +1,112 @@
+# LinkPreview — the og-card for a URL dropped into a post: a thumbnail, the
+# page's title, its description, and the bare domain underneath, the shape
+# every platform in the catalog (X, a WeChat Moment, a DM) shows for a shared
+# link.
+#
+#     use LinkPreviewCard("https://example.com/article", "example.com",
+#                          "The headline", "The first line of the piece.",
+#                          "https://example.com/og.png")
+#
+# The host is expected to have RESOLVED these five fields already — same
+# convention `media/VideoPage` and `live/Leaderboard` both use for data that
+# takes real work to produce: this file supplies that work as two `proc`s,
+# `LinkPreviewFetch`/`LinkPreviewTitle`/`LinkPreviewDescription`/
+# `LinkPreviewImage`, so an action can unfurl a URL once, cache the four
+# fields on the row that references it, and never re-fetch it. It does not
+# fetch on every render — a `proc` runs on demand, not automatically, so an
+# action such as `post(body, url)` is the one place `do LinkPreviewFetch`
+# belongs.
+#
+#     action attachLink(tweet: int, url: text):
+#         let html = do LinkPreviewFetch(url)
+#         let title = do LinkPreviewTitle(html)
+#         let desc = do LinkPreviewDescription(html)
+#         let img = do LinkPreviewImage(html)
+#         add LinkCard { tweet: tweet, url: url, title: title, description: desc, image: img }
+#
+# ── THE CARD NEVER LINKS ANYWHERE, AND THAT IS NOT A BUG IN THIS FILE ────────
+#
+# `navigation/link.fct` and this library's own README are explicit: "nothing
+# here can leave the site" — `link "…" -> "https://…"` is a refused path, and a
+# `Link` handed an absolute URL renders as inert text. An og-card's whole job
+# on every platform it copies is "tap this to leave the app", which is
+# EXACTLY the one destination this language cannot express, so the honest
+# component is the one `navigation/link.fct` already describes for a dead
+# destination: the words render, nothing is clickable, and the domain line
+# says where the words came from instead of promising a jump that cannot
+# happen. This is a real, load-bearing gap — not one this file works around —
+# and it is why CATALOG.md carries LinkPreview as 🟡 rather than ✅. It will
+# turn into a real `link` the day the language gains an external destination.
+#
+# ── THE EXTRACTION IS MARKER-BASED, NOT A REAL HTML PARSER ───────────────────
+#
+# There is no regex builtin and no DOM in this language, so `LinkPreviewTitle`
+# finds `<title>…</title>` and `LinkPreviewDescription`/`LinkPreviewImage` find
+# `property="og:description" content="…"` / `property="og:image" content="…"`
+# by literal substring — `split` twice, take the middle piece. That is the
+# near-universal attribute order every static-site generator, CMS and
+# server-rendered framework emits (the Open Graph examples on ogp.me are
+# written in exactly this order), so it unfurls the large majority of real
+# pages; a page that writes `content="…" property="og:image"` the other way
+# round, or omits the tag, unfurls to "" and the field simply does not
+# render. That is a real limitation of doing this with `split` instead of a
+# parser, named here rather than hidden.
+import "../ui/icon.fct"
+app FacetContent:
+    css:
+        [data-fa-mount] .x-linkprev { display: flex; flex-direction: column;
+                       border: 1px solid var(--x-line, #2f3336); border-radius: 14px;
+                       overflow: hidden; background: none; }
+        [data-fa-mount] .x-linkprev-img { display: block; width: 100%; height: auto;
+                          aspect-ratio: 1.91 / 1; object-fit: cover; border-radius: 0; }
+        [data-fa-mount] .x-linkprev-body { display: flex; flex-direction: column; gap: 2px;
+                           padding: 10px 12px; border: none; background: none; }
+        [data-fa-mount] .x-linkprev-domain { display: flex; align-items: center; gap: 6px;
+                             color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-linkprev-domain [class*="x-glyph-"]::before { width: 14px; height: 14px; margin-right: 0; }
+        [data-fa-mount] .x-linkprev-title { display: block; font-size: 15px; font-weight: 700;
+                            line-height: 1.3; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-linkprev-desc { display: block; color: var(--fa-muted); font-size: 13px;
+                           line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2;
+                           -webkit-box-orient: vertical; overflow: hidden; }
+        [data-fa-mount] .x-linkprev-body > div:empty:not([class]) { display: none; }
+    # `LinkPreviewFetch` is the only piece that reaches the network: `uses
+    # io.net` gates `httpGet` the same way `readFile`/`writeFile` are gated by
+    # `io.file`, so this is the one call site in a host app that ever needs the
+    # capability granted at all.
+    proc LinkPreviewFetch(url: text) -> text uses io.net:
+        return httpGet(url)
+    proc LinkPreviewTitle(html: text) -> text:
+        let parts = split(html, "<title>")
+        if len(parts) < 2:
+            return ""
+        let closed = split(parts[1], "</title>")
+        return trim(closed[0])
+    proc LinkPreviewDescription(html: text) -> text:
+        let byProp = split(html, "property=\"og:description\" content=\"")
+        if len(byProp) >= 2:
+            let closed = split(byProp[1], "\"")
+            return closed[0]
+        let byName = split(html, "name=\"description\" content=\"")
+        if len(byName) < 2:
+            return ""
+        let closed2 = split(byName[1], "\"")
+        return closed2[0]
+    proc LinkPreviewImage(html: text) -> text:
+        let parts = split(html, "property=\"og:image\" content=\"")
+        if len(parts) < 2:
+            return ""
+        let closed = split(parts[1], "\"")
+        return closed[0]
+    component LinkPreviewCard(domain: text, title: text, description: text, image: text):
+        box class "x-linkprev":
+            if image != "":
+                image "{image}" class "x-linkprev-img"
+            box class "x-linkprev-body":
+                row class "x-linkprev-domain":
+                    icon "link"
+                    text "{domain}"
+                if title != "":
+                    text "{title}" class "x-linkprev-title"
+                if description != "":
+                    text "{description}" class "x-linkprev-desc"

@@ -1,0 +1,191 @@
+# Smoke (new atoms, round 4) — imports and exercises the eight components
+# added to close a fourth round of gaps in CATALOG.md: LinkPreview, Moments,
+# Wallet (WalletCard/WalletActions/TopUpSheet/TransferSheet/RedPacketSheet/
+# WalletHistory), PayButton/MyQRCode, Checkout, MiniProgramTile/Grid,
+# OfficialAccountHeader and LocationCard/NearbyRow. `facet check
+# smoke_new4.fct` compiling clean is the proof each one runs through the real
+# compiler, the same role `smoke_new.fct`/`smoke_new2.fct`/`smoke_new3.fct`
+# play for their own rounds.
+import "content/linkpreview.fct"
+import "social/moments.fct"
+import "commerce/wallet.fct"
+import "commerce/paybutton.fct"
+import "commerce/checkout.fct"
+import "ui/miniprogramdrawer.fct"
+import "content/officialaccount.fct"
+import "ui/locationcard.fct"
+import "ui/togglebutton.fct"
+import "ui/gallery.fct"
+import "live/subscribebutton.fct"
+
+app FacetsSmokeNew4:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state topUpOpen: bool = false @client
+    state transferOpen: bool = false @client
+    state redPacketOpen: bool = false @client
+    state transferTo: text = "" @client
+    state transferNote: text = "" @client
+    state packetTo: text = "" @client
+    state packetNote: text = "" @client
+
+    entity Moment:
+        id: int
+        author: text
+        body: text
+        created: int
+    entity MomentPhoto:
+        id: int
+        moment: int
+        url: text
+    entity MomentLike:
+        id: int
+        moment: int
+        user: text
+    entity Friend:
+        id: int
+        a: text
+        b: text
+    entity WalletTx:
+        id: int
+        user: text
+        kind: text
+        counterparty: text
+        cents: money
+        note: text
+        created: int
+    entity MiniProgram:
+        id: int
+        name: text
+        icon: text
+        route: text
+    entity Place:
+        id: int
+        name: text
+        distanceLabel: text
+    entity LinkCard:
+        id: int
+        tweet: int
+        url: text
+        domain: text
+        title: text
+        description: text
+        image: text
+    entity Sub:
+        id: int
+        stream: int
+        user: text
+
+    action likeMoment(id: int):
+        check id > -1 "nothing to like"
+        add MomentLike { moment: id, user: actor }
+    action unlikeMoment(id: int):
+        remove l in MomentLike where l.moment == id && l.user == actor
+    action topUp(cents: money):
+        check cents > 0 "nothing to add"
+        add WalletTx { user: actor, kind: "topup", counterparty: "", cents: cents, note: "", created: now() }
+    action transfer(to: text, cents: money, note: text):
+        check to != "" "who is this going to?"
+        check cents > 0 "nothing to send"
+        add WalletTx { user: actor, kind: "transfer_out", counterparty: to, cents: -cents, note: note, created: now() }
+        add WalletTx { user: to, kind: "transfer_in", counterparty: actor, cents: cents, note: note, created: now() }
+    action sendRedPacket(to: text, cents: money, note: text):
+        check to != "" "who is this going to?"
+        check cents > 0 "nothing to send"
+        add WalletTx { user: actor, kind: "redpacket_out", counterparty: to, cents: -cents, note: note, created: now() }
+        add WalletTx { user: to, kind: "redpacket_in", counterparty: actor, cents: cents, note: note, created: now() }
+    action pay(merchant: text, cents: money):
+        check cents > 0 "nothing to pay"
+        add WalletTx { user: actor, kind: "transfer_out", counterparty: merchant, cents: -cents, note: "purchase", created: now() }
+    action subscribe(stream: int):
+        check stream > -1 "no channel"
+    action unsubscribe(stream: int):
+        check stream > -1 "no channel"
+    action attachLink(tweet: int, url: text):
+        let html = do LinkPreviewFetch(url)
+        let title = do LinkPreviewTitle(html)
+        let desc = do LinkPreviewDescription(html)
+        let img = do LinkPreviewImage(html)
+        add LinkCard { tweet: tweet, url: url, domain: url, title: title, description: desc, image: img }
+
+    # ── local (client-only) actions ──────────────────────────────────────────
+    action openTopUp:
+        topUpOpen = true
+    action closeTopUp:
+        topUpOpen = false
+    action openTransfer:
+        transferOpen = true
+    action closeTransfer:
+        transferOpen = false
+    action openRedPacket:
+        redPacketOpen = true
+    action closeRedPacket:
+        redPacketOpen = false
+
+    view Moment_ at "/moment/:id":
+        text "Moment placeholder for {id}."
+    view MiniProgramPage at "/mp/:name":
+        text "Mini-program placeholder for {name}."
+    view PlacePage at "/place/:id":
+        text "Place placeholder for {id}."
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 4"
+        box:
+            text "LinkPreview" class "smoke-h2"
+            use LinkPreviewCard("example.com", "This library ships eight more atoms", "The catalog keeps growing, one honest round at a time.", "https://picsum.photos/seed/linkprev/600/315")
+            button "Attach a link" -> attachLink(1, "https://example.com")
+
+            text "Moments" class "smoke-h2"
+            use MomentsHeader("Ada Lovelace", "https://picsum.photos/seed/momentscover/1200/500")
+            use MomentsFeed():
+                for m in Moment where exists(f in Friend where (f.a == actor && f.b == m.author) || (f.b == actor && f.a == m.author)) by created desc limit 30:
+                    use MomentCard(m.id, m.author, m.body, m.created, count(l in MomentLike where l.moment == m.id), exists(l in MomentLike where l.moment == m.id && l.user == actor)):
+                        use Gallery():
+                            for p in MomentPhoto where p.moment == m.id by id asc limit 9:
+                                use GalleryTile(p.url, "")
+
+            text "Wallet" class "smoke-h2"
+            use WalletCard(sum(w.cents in WalletTx where w.user == actor)):
+                use WalletActions(topUpOpen, transferOpen, redPacketOpen)
+            use TopUpSheet(topUpOpen, closeTopUp)
+            use TransferSheet(transferOpen, transferTo, transferNote, closeTransfer)
+            use RedPacketSheet(redPacketOpen, packetTo, packetNote, closeRedPacket)
+            use WalletHistory():
+                for w in WalletTx where w.user == actor by id desc limit 50:
+                    use WalletTxRow(w.kind, w.counterparty, w.cents, w.note, w.created)
+
+            text "PayButton / MyQRCode" class "smoke-h2"
+            use PayButton("Corner Cafe", 850)
+            use MyQRCode("Ada Lovelace", "pay:ada")
+
+            text "Checkout" class "smoke-h2"
+            use CheckoutSummary():
+                use CheckoutLineItem("Team plan (5 seats)", 6000)
+                use CheckoutLineItem("First month promo", 0)
+                use CheckoutTotal(6000)
+            use CheckoutActions():
+                use PayButton("Team plan", 6000)
+
+            text "MiniProgramTile / Grid" class "smoke-h2"
+            use MiniProgramGrid():
+                for p in MiniProgram by name asc limit 24:
+                    use MiniProgramTile(p.name, p.icon, "/mp/" + p.route)
+
+            text "OfficialAccount" class "smoke-h2"
+            use OfficialAccountHeader("Acme Weekly", "https://picsum.photos/seed/acmelogo/200/200", "News from the team, twice a week.", 1, exists(s in Sub where s.stream == 1 && s.user == actor))
+
+            text "LocationCard / NearbyRow" class "smoke-h2"
+            use LocationCard("https://picsum.photos/seed/staticmap/600/338", "Blue Bottle Coffee", "300 Water St", "0.4 mi")
+            use NearbyList():
+                for p in Place by id asc limit 30:
+                    use NearbyRow(p.name, p.distanceLabel, "/place/" + p.id)

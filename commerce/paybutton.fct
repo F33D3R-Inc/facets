@@ -1,0 +1,60 @@
+# PayButton / MyQRCode — the two WeChat Pay surfaces that need no camera: paying
+# a merchant with one press, and showing your own code for someone else to pay.
+# CATALOG.md's own line for this facet also asks for the third — scanning
+# someone else's code — and that one is skipped, on purpose, below.
+#
+#     use PayButton("Corner Cafe", 850)
+#     use MyQRCode("Ada Lovelace", "pay:ada")
+#
+# ── WHY "SCAN" IS NOT HERE ────────────────────────────────────────────────────
+#
+# CATALOG.md already names this exactly: scanning a code is a camera stream
+# (`getUserMedia`) decoded live in the browser, and there is no node in this
+# language that opens one — no `video` source is a device, only a URL, and there
+# is no equivalent of a `scan bind cell` control. Faking it with a text field
+# labelled "Enter code" would not be scanning, it would be a form pretending to
+# be a camera, so it is left undone and named here rather than shipped as a
+# lookalike. `MyQRCode` is the half of this pair that IS just an image.
+#
+# ── THE CODE IS A GENERATED IMAGE, THE SAME WAY AN AVATAR IS ─────────────────
+#
+# `ui/avatar.fct` already draws a per-handle picture from a public generator
+# (`api.dicebear.com?seed={name}`) rather than pretending this language can
+# render one; `MyQRCode` does the identical thing with a public QR-code
+# generator, `payload` dropped straight into the query string with no escaping
+# — the same limitation `avatar.fct`'s `name` and `live/tipsheet.fct`'s `note`
+# already carry, since there is no URL-encoding builtin. A payload with a `&` or
+# a `#` in it breaks the query string; a plain handle or short payment token
+# does not.
+#
+# ── `PayButton` CARRIES NO CONFIRMATION STEP ─────────────────────────────────
+#
+# One press, like `live/SubscribeButton`'s one press: the amount and the
+# merchant are already on the button's own label, so a second dialog saying the
+# same two facts back is friction with nothing new in it. A host that wants a
+# review step before paying wraps this in a `Modal`/`Sheet` at the call site —
+# this facet is the pill and the pending/failed states around `pay(...)`, not a
+# checkout flow (that is `commerce/Checkout`, a slower deliberate purchase, not
+# a tap-to-pay).
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-pay-inline { display: flex; flex-direction: column; gap: 4px;
+                       align-items: flex-start; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-myqr { display: flex; flex-direction: column; align-items: center; gap: 10px;
+                     padding: 20px; border-radius: var(--fa-radius, 16px);
+                     border: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-myqr .fa-image { width: 220px; height: 220px; border-radius: 12px; }
+        [data-fa-mount] .x-myqr-name { font-size: 16px; font-weight: 800; }
+        [data-fa-mount] .x-myqr-note { color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-pay-inline > div:empty:not([class]) { display: none; }
+    component PayButton(merchant: text, cents: int):
+        box class "x-pay-inline":
+            button "Pay {money(cents)}" -> pay(merchant, cents) class "x-pill x-primary"
+            if pending(pay):
+                text "Paying…" class "x-muted"
+            text "{failed(pay)}" class "fa-error"
+    component MyQRCode(name: text, payload: text):
+        box class "x-myqr":
+            image "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={payload}"
+            text "{name}" class "x-myqr-name"
+            text "Scan to pay me" class "x-myqr-note"

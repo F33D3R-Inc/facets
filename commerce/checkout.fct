@@ -1,0 +1,66 @@
+# Checkout — the summary beside a plan or a cart: line items, a total, and the
+# one button that commits. CATALOG.md lists this as "plans grid, PayButton",
+# and both halves already exist — `marketing/PricingTable`/`PricingTier` is the
+# grid, `commerce/PayButton` is the button — so this file is the part that was
+# actually missing: the itemised summary a checkout page shows beside them.
+#
+#     use Grid2():
+#         use PricingTable():
+#             use PricingTier("Team", "$12", "per seat / month", "", true):
+#                 use PricingFeatures():
+#                     use PricingFeature("Unlimited projects")
+#                 use PricingActions():
+#                     use ToggleButton("Choose Team", planOpen)
+#     use Modal("Checkout", planOpen):
+#         use CheckoutSummary():
+#             use CheckoutLineItem("Team plan (5 seats)", 6000)
+#             use CheckoutLineItem("First month", 0)
+#             use CheckoutTotal(6000)
+#         use CheckoutActions():
+#             use PayButton("Team plan", 6000)
+#
+# ── WHY THIS IS NOT A FOURTH `PricingTier` ────────────────────────────────────
+#
+# A pricing tier states a plan; a checkout states a PURCHASE — a quantity, a
+# proration, a discount line, a tax line, whatever a specific order actually
+# has — and that is a variable-length list of (label, amount) pairs no fixed set
+# of parameters can carry, the same reason `marketing/PricingFeatures` is a slot
+# rather than a `features: [text]`. So `CheckoutLineItem` is called once per
+# row, at the call site, where the order actually is.
+#
+# ── AN ITEM OF ZERO IS A REAL LINE, NOT A HIDDEN ONE ─────────────────────────
+#
+# "First month — $0.00" is the whole point of writing it down (a promotion the
+# reader would otherwise have to take on faith), so `CheckoutLineItem` never
+# hides a zero the way `social/EngagementBar`'s `views` does — that convention
+# is for a count that is absent, not a price that is deliberately free.
+import "paybutton.fct"
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-checkout { display: flex; flex-direction: column; gap: 0;
+                       border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);
+                       overflow: hidden; }
+        [data-fa-mount] .x-checkout-item { display: flex; align-items: baseline; justify-content: space-between;
+                          padding: 10px 16px; font-size: 14px; }
+        [data-fa-mount] .x-checkout-item-label { color: var(--fa-muted); }
+        [data-fa-mount] .x-checkout-item-amount { font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-checkout-total { display: flex; align-items: baseline; justify-content: space-between;
+                          padding: 14px 16px; font-size: 17px; font-weight: 800;
+                          border-top: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-checkout-actions { display: flex; flex-direction: column; align-items: stretch;
+                             gap: 8px; padding: 16px; }
+        [data-fa-mount] .x-checkout-actions .x-pill { width: 100%; }
+    component CheckoutSummary():
+        box class "x-checkout":
+            slot
+    component CheckoutLineItem(label: text, cents: int):
+        row class "x-checkout-item":
+            text "{label}" class "x-checkout-item-label"
+            text "{money(cents)}" class "x-checkout-item-amount"
+    component CheckoutTotal(cents: int):
+        row class "x-checkout-total":
+            text "Total"
+            text "{money(cents)}"
+    component CheckoutActions():
+        box class "x-checkout-actions":
+            slot
