@@ -1,0 +1,87 @@
+# Popover — an anchored dropdown: a trigger and a panel that opens BESIDE it,
+# not a sheet and not a full-screen backdrop. `ui/menu.fct` already covers the
+# cell-toggle-plus-layer wiring (`toggle bind open` writes, a layer bound to the
+# same cell reads, one cell, one writer, no second source of truth) — what it
+# could not do was place that layer next to the control that opened it, because
+# `overlay` only ever renders a fixed backdrop centering its panel. There was no
+# measurement of where a node landed on the page, so "beside the button" had no
+# way to be said.
+#
+# `popover bind <cell>:` is that measurement, landed in the language itself
+# (parser → IR → both renderers), not faked in this library. It is `overlay`'s
+# sibling in every way but one: instead of centering over the whole viewport, it
+# positions its panel beside whatever rendered immediately before it — its
+# anchor — clamped to the viewport so it never renders off-screen. That is also
+# its one hard rule: a `popover` written as the first node in a block has
+# nothing to anchor beside and is refused at parse time, the same way `overlay`
+# refuses a non-bool bind.
+#
+#     state cardMenuOpen: bool = false @client
+#
+#     use Popover("…", cardMenuOpen):
+#         use PopoverItem("Copy link", "/post/{p.id}")
+#         use PopoverItem("Report", "/report/{p.id}")
+#         use PopoverSeparator()
+#         use PopoverClose("Cancel", cardMenuOpen)
+#
+# CLOSING is the same three things `Menu`'s panel already gets for free: the
+# runtime tags the popover's outside-click catcher with the bound cell, so a
+# click anywhere else on the page closes it; the trigger itself is still a
+# toggle, so a second press closes it; and `PopoverClose` is that same toggle a
+# second time, worded for inside the panel.
+#
+# WHAT THIS STILL WON'T DO. There is no hover-to-open (a `toggle` is a press,
+# same limit `Menu` already names) and no focus trap or Escape key — the same
+# ceiling `ui/modal.fct` draws for the same reason: both need attributes and
+# listeners this language has no node for yet. This is a menu a pointer or a
+# tab-key user can open, aim at its trigger, and dismiss — not a fully trapped
+# native `<dialog popover>`.
+import "../navigation/link.fct"
+app FacetUI:
+    css:
+        [data-fa-mount] .x-popover { display: inline-flex; border: none; background: none; padding: 0; }
+        # The trigger is a `toggle`, which the runtime paints as a switch by
+        # default; dressed as a button here for the same reason `Menu`'s is —
+        # nobody reads "…" with a switch beside it as something to press. The
+        # input stays in the DOM (still focusable, still the label's control),
+        # just out of the paint.
+        [data-fa-mount] .x-popover .fa-toggle { display: inline-flex; align-items: center;
+                gap: 0; padding: 8px 12px; border-radius: 9999px;
+                border: 1px solid var(--x-line, #2f3336); font-weight: 600; font-size: 15px;
+                cursor: pointer; }
+        [data-fa-mount] .x-popover .fa-toggle input { position: absolute; width: 1px; height: 1px;
+                opacity: 0; margin: 0; }
+        [data-fa-mount] .x-popover .fa-toggle:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-popover .fa-toggle:has(input:checked) { background: var(--x-hover, rgba(239,243,244,.06));
+                border-color: var(--fa-accent); }
+        [data-fa-mount] .x-popover .fa-toggle:has(input:focus-visible) { outline: 2px solid var(--fa-accent);
+                outline-offset: 2px; }
+        # The panel's own box (`.fa-popover-panel`, sized/positioned/painted by
+        # the runtime — see baseCSS and runtime/assets/facet.js's
+        # positionPopover) just needs its content laid out as a column of items;
+        # everything about WHERE it sits is the runtime's job now, not this
+        # file's.
+        [data-fa-mount] .x-popover-panel { display: flex; flex-direction: column; gap: 2px; }
+        [data-fa-mount] .x-popover-item { display: flex; align-items: center; padding: 10px 14px;
+                border-radius: 10px; border: none; background: none; font-size: 16px; width: 100%;
+                box-sizing: border-box; text-align: left; }
+        [data-fa-mount] .x-popover-item:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-popover-item a.x-link { color: var(--fa-fg); }
+        [data-fa-mount] .x-popover-sep { height: 1px; margin: 6px 4px;
+                background: var(--x-line, #2f3336); border: none; padding: 0; }
+    component Popover(label: text, open: cell bool):
+        box class "x-popover":
+            toggle bind open label "{label}"
+            popover bind open:
+                box class "x-popover-panel":
+                    slot
+    component PopoverItem(label: text, href: text):
+        box class "x-popover-item":
+            use Link(label, href)
+    component PopoverSeparator():
+        box class "x-popover-sep"
+    # The in-panel close: a toggle on the same cell, worded for inside the
+    # panel — the only way anything may write it, same as `Menu`'s `MenuClose`.
+    component PopoverClose(label: text, open: cell bool):
+        box class "x-popover-item":
+            toggle bind open label "{label}"

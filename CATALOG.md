@@ -24,7 +24,7 @@ listed at the end. Bold rows are the ones that unblock the most screens.
 | **BottomNav** | 5-tab mobile bar (Home · Discover · + · Inbox · Me) | ✅ `ui/bottomnav.fct` (proven via `smoke_new.fct`) |
 | Pill / buttons | primary, light, ghost | ✅ (classes) |
 | SignUpCard · GuestBanner · Login | the signed-out surfaces | ✅ |
-| **Popover / Menu** | anchored menu (the "More" list, a post's "…") | 🟡 Menu ✅ `ui/menu.fct` (a modal sheet, not an anchored dropdown — proven via `smoke.fct`) · Popover ⬜ (`overlay` is centered; needs a `popover` node or an anchored class — see lang) |
+| **Popover / Menu** | anchored menu (the "More" list, a post's "…") | ✅ Menu ✅ `ui/menu.fct` (a modal sheet, not an anchored dropdown — proven via `smoke.fct`) · Popover ✅ `ui/popover.fct` |
 | **Sheet** | bottom sheet (mobile dialogs: share, gift picker, comments) | ✅ `ui/sheet.fct` (proven via `smoke_new.fct`) |
 | Toast | transient confirmation ("Copied", "Followed") | ✅ `ui/toast.fct` (proven via `smoke.fct`; auto-dismiss still needs a timer — lang) |
 | Skeleton / Empty / Error states | one facet each, used everywhere | ✅ `ui/skeleton.fct` (SkeletonLine/SkeletonPost) · `ui/emptystate.fct` · `ui/errorstate.fct` (all proven via `smoke.fct`) |
