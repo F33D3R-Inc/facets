@@ -1,17 +1,33 @@
-# GoLivePanel — the creator's console: title and category, and the one button
-# that starts or ends the broadcast. Calls the host's `updateStream(id, title,
-# category)`, `goLive(id)`, `endStream(id)` — each `requires owner(id)`.
-# `title`/`category` are host `@client` cells. The stream key is StreamKeyBox,
-# deliberately separate (see there).
+# GoLivePanel — the creator's console: title, category, a thumbnail, and the
+# one button that starts or ends the broadcast. Calls the host's
+# `updateStream(id, title, category, thumbnail)`, `goLive(id)`, `endStream(id)`
+# — each `requires owner(id)`. `title`/`category`/`thumbnail` are host
+# `@client` cells. The stream key is StreamKeyBox, deliberately separate (see
+# there).
+#
+# ── THUMBNAIL, CLOSING CATALOG.md's "thumbnail upload ⬜" ────────────────────
+#
+# The exact `UploadField` scaffold `profile/ProfileEdit` already uses for an
+# avatar/banner: `upload bind thumbnail` writes the stored file's URL into the
+# cell, the host's `updateStream` writes that URL onto `Stream(id).thumb` —
+# the same field `StreamCard`/`VideoTile` already read for the thumbnail every
+# stream already has. Widening `updateStream`'s arity is a real ripple (every
+# host that implements it must add the parameter), which is why it is done
+# here and not left as a second, competing action: one action writing one
+# row's fields is the shape every other host action in this library already
+# takes for a multi-field save (`ProfileEdit`'s `save`, `Checkout`'s `pay`).
 import "liveplayer.fct"
+import "../forms/uploadfield.fct"
 app FacetLive:
-    component GoLivePanel(s: Stream, title: cell text, category: cell text):
+    component GoLivePanel(s: Stream, title: cell text, category: cell text, thumbnail: cell text):
         box class "x-console":
             use LivePlayer(s)
             row class "x-console-row":
                 input bind title placeholder "Stream title"
                 input bind category placeholder "Category"
-                button "Save" -> updateStream(s.id, title, category) class "x-pill"
+            use UploadField("Thumbnail", "Choose image", false, "16∶9, at least 1280×720.", "", thumbnail)
+            row class "x-console-row":
+                button "Save" -> updateStream(s.id, title, category, thumbnail) class "x-pill"
             row class "x-console-row":
                 if !s.live:
                     button "Go live" -> goLive(s.id) class "x-pill x-primary"

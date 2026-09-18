@@ -336,6 +336,7 @@ app F33D3RHome:
     state tipNote: text = "" @client
     state goTitle: text = "" @client
     state goCategory: text = "" @client
+    state goThumbnail: text = "" @client
     state interestDraft: text = "" @client
     # Hides notification bodies on screen — the one DM-adjacent affordance this
     # app can actually back with a real field (there is no DM system here to
@@ -421,10 +422,11 @@ app F33D3RHome:
         requires member
         check title != "" "give your channel a title"
         add Stream { owner: actor, verified: false, title: title, category: category, tags: "", hls: "", thumb: "https://picsum.photos/seed/" + actor + "/1280/720", live: false, viewers: 0, startedAt: 0, pinned: "", goalLabel: "Tip goal", goalTarget: 20000 }
-    action updateStream(id: int, title: text, category: text):
+    action updateStream(id: int, title: text, category: text, thumbnail: text):
         requires owner(id)
         set Stream(id).title = title
         set Stream(id).category = category
+        set Stream(id).thumb = thumbnail
     action goLive(id: int):
         requires owner(id)
         set Stream(id).live = true
@@ -445,6 +447,12 @@ app F33D3RHome:
         requires member
         add Sub { stream: stream, user: actor }
     action unsubscribe(stream: int):
+        requires member
+        remove s in Sub where s.stream == stream && s.user == actor
+    action subscribeTier(stream: int, tier: int):
+        requires member
+        add Sub { stream: stream, user: actor }
+    action unsubscribeTier(stream: int):
         requires member
         remove s in Sub where s.stream == stream && s.user == actor
     action deleteChat(id: int):
@@ -765,7 +773,7 @@ app F33D3RHome:
                     input bind goCategory placeholder "Category"
                     button "Create channel" -> createChannel(goTitle, goCategory)
             for s in Stream where s.owner == actor limit 1:
-                use GoLivePanel(s, goTitle, goCategory)
+                use GoLivePanel(s, goTitle, goCategory, goThumbnail)
                 use GoalBar(s.goalLabel, sum(t.cents in Tip where t.stream == s.id), s.goalTarget)
                 use RecentTips(s)
                 text "Held for review" class "x-section"

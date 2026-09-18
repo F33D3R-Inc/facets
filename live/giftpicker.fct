@@ -1,0 +1,75 @@
+# GiftPicker — the virtual-gifts grid (TikTok "gifts", Kick's tip menu): what
+# CATALOG.md calls "TipSheet with pictures". It sends the exact same
+# `tip(stream, cents, note)` action `live/TipSheet` already calls — the gift's
+# name rides in as the note — so a gift and a plain-text tip settle on the
+# identical `Tip` row and read identically in `live/Leaderboard` and
+# `live/RecentTips`. `open` is the host's `@client` bool that shows the sheet,
+# the same single-cell contract `live/EmotePicker` already uses.
+#
+#     state giftsOpen: bool = false @client
+#
+#     use ToggleButtonQuiet("🎁", giftsOpen)
+#     use GiftPicker(s, giftsOpen)
+#
+# ── WHY THE PICTURE IS NOT INSIDE THE BUTTON ─────────────────────────────────
+#
+# `ui/icon.fct` already establishes the rule this file follows: "A `button`
+# ... render[s] its label and nothing else: no child nodes." An `image` node
+# is a child node, so it cannot sit inside the `button` that fires `tip(...)`
+# the way `TipSheet`'s plain-text presets do. Each gift is therefore a row —
+# picture, name and price as siblings — with the `button` as one of those
+# siblings rather than their container, the same composition `media/VideoTile`
+# already uses to put a picture and a click target next to each other without
+# nesting one inside the other.
+#
+# ── WHY THE PICTURE IS A GENERATED IMAGE, NOT AN ICON GLYPH ──────────────────
+#
+# `ui/icon.fct` ships 54 hand-drawn marks and no "gift", "crown" or "coin"
+# among them — CATALOG.md's own instruction is to grow that set deliberately,
+# not to reach for the nearest lookalike glyph. A gift is a picture, not a
+# mask, so this draws one exactly the way `ui/Avatar` draws a face and
+# `commerce/PayButton`'s `MyQRCode` draws a code: a public generator seeded by
+# the gift's own name, no upload pipeline behind it, swappable for a real
+# asset URL the moment a host has one.
+#
+# ── WHY THE GRID IS FIXED HERE, THE SAME REASON EMOTEPICKER'S IS ─────────────
+#
+# A gift shop backed by a real catalogue (seasonal gifts, event pricing) is a
+# genuine `for` over the host's own table — `GiftPickerRow` is exported for
+# exactly that, taking a name, an image and a price and nothing else, so a
+# host with its own `Gift` entity composes
+# `for g in Gift … use GiftPickerRow(s, g.name, g.image, g.cents)` beside (or
+# instead of) the six defaults below. A host with no gift table yet still
+# ships a working picker on day one, the same trade `EmotePicker` already
+# makes for its own default grid.
+import "../ui/sheet.fct"
+app FacetLive:
+    css:
+        [data-fa-mount] .x-gifts { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
+        [data-fa-mount] .x-gift { display: flex; align-items: center; gap: 12px;
+                    padding: 8px 12px; border-radius: 12px; }
+        [data-fa-mount] .x-gift:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-gift-img { width: 36px; height: 36px; border-radius: 8px; flex: 0 0 auto; }
+        [data-fa-mount] .x-gift-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+        [data-fa-mount] .x-gift-name { font-size: 14px; font-weight: 700; }
+        [data-fa-mount] .x-gift-price { font-size: 12px; color: var(--fa-muted); }
+    component GiftPicker(s: Stream, open: cell bool):
+        use Sheet("Send a gift", open):
+            box class "x-gifts":
+                use GiftPickerRow(s, "Rose", "https://api.dicebear.com/7.x/icons/svg?seed=rose", 100)
+                use GiftPickerRow(s, "Heart", "https://api.dicebear.com/7.x/icons/svg?seed=heart", 200)
+                use GiftPickerRow(s, "Star", "https://api.dicebear.com/7.x/icons/svg?seed=star", 500)
+                use GiftPickerRow(s, "Crown", "https://api.dicebear.com/7.x/icons/svg?seed=crown", 1000)
+                use GiftPickerRow(s, "Rocket", "https://api.dicebear.com/7.x/icons/svg?seed=rocket", 2500)
+                use GiftPickerRow(s, "Diamond", "https://api.dicebear.com/7.x/icons/svg?seed=diamond", 5000)
+                if pending(tip):
+                    text "Sending…" class "x-muted"
+                text "{failed(tip)}" class "fa-error"
+            use SheetClose("Done", open)
+    component GiftPickerRow(s: Stream, name: text, image: text, cents: int):
+        row class "x-gift":
+            image "{image}" alt "{name}" class "x-gift-img"
+            box class "x-gift-body":
+                text "{name}" class "x-gift-name"
+                text "{money(cents)}" class "x-gift-price"
+            button "Send" -> tip(s.id, cents, name) class "x-pill"

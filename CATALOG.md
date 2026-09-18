@@ -59,15 +59,15 @@ listed at the end. Bold rows are the ones that unblock the most screens.
 |---|---|---|
 | **LivePlayer** | the stream frame: `video` (HLS URL) + LIVE pill + viewer count + uptime | ✅ `live/liveplayer.fct` |
 | **StreamInfo** | below the player: channel row, Follow, Subscribe, Tip, category + tags | ✅ `live/streaminfo.fct` |
-| **ChatPanel** | realtime message list over SSE, pinned message, guest gate, composer | ✅ `live/chatpanel.fct` (emotes, slow mode ⬜) |
+| **ChatPanel** | realtime message list over SSE, pinned message, guest gate, composer | ✅ `live/chatpanel.fct` (emotes ✅ — via composition: a `ToggleButtonQuiet` + `EmotePicker` beside the call site's own `ChatPanel`, `insertEmote` appending to the same `draft` cell `ChatPanel` binds, proven via `smoke_new5.fct`; slow mode ⬜ — timer) |
 | **ChatMessage** | role glyph (broadcaster · mod · sub) + coloured name + richtext body + mod tools | ✅ `live/chatmessage.fct` |
 | **Emote / Sticker picker** | grid in a Sheet; inserts a token | ✅ `live/emotepicker.fct` (proven via `smoke_new3.fct`; the token lands via a fixed `insertEmote(token)` action, same convention as `Poll`'s `vote`) |
 | **TipButton + TipSheet** | preset amounts, note, calls `tip(stream, cents, note)` | ✅ `live/tipsheet.fct` (custom amount ⬜) |
 | **GoalBar** | "Tip goal" progress with label — one facet also serves sub goals and fundraisers | ✅ `live/goalbar.fct` |
 | **TopTippers / Leaderboard** | ranked list from `sum(t.cents in Tip where …)` per user | ✅ `live/leaderboard.fct` (proven via `smoke_new3.fct`; still no group-by — the host supplies rank via `for` over its own roster with a filtered `sum` each, as before) |
 | **Alerts / RecentTips** | the latest tips, live | ✅ `live/recenttips.fct` (timed banner ⬜ — timer) |
-| **SubscribeButton** | calls `subscribe(stream)` / `unsubscribe` | ✅ `live/subscribebutton.fct` (tiers ⬜) |
-| **GiftPicker** | virtual gifts grid (TikTok/Kick) — TipSheet with pictures | 🟡 (TipSheet; images ⬜) |
+| **SubscribeButton** | calls `subscribe(stream)` / `unsubscribe` | ✅ `live/subscribebutton.fct` (tiers ✅ — `SubscribeTier`/`SubscribeTierList` call the host's own `subscribeTier(stream, tier)`/`unsubscribeTier(stream)`, a separate pair of actions rather than widening `subscribe`'s arity, proven via `smoke_new5.fct`) |
+| **GiftPicker** | virtual gifts grid (TikTok/Kick) — TipSheet with pictures | ✅ `live/giftpicker.fct` (proven via `smoke_new5.fct`; each gift is a row — picture, name, price, then the `button` that calls `tip(stream, cents, name)` — since a `button` renders no child nodes, so the picture cannot sit inside it; the picture is a generated image seeded by the gift's name, the same technique `ui/Avatar`/`MyQRCode` already use, not an `ui/icon.fct` glyph, since "gift"/"crown"/"coin" are not in that set) |
 | **ViewerList** | who is watching, with roles | ✅ `live/viewerlist.fct` (proven via `smoke_new2.fct`) |
 | **ModTools** | delete / ban per message — `requires moderator(stream)` | ✅ in ChatMessage (slow mode ⬜) |
 | **StreamCard** | live tile: thumbnail + LIVE + viewers + title + channel + category | ✅ `live/streamcard.fct` |
@@ -75,7 +75,7 @@ listed at the end. Bold rows are the ones that unblock the most screens.
 | **CategoryChip / Tag** | one pill → `/browse/:category` | ✅ `live/categorychip.fct` |
 | **Schedule** | upcoming streams calendar | ✅ `live/schedule.fct` (proven via `smoke_new2.fct`) |
 | **VOD list / Clips** | past broadcasts = VideoTiles; Clips = ShortsCard | ✅ by reuse |
-| **GoLivePanel (creator)** | title, category, masked stream key (`@secret`, reveal toggle), go live / end | ✅ `live/golivepanel.fct` (thumbnail upload ⬜) |
+| **GoLivePanel (creator)** | title, category, masked stream key (`@secret`, reveal toggle), go live / end | ✅ `live/golivepanel.fct` (thumbnail upload ✅ — the same `UploadField` scaffold `ProfileEdit` uses, `updateStream(id, title, category, thumbnail)` widened to write `Stream(id).thumb`, proven via `smoke_new5.fct`) |
 | **Creator dashboard** | viewers over time, income, top clips — StatChips + a chart | ⬜ (chart — needs a `chart` node or SVG facet) |
 | **AgeGate / ContentWarning** | interstitial requiring confirmation, remembered per browser | ✅ `live/agegate.fct` |
 | **PrivateShow / Paywall** | gated region: `requires subscriber(channel)` around the player | ✅ `live/paywall.fct` (proven via `smoke_new3.fct`; same gated/ungated `if` split as `AgeGate` — the render side, alongside a `requires subscriber(channel)` on whatever action the gated content itself calls) |
@@ -86,7 +86,7 @@ listed at the end. Bold rows are the ones that unblock the most screens.
 |---|---|---|
 | **DMThread** | 1:1 messages, live over SSE, read receipts ("Seen"), `@e2e` sealed bodies when the host declares it | ✅ `chat/dmthread.fct` (groups ⬜ — need `let id = add …` to seed members; typing ⬜ — timer) |
 | **InboxList** | conversations with unread badges and last-message preview | ✅ `chat/inboxlist.fct` |
-| **ContactCard / Friend request** | add by handle, Requested / Message states, accept / decline | ✅ `graph/contactcard.fct`, `graph/friendrequestrow.fct` (QR ⬜) |
+| **ContactCard / Friend request** | add by handle, Requested / Message states, accept / decline | ✅ `graph/contactcard.fct`, `graph/friendrequestrow.fct` (QR ✅ — `ContactQR`, the same generated-image technique `commerce/PayButton`'s `MyQRCode` already proves, applied to an "add me" payload instead of a payment one; proven via `smoke_new5.fct`; scanning it back is the same camera/lang gap already named for `PayButton`) |
 | FollowButton · WhoToFollow | | ✅ |
 | **BlockMuteMenu** | block, mute, report — a sheet until there is a popover | ✅ `graph/usermenu.fct` |
 | **ReportSheet** | reasons list → `report(target, reason)` | ✅ `graph/reportsheet.fct` |

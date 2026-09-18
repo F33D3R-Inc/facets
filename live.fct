@@ -78,6 +78,7 @@ app F33D3RLive:
     state ageOk: bool = false @client
     state goTitle: text = "" @client
     state goCategory: text = "" @client
+    state goThumbnail: text = "" @client
     state revealKey: bool = false @client
     state username: text = "" @client
     state password: text = "" @client
@@ -98,10 +99,11 @@ app F33D3RLive:
     action mintKey(stream: int):
         requires owner(stream)
         add StreamKey { stream: stream, owner: actor, key: "live_" + actor + "_" + rand(1000000000) }
-    action updateStream(id: int, title: text, category: text):
+    action updateStream(id: int, title: text, category: text, thumbnail: text):
         requires owner(id)
         set Stream(id).title = title
         set Stream(id).category = category
+        set Stream(id).thumb = thumbnail
     action setSource(id: int, hls: text, thumb: text, mature: bool):
         requires owner(id)
         set Stream(id).hls = hls
@@ -134,6 +136,12 @@ app F33D3RLive:
         requires member
         add Sub { stream: stream, user: actor }
     action unsubscribe(stream: int):
+        requires member
+        remove s in Sub where s.stream == stream && s.user == actor
+    action subscribeTier(stream: int, tier: int):
+        requires member
+        add Sub { stream: stream, user: actor }
+    action unsubscribeTier(stream: int):
         requires member
         remove s in Sub where s.stream == stream && s.user == actor
     action follow(handle: text):
@@ -213,7 +221,7 @@ app F33D3RLive:
                         input bind goCategory placeholder "Category"
                         button "Create channel" -> createChannel(goTitle, goCategory) class "x-pill x-primary"
                 for s in Stream where s.owner == actor limit 1:
-                    use GoLivePanel(s, goTitle, goCategory)
+                    use GoLivePanel(s, goTitle, goCategory, goThumbnail)
                 for k in StreamKey where k.owner == actor limit 1:
                     use StreamKeyBox(k, revealKey)
                 if exists(s in Stream where s.owner == actor) && !exists(k in StreamKey where k.owner == actor):

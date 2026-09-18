@@ -1,0 +1,143 @@
+# Smoke (new atoms, round 5) — imports and exercises the five gaps closed this
+# round, all of them CATALOG.md's own inline "⬜" notes on facets that already
+# shipped: GiftPicker (a real new file — "GiftPicker 🟡 (TipSheet; images
+# ⬜)"), SubscribeTier/SubscribeTierList ("tiers ⬜" on SubscribeButton),
+# GoLivePanel's new thumbnail upload ("thumbnail upload ⬜"), ContactCard's new
+# ContactQR ("QR ⬜"), and ChatPanel's composer wired to EmotePicker ("emotes
+# ⬜") — the last one closed with ZERO new code, by composing two components
+# this library already ships exactly the way `live/EmotePicker`'s own header
+# comment already documents. `facet check smoke_new5.fct` compiling clean is
+# the proof each one runs through the real compiler, the same role
+# `smoke_new.fct`/`smoke_new2.fct`/`smoke_new3.fct`/`smoke_new4.fct` play for
+# their own rounds.
+import "live/giftpicker.fct"
+import "live/subscribebutton.fct"
+import "live/golivepanel.fct"
+import "live/chatpanel.fct"
+import "live/emotepicker.fct"
+import "ui/togglebutton.fct"
+import "graph/contactcard.fct"
+
+app FacetsSmokeNew5:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state chatDraft: text = "" @client
+    state emotesOpen: bool = false @client
+    state giftsOpen: bool = false @client
+    state goTitle: text = "" @client
+    state goCategory: text = "" @client
+    state goThumbnail: text = "" @client
+    state menuOpen: bool = false @client
+    state menuTarget: text = "" @client
+
+    entity Stream:
+        id: int
+        owner: text
+        verified: bool
+        title: text
+        category: text
+        tags: text
+        hls: text
+        thumb: text
+        live: bool
+        viewers: int
+        startedAt: int
+        pinned: text
+        goalLabel: text
+        goalTarget: money
+    entity Chat:
+        id: int
+        stream: Stream
+        author: text
+        role: text
+        body: text
+        sent: int
+    entity Tip:
+        id: int
+        stream: Stream
+        from: text
+        cents: money
+        note: text
+        at: int
+
+    policy owner(id: int):
+        actor == Stream(id).owner
+
+    action say(stream: int, body: text):
+        check body != "" "say something"
+        add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now() }
+    action deleteChat(id: int):
+        remove Chat(id)
+    action ban(stream: int, user: text):
+        check user != "" "no user"
+    action insertEmote(token: text):
+        chatDraft = chatDraft + token
+    action tip(stream: int, cents: money, note: text):
+        check cents > 0 "pick an amount"
+    action updateStream(id: int, title: text, category: text, thumbnail: text):
+        requires owner(id)
+        set Stream(id).title = title
+        set Stream(id).category = category
+        set Stream(id).thumb = thumbnail
+    action goLive(id: int):
+        requires owner(id)
+        set Stream(id).live = true
+    action endStream(id: int):
+        requires owner(id)
+        set Stream(id).live = false
+    action subscribeTier(stream: int, tier: int):
+        check stream > -1 "no channel"
+    action unsubscribeTier(stream: int):
+        check stream > -1 "no channel"
+    action subscribe(stream: int):
+        check stream > -1 "no channel"
+    action unsubscribe(stream: int):
+        check stream > -1 "no channel"
+    action startChat(handle: text):
+        check handle != "" "no handle"
+    action request(handle: text):
+        check handle != "" "no handle"
+
+    # ── local (client-only) actions ──────────────────────────────────────────
+    action openGifts:
+        giftsOpen = true
+    action openMenu(handle: text):
+        menuTarget = handle
+        menuOpen = true
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 5"
+        box:
+            for s in Stream where s.id == 1 limit 1:
+                text "ChatPanel + EmotePicker (composition, no new code)" class "smoke-h2"
+                use ToggleButtonQuiet("😀", emotesOpen)
+                use EmotePicker(emotesOpen)
+                use ChatPanel(s, chatDraft, actor == s.owner)
+
+                text "GiftPicker" class "smoke-h2"
+                use ToggleButton("Send a gift", giftsOpen)
+                use GiftPicker(s, giftsOpen)
+
+                text "GoLivePanel (with thumbnail upload)" class "smoke-h2"
+                use GoLivePanel(s, goTitle, goCategory, goThumbnail)
+
+            text "SubscribeTier / SubscribeTierList" class "smoke-h2"
+            use SubscribeTierList():
+                use SubscribeTier(1, 1, "Tier 1", "$4.99/mo", false)
+                use SubscribeTier(1, 2, "Tier 2", "$9.99/mo", true)
+                use SubscribeTier(1, 3, "Tier 3", "$24.99/mo", false)
+
+            text "ContactCard / ContactQR" class "smoke-h2"
+            use ContactCard("ada", false, false, openMenu)
+            use ContactQR(actor)
+            if menuOpen:
+                text "Menu open for {menuTarget}" class "x-muted x-small"

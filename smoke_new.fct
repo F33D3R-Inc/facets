@@ -130,6 +130,10 @@ app FacetsSmokeNew:
         check stream > -1 "no channel"
     action unsubscribe(stream: int):
         check stream > -1 "no channel"
+    action subscribeTier(stream: int, tier: int):
+        check stream > -1 "no channel"
+    action unsubscribeTier(stream: int):
+        check stream > -1 "no channel"
     action follow(handle: text):
         check handle != "" "no handle"
     action unfollow(handle: text):

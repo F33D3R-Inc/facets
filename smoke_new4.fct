@@ -110,6 +110,10 @@ app FacetsSmokeNew4:
         check stream > -1 "no channel"
     action unsubscribe(stream: int):
         check stream > -1 "no channel"
+    action subscribeTier(stream: int, tier: int):
+        check stream > -1 "no channel"
+    action unsubscribeTier(stream: int):
+        check stream > -1 "no channel"
     action attachLink(tweet: int, url: text):
         let html = do LinkPreviewFetch(url)
         let title = do LinkPreviewTitle(html)

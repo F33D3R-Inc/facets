@@ -1,8 +1,45 @@
 # SubscribeButton — subscribe to a channel, as a pill. `subscribed` (compute with
 # exists() in the host) picks the state. Calls the host subscribe(stream).
+#
+# ── SubscribeTier / SubscribeTierList ─────────────────────────────────────────
+#
+# CATALOG.md's own gap for this facet: "tiers ⬜" — Twitch-style Tier 1/2/3,
+# each its own price and its own row, instead of the one flat `subscribe`
+# above. It is a SEPARATE pair of exports rather than a `tier: int` parameter
+# bolted onto `SubscribeButton`, on purpose: every existing call site in this
+# library (and every host app already built on it) calls the host's
+# `subscribe(stream)` — no tier argument — so widening that action's arity
+# would break every one of them for a feature most channels never turn on. A
+# host that wants tiers instead implements `subscribeTier(stream, tier)` /
+# `unsubscribeTier(stream)` as its OWN actions (a `tier: int` column on
+# whatever row `Sub`/`subscribe` already writes) and reaches for these two
+# exports instead of `SubscribeButton` — pure addition, zero ripple.
+#
+#     use SubscribeTierList():
+#         use SubscribeTier(s.id, 1, "Tier 1", "$4.99/mo", mySub == 1)
+#         use SubscribeTier(s.id, 2, "Tier 2", "$9.99/mo", mySub == 2)
+#         use SubscribeTier(s.id, 3, "Tier 3", "$24.99/mo", mySub == 3)
 app FacetLive:
+    css:
+        [data-fa-mount] .x-subtiers { display: flex; flex-direction: column; gap: 8px; }
+        [data-fa-mount] .x-subtier { display: flex; align-items: center; gap: 12px;
+                     padding: 12px 14px; border: 1px solid var(--x-line, #2f3336);
+                     border-radius: 12px; }
+        [data-fa-mount] .x-subtier-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
     component SubscribeButton(stream: int, subscribed: bool):
         if subscribed:
             button "Subscribed" -> unsubscribe(stream) class "x-pill"
         if !subscribed:
             button "Subscribe" -> subscribe(stream) class "x-pill x-primary"
+    component SubscribeTierList():
+        box class "x-subtiers":
+            slot
+    component SubscribeTier(stream: int, tier: int, label: text, priceLabel: text, subscribed: bool):
+        row class "x-subtier":
+            box class "x-subtier-body":
+                text "{label}" class "x-strong"
+                text "{priceLabel}" class "x-muted x-small"
+            if subscribed:
+                button "Subscribed" -> unsubscribeTier(stream) class "x-pill"
+            if !subscribed:
+                button "Subscribe" -> subscribeTier(stream, tier) class "x-pill x-primary"

@@ -110,6 +110,10 @@ app FacetsSmokeNew3:
         check stream > -1 "no channel"
     action unsubscribe(stream: int):
         check stream > -1 "no channel"
+    action subscribeTier(stream: int, tier: int):
+        check stream > -1 "no channel"
+    action unsubscribeTier(stream: int):
+        check stream > -1 "no channel"
 
     view Watch at "/watch/:id":
         text "Video placeholder for {id}."

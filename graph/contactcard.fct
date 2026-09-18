@@ -3,8 +3,26 @@
 # "…" that opens the UserMenu (block · mute · report). `friend`/`requested` are
 # host-computed (`exists` over FriendRequest); `menu` is the host's client action
 # that opens the menu for this handle.
+#
+# ── ContactQR, closing CATALOG.md's "QR ⬜" ───────────────────────────────────
+#
+# "Add me" as a code someone else's camera reads, the mobile-native alternative
+# to typing a handle into the request form above. The exact technique
+# `commerce/PayButton`'s `MyQRCode` already proves — a public QR-code generator,
+# the payload dropped straight into the query string, no escaping — applied to
+# a friend-add payload instead of a payment one. Scanning that code back is the
+# same camera gap CATALOG.md already names for `commerce/PayButton` ("scan ⬜
+# — camera, lang") and is not re-litigated here; this is the half that IS just
+# an image, the same half `MyQRCode` ships.
 import "../ui/avatar.fct"
 app FacetGraph:
+    css:
+        [data-fa-mount] .x-contactqr { display: flex; flex-direction: column; align-items: center; gap: 10px;
+                     padding: 20px; border-radius: var(--fa-radius, 16px);
+                     border: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-contactqr .fa-image { width: 200px; height: 200px; border-radius: 12px; }
+        [data-fa-mount] .x-contactqr-name { font-size: 16px; font-weight: 800; }
+        [data-fa-mount] .x-contactqr-note { color: var(--fa-muted); font-size: 13px; }
     component ContactCard(handle: text, friend: bool, requested: bool, menu: action):
         row class "x-contact":
             use Avatar(handle)
@@ -19,3 +37,8 @@ app FacetGraph:
                 if !friend && !requested:
                     button "Add friend" -> request(handle) class "x-pill x-light"
                 button "" -> menu(handle) class "x-glyph-more x-iconbtn"
+    component ContactQR(handle: text):
+        box class "x-contactqr":
+            image "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=add:{handle}"
+            text "{handle}" class "x-contactqr-name"
+            text "Scan to add {handle}" class "x-contactqr-note"
