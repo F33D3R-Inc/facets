@@ -1,0 +1,64 @@
+# FollowList / FollowListRow — a reader's followers, or who they follow: an
+# avatar, a name, a bio line, and Follow/Following from the CURRENT reader's
+# own point of view. The same shape `graph/UserList`'s own `UserList` /
+# `UserListRow` already draw for a curated list's members, aimed at a
+# different relation.
+#
+#     use FollowList("Followers", count(f in Follow where f.followee == p.handle)):
+#         for f in Follow where f.followee == p.handle by id desc limit 200:
+#             use FollowListRow(f.follower, isVerified(f.follower), bioOf(f.follower),
+#                              exists(g in Follow where g.follower == actor && g.followee == f.follower))
+#
+#     use FollowList("Following", count(f in Follow where f.follower == p.handle)):
+#         for f in Follow where f.follower == p.handle by id desc limit 200:
+#             use FollowListRow(f.followee, isVerified(f.followee), bioOf(f.followee),
+#                              exists(g in Follow where g.follower == actor && g.followee == f.followee))
+#
+# ── WHY THIS DOES NOT SHARE `graph/UserList`'S CLASSES ────────────────────────
+#
+# The two look alike — an avatar, a name, one action on the right — but a row
+# only carries the styling of a file an app actually imports, and a host that
+# imports this file for its Followers tab without also importing
+# `graph/UserList` for a Lists page would otherwise get an unstyled row. Each
+# file states its own look, the same independence `notify/NotificationItem`
+# keeps from `social/PostCard` for an identical-looking grid.
+#
+# ── THE ACTION IS `FollowButton`, NOT `addToList`/`removeFromList` ────────────
+#
+# A follower row is not a member of something the READER curates — it is a
+# person, and the control beside them is always "does the reader I am, follow
+# THIS handle", the same fixed `follow(handle)`/`unfollow(handle)` pair
+# `social/FollowButton` already calls. `graph/UserList`'s two-argument
+# `addToList(list, handle)` is for a list the reader owns and can add anyone
+# to; a Followers/Following tab is a fixed relation with no list id to carry,
+# so the plain button is the correct one and not a smaller case of the other.
+import "../ui/avatar.fct"
+import "../ui/verifiedbadge.fct"
+import "../social/followbutton.fct"
+app FacetProfile:
+    css:
+        [data-fa-mount] .x-followlist-head { padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-followlist-title { font-size: 19px; font-weight: 800; }
+        [data-fa-mount] .x-followlist-count { color: var(--fa-muted); font-size: 13px; margin-top: 2px; }
+        [data-fa-mount] .x-followlist-row { display: flex; align-items: center; gap: 12px;
+                          padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-followlist-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        [data-fa-mount] .x-followlist-name { display: flex; align-items: center; gap: 4px;
+                          font-weight: 700; font-size: 15px; }
+        [data-fa-mount] .x-followlist-bio { color: var(--fa-muted); font-size: 13px; overflow-wrap: anywhere; }
+    component FollowList(title: text, count: int):
+        box class "x-followlist":
+            box class "x-followlist-head":
+                text "{title}" class "x-followlist-title"
+                text "{commas(count)}" class "x-followlist-count"
+            slot
+    component FollowListRow(handle: text, verified: bool, bio: text, following: bool):
+        row class "x-followlist-row":
+            use Avatar(handle)
+            box class "x-followlist-body":
+                row class "x-followlist-name":
+                    text "{handle}"
+                    use VerifiedBadge(verified)
+                if bio != "":
+                    text "{bio}" class "x-followlist-bio"
+            use FollowButton(handle, following)

@@ -1,0 +1,41 @@
+# NotificationToggleRow — one notification type, as a settings row with a
+# second line explaining what it does: "Likes — When someone likes your post".
+# `forms/checkfield.fct`'s own `Toggle` already draws the settings-row shape a
+# notification preferences screen wants (label left, switch right, a rule
+# between rows via `ToggleList`) but only for a BARE label — a preferences
+# screen wants one more line under it than a generic settings toggle does, and
+# that line is what this file adds.
+#
+#     use SettingsPage():
+#         use SettingsSection("Push notifications", ""):
+#             use ToggleList():
+#                 use NotificationToggleRow("Likes", "When someone likes your post", pushLikes)
+#                 use NotificationToggleRow("Replies", "When someone replies to you", pushReplies)
+#                 use NotificationToggleRow("Mentions", "When someone mentions you", pushMentions)
+#                 use NotificationToggleRow("New followers", "When someone follows you", pushFollows)
+#         use SettingsSection("Email notifications", ""):
+#             use ToggleList():
+#                 use NotificationToggleRow("Weekly digest", "A summary of your activity", emailDigest)
+#                 use NotificationToggleRow("Product updates", "News about new features", emailProduct)
+#
+# ── WHY THERE IS NO `NotificationPreferencesPage` WRAPPER ─────────────────────
+#
+# `profile/SettingsPage`/`SettingsSection` already ARE the sections-and-rows
+# page shell a preferences screen is built from — `profile/AccountSecurityPage`
+# (see `profile/accountsecurity.fct`) makes the identical call for the same
+# reason. A second `PageNarrow`-plus-list-markup wrapper here would be the
+# "same markup twice" `ui/spinner.fct`'s own note warns a library away from;
+# the row shape above is the one piece those files could not already draw, and
+# it is the whole of what this file adds. The usage block above IS the
+# complete preferences page, built from three files this library already
+# ships plus this one new row.
+import "../forms/checkfield.fct"
+app FacetNotify:
+    css:
+        [data-fa-mount] .x-notiftoggle-hint { color: var(--fa-muted); font-size: 13px;
+                          margin-top: 2px; padding-right: 56px; }
+    component NotificationToggleRow(label: text, hint: text, v: cell bool):
+        box class "x-toggle-row":
+            toggle bind v label "{label}"
+            if hint != "":
+                text "{hint}" class "x-notiftoggle-hint"

@@ -1,0 +1,72 @@
+# ToastStack / ToastRow — more than one transient confirmation on screen at
+# once, without them landing in the same spot and overlapping. `ui/Toast`
+# already draws ONE such message, pinned to the corner; a page that can raise
+# two at once (a like confirmation while a save is still failing, say) has
+# nowhere for the second one to go, because `ui/Toast`'s own `.x-toast` is
+# `position: fixed` to the exact same spot every time. `ToastStack` is the one
+# `position: fixed` container, and `ToastRow` is the same pill un-pinned from
+# the viewport so several can stack inside it.
+#
+#     use ToastStack():
+#         if justFollowed:
+#             use ToastRow("ok", "Followed")
+#         if failed(save) != "":
+#             use ToastRow("danger", failed(save))
+#
+# ── AUTO-DISMISS IS NOT HERE, AND IT IS A REAL GAP ────────────────────────────
+#
+# The identical gap `ui/toast.fct`'s own doc comment already names for a single
+# toast: dismissal needs something to flip a cell after N seconds with no
+# further input, and this language has no timer — CATALOG.md's own "what
+# still needs the language" list carries it as item 2, `after 5s: cell =
+# false`. So, exactly like `ui/Toast`, each `ToastRow` is a *derived* view of a
+# condition the host already tracks (`justFollowed`, `failed(save) != ""`) and
+# stays up for exactly as long as that condition holds — which is honest, and
+# not a substitute for the timer this would use once the language has one.
+#
+# ── WHY THIS DOES NOT IMPORT `ui/toast.fct` ───────────────────────────────────
+#
+# `Toast`'s own `.x-toast` carries `position: fixed` on the SAME element that
+# holds its tone colour and its mark, so nesting several of them inside a
+# stacking container would still plant each one at the bottom-centre of the
+# viewport rather than in the stack. The tone vocabulary is small enough
+# (three lines of `match`) that `ui/toast.fct`'s own note about `Toast`/`Tag`
+# applies here too — "they ship their own constants" rather than importing a
+# vocabulary file for three colours — so this file spells its own, scoped to
+# `.x-toastrow`, rather than fighting `ui/toast.fct`'s positioning to reuse it.
+app FacetNotify:
+    css:
+        [data-fa-mount] .x-toaststack { position: fixed; bottom: 24px; left: 50%;
+                       transform: translateX(-50%); z-index: 60; display: flex;
+                       flex-direction: column-reverse; align-items: stretch; gap: 10px;
+                       width: min(90vw, 420px); border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-toastrow { display: flex; align-items: center; gap: 10px;
+                       box-sizing: border-box; padding: 12px 16px; border-radius: 12px;
+                       font-size: 14px; line-height: 1.35; box-shadow: 0 8px 28px rgba(0,0,0,.45);
+                       background: var(--x-panel, #16181c); color: var(--fa-fg);
+                       border: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-toastrow-ok { border-color: #00ba7c; }
+        [data-fa-mount] .x-toastrow-warn { border-color: #ffd400; }
+        [data-fa-mount] .x-toastrow-danger { border-color: #f4212e; }
+        [data-fa-mount] .x-toastrow-mark { font-size: 15px; }
+        [data-fa-mount] .x-toaststack > div:empty:not([class]) { display: none; }
+    component ToastStack():
+        box class "x-toaststack":
+            slot
+    component ToastRow(tone: text, message: text):
+        match tone:
+            case "ok":
+                row class "x-toastrow x-toastrow-ok":
+                    text "✓" class "x-toastrow-mark"
+                    text "{message}"
+            case "warn":
+                row class "x-toastrow x-toastrow-warn":
+                    text "!" class "x-toastrow-mark"
+                    text "{message}"
+            case "danger":
+                row class "x-toastrow x-toastrow-danger":
+                    text "✕" class "x-toastrow-mark"
+                    text "{message}"
+            else:
+                row class "x-toastrow":
+                    text "{message}"

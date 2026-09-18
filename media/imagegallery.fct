@@ -1,0 +1,71 @@
+# ImageGalleryTile / Lightbox — a dense grid of pictures that open full-size
+# over the page instead of navigating away: a post's attached photos, an
+# album, a product's extra shots. `ui/Gallery`'s own `GalleryTile` already
+# solved the grid and the click target for a tile that navigates to its own
+# page (`href: text` -> `navigation/Link`); this is the other case that file's
+# own doc comment does not cover — a tile that stays on the page and opens a
+# viewer instead.
+#
+#     state lightboxOpen: bool = false @client
+#     state lightboxSrc: text = "" @client
+#     action openLightbox(src: text):
+#         lightboxSrc = src
+#         lightboxOpen = true
+#
+#     for m in Media where m.album == a.id by id asc limit 24 class "x-imggal":
+#         use ImageGalleryTile(m.url, openLightbox)
+#     use Lightbox(lightboxOpen, lightboxSrc)
+#
+# ── HOW ONE `Lightbox` SHOWS WHICHEVER TILE WAS CLICKED ───────────────────────
+#
+# The same shared-cell-plus-argument idiom `graph/ContactCard`'s own `menu:
+# action` parameter already proves for "…": `open` arrives as a bare action
+# reference (the host's `openLightbox`, with no arguments at the parameter),
+# and the tile invokes it AS `open(src)` — passing its OWN `src` parameter as
+# the argument at the call site inside the component, exactly the way
+# `ContactCard` calls its own `menu(handle)`. There is still only one
+# `lightboxOpen`/`lightboxSrc` pair on the whole page — a `for` cannot mint a
+# fresh `@client` cell per row, the same wall `media/shortscard.fct`'s own note
+# on its shared `muted` cell already names — but a lightbox only ever shows
+# ONE picture at a time regardless, so one shared pair is the correct model,
+# not a workaround for a missing one.
+#
+# ── THE GRID CLASS GOES ON THE `for`, NOT ON A WRAPPER COMPONENT ──────────────
+#
+# `layout/grid.fct`'s own doc comment already states the rule this follows:
+# a `for` is one tracked region of its own, so dropping it inside a wrapping
+# component's `slot` risks the whole loop landing in one grid cell rather than
+# a cell per row. The fix that file recommends — the grid class on the `for`
+# itself — is what the usage block above does, with this file's own denser
+# track (`min(100%, 150px)`, the same floor `ui/gallery.fct` picked for a
+# photo grid rather than a card grid's wider one) instead of `layout/Grid3`'s.
+import "../ui/aspectbox.fct"
+import "../ui/togglebutton.fct"
+app FacetMedia:
+    css:
+        [data-fa-mount] .x-imggal { display: grid; gap: 8px;
+                    grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-imggal > .fa-use { display: contents; }
+        [data-fa-mount] .x-imggal > .fa-use > .fa-use { display: contents; }
+        [data-fa-mount] .x-imggal-tile { position: relative; display: block; border: none;
+                        background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-imggal-btn { position: absolute; inset: 0; z-index: 2;
+                       border: none; background: none; padding: 0; font-size: 0; cursor: pointer;
+                       border-radius: 12px; }
+        [data-fa-mount] .x-imggal-btn:hover { background: rgba(255,255,255,.08); }
+        [data-fa-mount] .x-lightbox .fa-overlay-backdrop { background: rgba(0,0,0,.9); padding: 24px; }
+        [data-fa-mount] .x-lightbox .fa-overlay-panel { background: none; border: none; box-shadow: none;
+                       max-width: min(92vw, 1000px); padding: 0; display: flex; flex-direction: column;
+                       align-items: center; gap: 14px; }
+        [data-fa-mount] .x-lightbox-img { display: block; max-width: 100%; max-height: 80vh;
+                       width: auto; height: auto; border-radius: 12px; }
+    component ImageGalleryTile(src: text, open: action):
+        box class "x-imggal-tile":
+            use AspectSquare():
+                image "{src}"
+            button "" -> open(src) class "x-imggal-btn"
+    component Lightbox(open: cell bool, src: text):
+        overlay bind open class "x-lightbox":
+            image "{src}" class "x-lightbox-img"
+            use ToggleButtonQuiet("Close", open)

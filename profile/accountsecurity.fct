@@ -1,0 +1,40 @@
+# SecurityStatusRow — a settings row with a status pill before its chevron:
+# "Password — Changed 3 months ago", "Two-factor authentication — Enabled".
+# `profile/SettingsPage`'s own `SettingsRow` already draws the plain
+# navigation row (a label, a chevron); this is the other half an account
+# security screen needs and `SettingsRow` cannot show — a fact about the row
+# ahead of the arrow, not just its destination.
+#
+#     use SettingsPage():
+#         use SettingsSection("Password & security", ""):
+#             use SecurityStatusRow("Password", "Changed 3 months ago", "neutral", "/settings/password")
+#             use SecurityStatusRow("Two-factor authentication", "Enabled", "ok", "/settings/2fa")
+#             use SecurityStatusRow("Two-factor authentication", "Off", "warn", "/settings/2fa")
+#
+# No crypto and no session/device management live here — this is the same
+# layer `commerce/wallet.fct`'s doc comment already draws around ITS own
+# ledger ("the host owns the entity, this file owns the read side"): whether a
+# password is strong, or a TOTP secret is real, is the host's authority to
+# enforce; this component only shows the fact the host already knows and
+# links to wherever it changes it.
+#
+# ── WHY THIS REUSES `SettingsPage`/`SettingsSection`/`SettingsRow` RATHER THAN
+#    WRAPPING THEM IN A NEW `AccountSecurityPage` ──────────────────────────────
+#
+# `profile/settingspage.fct` already IS the sections-and-rows page shell an
+# account security screen is built from — a second page wrapper with the same
+# `PageNarrow` + list markup would be the exact "same markup twice" `ui/
+# spinner.fct`'s own note warns a library away from. What that file could not
+# already draw is the one new row shape above, so that is the whole of what
+# this file adds.
+import "settingspage.fct"
+import "../ui/tag.fct"
+import "../navigation/link.fct"
+import "../ui/icon.fct"
+app FacetProfile:
+    component SecurityStatusRow(label: text, statusLabel: text, tone: text, href: text):
+        row class "x-settings-row":
+            use Link(label, href)
+            row:
+                use Tag(statusLabel, tone)
+                icon "chevron-right"

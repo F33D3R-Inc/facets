@@ -1,0 +1,54 @@
+# ProfileCard — a compact, public identity card: avatar, name, verified mark,
+# a one-line bio, a follower count, and Follow/Following — for the places a
+# full `ProfileHeader` is the wrong size for: a "Who to follow" rail, a search
+# result, a mention preview, a card in someone else's grid.
+#
+#     for u in User where u.handle != actor limit 3:
+#         use ProfileCard(u.name, u.handle, u.verified, u.bio,
+#                        exists(f in Follow where f.follower == actor && f.followee == u.handle),
+#                        count(f in Follow where f.followee == u.handle))
+#
+# ── WHY THIS IS NOT `ProfileHeader` AT A SMALLER SIZE ─────────────────────────
+#
+# `profile/ProfileHeader` is a page's own top block: a banner, an
+# avatar overlapping it, a "Joined …" line, both follow counts — everything a
+# reader wants once they have already committed to opening the profile. A
+# card is read in passing, beside two or three others, before that
+# commitment — no banner (there is no room for one at this size), one stat
+# instead of two (a reader deciding whether to follow someone wants to know
+# they are followed by many people, not also how many people that person
+# follows), and it is a SELF-CONTAINED unit with its own border rather than a
+# block that assumes it sits at the top of a page. Same underlying identity,
+# a different object, the same relationship `ui/UserChip` already has to a
+# full byline.
+import "../ui/avatar.fct"
+import "../ui/verifiedbadge.fct"
+import "../ui/statchip.fct"
+import "../social/followbutton.fct"
+app FacetProfile:
+    css:
+        [data-fa-mount] .x-pcard { display: flex; flex-direction: column; gap: 10px;
+                    padding: 16px; border: 1px solid var(--x-line, #2f3336);
+                    border-radius: var(--fa-radius, 16px); }
+        [data-fa-mount] .x-pcard-top { display: flex; align-items: flex-start; justify-content: space-between;
+                       gap: 8px; }
+        [data-fa-mount] .x-pcard-top .fa-image { width: 56px; height: 56px; }
+        [data-fa-mount] .x-pcard-name { display: flex; align-items: center; gap: 4px;
+                        font-size: 16px; font-weight: 800; }
+        [data-fa-mount] .x-pcard-handle { color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-pcard-bio { font-size: 14px; line-height: 1.4; }
+        [data-fa-mount] .x-pcard > div:empty:not([class]) { display: none; }
+    component ProfileCard(name: text, handle: text, verified: bool, bio: text, following: bool, followers: int):
+        box class "x-pcard":
+            row class "x-pcard-top":
+                use Avatar(handle)
+                use FollowButton(handle, following)
+            box class "x-pcard-body":
+                row class "x-pcard-name":
+                    text "{name}"
+                    use VerifiedBadge(verified)
+                text "@{handle}" class "x-pcard-handle"
+                if bio != "":
+                    text "{bio}" class "x-pcard-bio"
+                use StatChipRow():
+                    use StatChip(followers, "Followers")

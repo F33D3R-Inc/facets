@@ -1,0 +1,48 @@
+# FileAttachment — a downloadable file, as a row: an icon for its kind, its
+# name, its size, and a download link. A message's PDF, a post's attached
+# spreadsheet, a comment's zip — the generic "here is a file" row this library
+# had no atom for, next to `ui/MediaCard` (a video or a picture rendered
+# inline) and `media/VideoTile` (a video that plays), neither of which fits
+# something meant to be saved rather than viewed.
+#
+#     use FileAttachment("file", "Q3 report.pdf", "1.2 MB", "/download/" + f.id)
+#     use FileAttachment("image", "cover.png", "480 KB", "/download/" + f.id)
+#
+# `kind` picks the glyph from `ui/icon.fct`'s existing set (`image`, `video`,
+# or the fallback `file`) — no new glyphs, just the ones already drawn there.
+#
+# ── WHY `href` IS AN INTERNAL ROUTE, NOT THE FILE'S OWN URL ───────────────────
+#
+# `navigation/link.fct`'s own doc names this library's one real constraint on
+# where a `link` can point: a route this app serves, never an absolute URL —
+# "nothing here can leave the site" is CATALOG.md's own line for it, and it is
+# still open (see that file's backlog item on an external `link` destination).
+# So `href` here is the app's own download-serving route (`/download/{id}`,
+# say), the same way `commerce/OrderRow` links to `/orders/{id}` rather than to
+# a warehouse system's own URL — the host mounts a view at that path which
+# looks up the file and serves it, and this row only ever names that view.
+import "../navigation/link.fct"
+import "../ui/icon.fct"
+app FacetMedia:
+    css:
+        [data-fa-mount] .x-attach { display: flex; align-items: center; gap: 10px;
+                    padding: 10px 12px; border: 1px solid var(--x-line, #2f3336);
+                    border-radius: var(--fa-radius, 16px); }
+        [data-fa-mount] .x-attach .fa-icon { color: var(--fa-muted); }
+        [data-fa-mount] .x-attach-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        [data-fa-mount] .x-attach-name { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-attach-size { color: var(--fa-muted); font-size: 13px; }
+    component FileAttachment(kind: text, name: text, sizeLabel: text, href: text):
+        row class "x-attach":
+            match kind:
+                case "image":
+                    icon "image"
+                case "video":
+                    icon "video"
+                else:
+                    icon "file"
+            box class "x-attach-body":
+                text "{name}" class "x-attach-name"
+                if sizeLabel != "":
+                    text "{sizeLabel}" class "x-attach-size"
+            use Link("Download", href)

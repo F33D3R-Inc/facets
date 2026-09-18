@@ -1,0 +1,33 @@
+# CouponField — a code, and the one button that applies it, with the
+# pending/failed states beside it the way `commerce/PayButton` already shows
+# them for its own single action. A cart page has exactly one of these on
+# screen at a time, which is what makes an inline `pending`/`failed` line
+# honest here in the way it would not be on a per-row action in a list — see
+# `commerce/productcard.fct`'s own note on why `ProductCard` carries none.
+#
+#     state coupon: text = "" @client
+#     use CouponField(coupon)
+#
+# `applyCoupon(code)` is a fixed action name, the same convention
+# `commerce/PayButton`'s `pay(merchant, cents)` and `commerce/wallet.fct`'s
+# `topUp`/`transfer`/`sendRedPacket` already use for a single well-known
+# storefront verb: every app built on this library implements one
+# `applyCoupon(code: text)` action (a `check` against whatever coupon table it
+# keeps) and this field calls it by that name.
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-coupon { display: flex; flex-direction: row; gap: 8px; align-items: center; }
+        [data-fa-mount] .x-coupon input { flex: 1; min-width: 0; box-sizing: border-box;
+                        font: inherit; font-size: 15px; padding: 10px 12px; color: var(--fa-fg);
+                        background: var(--x-panel, #16181c); border: 1px solid var(--x-line, #2f3336);
+                        border-radius: 10px; }
+        [data-fa-mount] .x-coupon input:focus-visible { outline: 2px solid var(--fa-accent);
+                        outline-offset: 2px; border-color: var(--fa-accent); }
+    component CouponField(code: cell text):
+        box:
+            row class "x-coupon":
+                input bind code placeholder "Coupon code"
+                button "Apply" -> applyCoupon(code) class "x-pill"
+            if pending(applyCoupon):
+                text "Applying…" class "x-muted x-small"
+            text "{failed(applyCoupon)}" class "fa-error"

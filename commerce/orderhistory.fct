@@ -1,0 +1,63 @@
+# OrderHistoryList / OrderRow — a reader's past purchases: order number, when
+# it was placed, its status, its total. `commerce/checkout.fct` already ships
+# the itemised summary a CURRENT purchase shows before it commits
+# (`CheckoutSummary`/`CheckoutLineItem`/`CheckoutTotal`); this is the other
+# half every storefront needs, a list of orders that already happened.
+#
+#     use OrderHistoryList():
+#         if !exists(o in Order where o.buyer == actor):
+#             use OrderHistoryEmpty()
+#         for o in Order where o.buyer == actor by placed desc limit 50:
+#             use OrderRow(o.id, o.placed, o.statusLabel, o.statusTone,
+#                          o.totalCents, o.itemCount)
+#
+# ── WHY THIS IS NOT A FOURTH `CheckoutSummary` ────────────────────────────────
+#
+# The same distinction `commerce/checkout.fct`'s own doc comment draws between
+# a pricing tier and a checkout: a checkout states a PURCHASE in progress, a
+# history row states one that already settled, has a status that can change
+# independently of its total (`shipped`, `refunded`), and is read a line at a
+# time in a list rather than assembled once at the moment of paying. Different
+# object, the same reason `notify/NotificationItem` keeps its own classes
+# apart from `social/PostCard` for an identical-looking row.
+#
+# ── `statusLabel`/`statusTone` ARE THE HOST'S OWN WORDS, NOT A FIXED ENUM ─────
+#
+# A tone is one of `ui/tag.fct`'s four names — the vocabulary that file owns —
+# but the WORD next to it ("Processing", "Out for delivery", "Refunded") is the
+# host's business logic, and this component has no way to know it, the same
+# reason `marketing/pricing.fct`'s price is `text` and not a computed number.
+import "../ui/tag.fct"
+import "../ui/relativetime.fct"
+import "../ui/emptystate.fct"
+import "../navigation/link.fct"
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-orders { display: flex; flex-direction: column; gap: 0;
+                    border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);
+                    overflow: hidden; }
+        [data-fa-mount] .x-order { display: flex; align-items: center; gap: 12px;
+                    padding: 14px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-order-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        [data-fa-mount] .x-order-id { font-weight: 700; font-size: 14px; }
+        [data-fa-mount] .x-order-meta { color: var(--fa-muted); font-size: 13px; display: flex;
+                       align-items: center; gap: 6px; }
+        [data-fa-mount] .x-order-side { flex: none; display: flex; flex-direction: column;
+                       align-items: flex-end; gap: 4px; }
+        [data-fa-mount] .x-order-total { font-weight: 800; font-size: 14px;
+                        font-variant-numeric: tabular-nums; }
+    component OrderHistoryList():
+        box class "x-orders":
+            slot
+    component OrderHistoryEmpty():
+        use EmptyState("No orders yet", "Your past orders will show up here.")
+    component OrderRow(id: int, placed: int, statusLabel: text, statusTone: text, totalCents: int, itemCount: int):
+        row class "x-order":
+            box class "x-order-body":
+                link "Order #{id}" -> "/orders/{id}" class "x-order-id"
+                row class "x-order-meta":
+                    text "{itemCount} items ·"
+                    use RelativeTime(placed)
+            box class "x-order-side":
+                use Tag(statusLabel, statusTone)
+                text "{money(totalCents)}" class "x-order-total"

@@ -1,0 +1,72 @@
+# ProductCard — image, title, price, and the one button that adds it to a
+# cart: the storefront tile every catalog grid, search result and "you might
+# also like" rail is built from. Composed entirely from atoms this library
+# already ships — `ui/AspectSquare` for the picture, `money()` for the price
+# the same way `commerce/Checkout` already formats one.
+#
+#     for p in Product by rank desc limit 12 class "x-l-grid3":
+#         use ProductCard(p.id, p.image, p.title, p.priceCents, p.stock > 0)
+#
+# ── NO `ProductGrid` WRAPPER, ON PURPOSE ──────────────────────────────────────
+#
+# `media/videotile.fct`'s own doc comment already settled how a tile joins a
+# grid — `for v in Video ... limit 24 class "x-l-grid3":`, `layout/Grid3`'s own
+# track — and a `ProductCard` is exactly that shape of tile. A second wrapper
+# component here would only be a second name for `layout/Grid3`'s CSS class,
+# which is the kind of drift `ui/spinner.fct`'s own note warns against
+# ("the same markup twice… how a library starts drifting"). The example above
+# is `layout/grid.fct`'s own documented safe form for a `for` over query
+# results — the loop carries the class directly, so every row lands as its own
+# grid cell instead of the whole loop landing as one.
+#
+# ── THE SLOT IS FOR WHAT VARIES PER STOREFRONT, NOT PER PRODUCT ──────────────
+#
+# A rating, a "New" tag, a shipping note — every catalog wants a different
+# extra line under the price, and none of them is universal enough to be a
+# parameter this component should own. The slot renders after the price/button
+# row, so a call site that wants one composes an existing atom there directly,
+# with no new facet needed for it:
+#
+#         use ProductCard(p.id, p.image, p.title, p.priceCents, p.stock > 0):
+#             use Rating(p.avgRating, p.reviewCount)
+#
+# ── `addToCart(id)` IS A FIXED ACTION NAME, LIKE `EngagementBar`'s `like(id)` ─
+#
+# The same convention `social/EngagementBar`'s `like(id)` and
+# `graph/UserList`'s `addToList`/`removeFromList` already use: a tile in a
+# list cannot carry an `action` parameter for something the HOST decides how to
+# implement AND still call it with its own row's id in the simple, common case
+# — so, as with those two, every storefront built on this library implements
+# one `addToCart(id: int)` action and this card calls it by that fixed name.
+# A list of cards sharing one `addToCart` also shares its `pending`/`failed`
+# state across every row on the page, the same limitation `graph/
+# FriendRequestRow`'s `accept`/`decline` and `notify/NotificationRow`'s
+# `markRead` already live with — which is why, like them, this card renders no
+# pending/failed line of its own; a solo add-to-cart button elsewhere on a page
+# (a product's own detail view, say) can still show one at that call site.
+import "../ui/aspectbox.fct"
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-product { display: flex; flex-direction: column; gap: 8px;
+                     border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-product-body { display: flex; flex-direction: column; gap: 6px; }
+        [data-fa-mount] .x-product-title { font-size: 15px; font-weight: 700; line-height: 1.3;
+                        overflow-wrap: anywhere; }
+        [data-fa-mount] .x-product-foot { display: flex; align-items: center;
+                       justify-content: space-between; gap: 8px; }
+        [data-fa-mount] .x-product-price { font-size: 16px; font-weight: 800;
+                        font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-product > div:empty:not([class]) { display: none; }
+    component ProductCard(id: int, image: text, title: text, priceCents: int, inStock: bool):
+        box class "x-product":
+            use AspectSquare():
+                image "{image}"
+            box class "x-product-body":
+                text "{title}" class "x-product-title"
+                row class "x-product-foot":
+                    text "{money(priceCents)}" class "x-product-price"
+                    if inStock:
+                        button "Add to cart" -> addToCart(id) class "x-pill x-primary"
+                    if !inStock:
+                        text "Sold out" class "x-muted x-small"
+                slot

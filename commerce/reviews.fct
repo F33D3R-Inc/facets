@@ -1,0 +1,50 @@
+# ReviewList / ReviewRow — a product's reviews: who wrote it, how many stars,
+# when, and what they said. The stars are `ui/Rating`, reused whole rather than
+# redrawn — a review's score is the exact same five-star row a product's own
+# aggregate score already is, `use Rating(r.rating, 0)` with no count, the same
+# "pass 0 and no parenthesis renders" convention `ui/rating.fct` documents for
+# a rating with nothing to count yet.
+#
+#     use Rating(p.avgRating, count(r in Review where r.product == p.id))
+#     use ReviewList():
+#         if !exists(r in Review where r.product == p.id):
+#             use ReviewListEmpty()
+#         for r in Review where r.product == p.id by created desc limit 50:
+#             use ReviewRow(r.author, r.rating, r.created, r.body)
+#
+# ── WHY THERE IS NO `ReviewSummary` HERE ──────────────────────────────────────
+#
+# The line above the list — average score, review count — is exactly
+# `use Rating(avg, count)` at the call site, the identical component this file
+# already reuses for a single review's own stars. A second component that
+# wraps `Rating` in a box and adds no field of its own would be the "same
+# markup twice" `ui/spinner.fct`'s own note warns against, so the aggregate is
+# left as the one line of composition it already is rather than a new facet.
+import "../ui/avatar.fct"
+import "../ui/rating.fct"
+import "../ui/relativetime.fct"
+import "../ui/emptystate.fct"
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-reviews { display: flex; flex-direction: column; gap: 0; }
+        [data-fa-mount] .x-review { display: flex; gap: 12px; padding: 16px 0;
+                    border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-review-body { flex: 1; min-width: 0; display: flex;
+                       flex-direction: column; gap: 4px; }
+        [data-fa-mount] .x-review-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        [data-fa-mount] .x-review-author { font-weight: 700; font-size: 14px; }
+        [data-fa-mount] .x-review-text { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+    component ReviewList():
+        box class "x-reviews":
+            slot
+    component ReviewListEmpty():
+        use EmptyState("No reviews yet", "Be the first to say what you think.")
+    component ReviewRow(author: text, rating: int, created: int, body: text):
+        row class "x-review":
+            use Avatar(author)
+            box class "x-review-body":
+                row class "x-review-head":
+                    text "{author}" class "x-review-author"
+                    use Rating(rating, 0)
+                    use RelativeTime(created)
+                text "{body}" class "x-review-text"

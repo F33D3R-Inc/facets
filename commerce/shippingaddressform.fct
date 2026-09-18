@@ -1,0 +1,53 @@
+# ShippingAddressForm — name, address, city, region, postal code, country, on
+# the same `Form` scaffold every action-carrying form in this library uses.
+# Not a new form technique: it is six `forms/TextField`s inside `forms/Form`,
+# the exact composition `profile/ProfileEdit`'s own doc comment describes for
+# itself, aimed at a different action.
+#
+#     state fullName: text = "" @client
+#     state line1: text = "" @client
+#     state line2: text = "" @client
+#     state city: text = "" @client
+#     state region: text = "" @client
+#     state postal: text = "" @client
+#     state country: text = "" @client
+#
+#     use ShippingAddressForm(saveAddress, fullName, line1, line2, city,
+#                             region, postal, country)
+#
+# The host's `save` action takes exactly these seven `text` values, in this
+# order, and writes them onto whatever `Address` row it keeps — `requires
+# owner(actor)` or equivalent is the host's to add, the same way
+# `profile/ProfileEdit`'s own `save` is.
+#
+# ── WHY COUNTRY IS A TEXT FIELD AND NOT A `SelectField` ───────────────────────
+#
+# `forms/selectfield.fct`'s own `SelectField` walks a `cell [text]` the CALL
+# SITE supplies, one label per value with no way to tell "United Kingdom" from
+# "GB" — the exact limitation that file's own doc names. A country picker wants
+# the opposite (a fixed label distinct from the value the row stores), which
+# that file says plainly is not this component's job: "Use `Field` with a
+# hand-written `select`." That is one option a host can reach for at its own
+# call site; a plain text field is the other, and it is what ships here rather
+# than a `SelectField` this component would have to leave badly suited to the
+# one field that actually needs it.
+import "../forms/form.fct"
+import "../forms/textfield.fct"
+app FacetCommerce:
+    css:
+        [data-fa-mount] .x-shipform { max-width: 480px; }
+        [data-fa-mount] .x-shipform-row { display: flex; flex-direction: row; gap: 12px; }
+        [data-fa-mount] .x-shipform-row > .fa-use { flex: 1; min-width: 0; }
+    component ShippingAddressForm(save: action, fullName: cell text, line1: cell text, line2: cell text, city: cell text, region: cell text, postal: cell text, country: cell text):
+        box class "x-shipform":
+            use Form(save):
+                form "Save address" -> save(fullName, line1, line2, city, region, postal, country):
+                    use TextField("Full name", "Ada Lovelace", true, "", "", fullName)
+                    use TextField("Address line 1", "123 Main St", true, "", "", line1)
+                    use TextField("Address line 2", "Apt, suite, etc.", false, "", "", line2)
+                    row class "x-shipform-row":
+                        use TextField("City", "Springfield", true, "", "", city)
+                        use TextField("State / region", "IL", true, "", "", region)
+                    row class "x-shipform-row":
+                        use TextField("Postal code", "62704", true, "", "", postal)
+                        use TextField("Country", "United States", true, "", "", country)
