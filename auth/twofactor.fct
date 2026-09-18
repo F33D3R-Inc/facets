@@ -1,0 +1,80 @@
+# TwoFactorSetup / TwoFactorVerify — turning on TOTP, and being asked for the
+# six digits it produces afterwards. The same generated-image technique
+# `commerce/PayButton`'s `MyQRCode` and `graph/ContactCard`'s `ContactQR`
+# already prove, aimed at the one other payload a public QR-code generator is
+# asked to draw: an `otpauth://` URI an authenticator app scans to seed
+# itself, rather than a payment or a friend-add.
+#
+#     state totpCode: text = "" @client
+#     use SettingsSection("Two-factor authentication", ""):
+#         use TwoFactorSetup(secret, "F33D3R", actor, enableTwoFactor, totpCode)
+#
+#     state stepUpCode: text = "" @client
+#     use AuthCard("Enter your code", "Open your authenticator app."):
+#         use TwoFactorVerify(verifyTwoFactor, stepUpCode)
+#
+# ── THE SECRET IS THE HOST'S TO GENERATE; THIS FILE ONLY DISPLAYS IT ─────────
+#
+# There is no random/crypto builtin in this language — `graph/ContactCard`'s
+# own note says the identical thing about a friend-add payload — so the
+# base32 TOTP secret is generated and verified on the authority, in whatever
+# server-side code issues one, and arrives here as a plain `text`, the same
+# way `content/LinkPreview`'s four fields arrive already resolved.
+# `TwoFactorSetup` renders it — once inside the QR payload, once in the clear
+# beneath it for a phone with no camera free — and never creates it.
+#
+# ── THE PAYLOAD HAS THE SAME ESCAPING GAP `MyQRCode` ALREADY NAMES ───────────
+#
+# `secret`, `issuer` and `account` are dropped straight into the query string
+# with no URL-encoding builtin to run them through first — the identical
+# limitation `commerce/paybutton.fct`'s own note carries for its `payload`.
+# An `issuer` or `account` containing a `&`, a `#` or a space breaks the query
+# string; a short handle and a plain product name do not, and a real base32
+# secret (`[A-Z2-7]` only) is never at risk.
+#
+# ── THE CODE BOX IS ONE `TextField`, NOT SIX ─────────────────────────────────
+#
+# The six-tile code entry every authenticator flow shows on a phone is six
+# single-character boxes advancing focus into each other on keypress — real
+# per-keystroke focus management this language has no hook for (no keydown
+# event, and no way to move focus programmatically from view code). One text
+# field holding the whole code is the honest version of the same control: the
+# digits still arrive as one string on submit, which is all the action ever
+# needed from six boxes or one.
+#
+# ── TWO COMPONENTS, BECAUSE THE SCREEN AROUND THE SAME FIELD DIFFERS ─────────
+#
+# Setup shows the QR code and the manual secret; a sign-in step-up does not —
+# the reader has already scanned it once, and showing it again on every
+# sign-in would be a second surface leaking the same secret for no reason. So
+# `TwoFactorSetup` carries the QR furniture and `TwoFactorVerify` is the field
+# and the submit control alone, even though both end in the identical
+# `TextField` and both actions take just the one `code` argument.
+import "../forms/form.fct"
+import "../forms/textfield.fct"
+import "loginform.fct"
+app FacetAuth:
+    css:
+        [data-fa-mount] .x-totp-qr { display: flex; flex-direction: column; align-items: center; gap: 8px;
+                     padding: 20px; margin-bottom: 8px; border-radius: var(--fa-radius, 16px);
+                     border: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-totp-qr .fa-image { width: 200px; height: 200px; border-radius: 12px; }
+        [data-fa-mount] .x-totp-secret { font-family: monospace; font-size: 14px;
+                       letter-spacing: .04em; color: var(--fa-fg); word-break: break-all;
+                       text-align: center; }
+        [data-fa-mount] .x-totp-note { color: var(--fa-muted); font-size: 13px; text-align: center; }
+    component TwoFactorSetup(secret: text, issuer: text, account: text, a: action, code: cell text):
+        box class "x-authform":
+            box class "x-totp-qr":
+                image "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=otpauth://totp/{issuer}:{account}?secret={secret}&issuer={issuer}"
+                text "Scan with your authenticator app." class "x-totp-note"
+                text "{secret}" class "x-totp-secret"
+                text "Or enter that code by hand." class "x-totp-note"
+            use Form(a):
+                form "Turn on two-factor authentication" -> a(code):
+                    use TextField("6-digit code", "123456", true, "From the app, once it has the account.", failed(a), code)
+    component TwoFactorVerify(a: action, code: cell text):
+        box class "x-authform":
+            use Form(a):
+                form "Verify" -> a(code):
+                    use TextField("6-digit code", "123456", true, "Open your authenticator app.", failed(a), code)

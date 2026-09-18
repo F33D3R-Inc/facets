@@ -1,0 +1,144 @@
+# Smoke (new atoms, round 7) — imports and exercises the ten components added
+# this round to grow two thin categories CATALOG.md names (`auth/`, `data/`):
+# PasswordResetRequestForm / PasswordResetConfirmForm / ChangePasswordForm,
+# TwoFactorSetup / TwoFactorVerify, SessionsList / SessionRow,
+# TableSortHeadCell / TableSortHeadCellRight, FilterBar, and
+# EmptyStateWithAction. `facet check smoke_new7.fct` compiling clean is the
+# proof each one runs through the real compiler, the same role `smoke_new.fct`
+# through `smoke_new6.fct` play for their own rounds.
+import "auth/passwordresetform.fct"
+import "auth/twofactor.fct"
+import "auth/sessionslist.fct"
+import "data/tablesort.fct"
+import "data/table.fct"
+import "data/filterbar.fct"
+import "data/emptystatewithaction.fct"
+import "ui/chip.fct"
+
+app FacetsSmokeNew7:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state resetEmail: text = "" @client
+    state resetPw: text = "" @client
+    state curPw: text = "" @client
+    state newPw: text = "" @client
+    state pwShown: bool = false @client
+    state totpCode: text = "" @client
+    state stepUpCode: text = "" @client
+    state sortField: text = "name" @client
+    state sortDir: text = "asc" @client
+    state planFilter: text = "" @client
+    state onlyActive: bool = true @client
+
+    entity Session:
+        id: int
+        user: text
+        device: text
+        location: text
+        lastActive: int
+        current: bool
+    entity Plan:
+        id: int
+        name: text
+        price: int
+        active: bool
+
+    action sendResetLink(email: text):
+        check email != "" "an email address is required"
+    action confirmPasswordReset(token: text, password: text):
+        check token != "" "that reset link has expired"
+        check password != "" "a password is required"
+    action changePassword(current: text, next: text):
+        check current != "" "enter your current password"
+        check next != "" "a new password is required"
+    action enableTwoFactor(code: text):
+        check code != "" "enter the 6-digit code"
+        check len(code) == 6 "that code should be 6 digits"
+    action verifyTwoFactor(code: text):
+        check code != "" "enter the 6-digit code"
+    action revokeSession(id: int):
+        remove s in Session where s.id == id
+    action sortAsc(key: text):
+        sortField = key
+        sortDir = "asc"
+    action sortDesc(key: text):
+        sortField = key
+        sortDir = "desc"
+    action clearFilters:
+        planFilter = ""
+        onlyActive = false
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 7"
+        box:
+            text "PasswordResetRequestForm" class "smoke-h2"
+            use PasswordResetRequestForm(sendResetLink, resetEmail)
+
+            text "PasswordResetConfirmForm" class "smoke-h2"
+            use PasswordResetConfirmForm(confirmPasswordReset, "demo-token-123", resetPw)
+
+            text "ChangePasswordForm" class "smoke-h2"
+            use ChangePasswordForm(changePassword, curPw, newPw, pwShown)
+
+            text "TwoFactorSetup" class "smoke-h2"
+            use TwoFactorSetup("JBSWY3DPEHPK3PXP", "F33D3R", actor, enableTwoFactor, totpCode)
+
+            text "TwoFactorVerify" class "smoke-h2"
+            use TwoFactorVerify(verifyTwoFactor, stepUpCode)
+
+            text "SessionsList / SessionRow" class "smoke-h2"
+            use SessionsList():
+                for s in Session by lastActive desc limit 50:
+                    use SessionRow(s)
+
+            text "TableSortHeadCell / TableSortHeadCellRight" class "smoke-h2"
+            use Table("Every plan, sortable by name or price."):
+                use TableHead():
+                    use TableRow():
+                        use TableSortHeadCell("Plan", "name", sortField, sortDir, sortAsc, sortDesc)
+                        use TableSortHeadCellRight("Price", "price", sortField, sortDir, sortAsc, sortDesc)
+                match sortField + sortDir:
+                    case "nameasc":
+                        for p in Plan by name asc limit 50 class "x-tbody":
+                            use TableRow():
+                                use TableCell(p.name):
+                                use TableCellRight(money(p.price)):
+                    case "namedesc":
+                        for p in Plan by name desc limit 50 class "x-tbody":
+                            use TableRow():
+                                use TableCell(p.name):
+                                use TableCellRight(money(p.price)):
+                    case "priceasc":
+                        for p in Plan by price asc limit 50 class "x-tbody":
+                            use TableRow():
+                                use TableCell(p.name):
+                                use TableCellRight(money(p.price)):
+                    case "pricedesc":
+                        for p in Plan by price desc limit 50 class "x-tbody":
+                            use TableRow():
+                                use TableCell(p.name):
+                                use TableCellRight(money(p.price)):
+                    else:
+                        for p in Plan by name asc limit 50 class "x-tbody":
+                            use TableRow():
+                                use TableCell(p.name):
+                                use TableCellRight(money(p.price)):
+                if !exists(p in Plan):
+                    use EmptyRow("No plans yet.")
+
+            text "FilterBar / EmptyStateWithAction" class "smoke-h2"
+            use FilterBar(planFilter, "Filter plans…"):
+                use ChipToggle("Active only", onlyActive)
+            if !exists(p in Plan where contains(lower(p.name), lower(planFilter)) && (!onlyActive || p.active)):
+                use EmptyStateWithAction("No matching plans", "Try a different filter.", "Clear filters", clearFilters)
+            for p in Plan where contains(lower(p.name), lower(planFilter)) && (!onlyActive || p.active) by name asc limit 50:
+                text "{p.name} · {money(p.price)}"

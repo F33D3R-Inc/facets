@@ -1,0 +1,36 @@
+# EmptyStateWithAction — `ui/EmptyState`, plus a way out. "No results for
+# that filter" wants a "Clear filters" under it; "You have no reports yet"
+# wants "New report" — the one thing the plain state cannot offer, because it
+# is two text nodes and nothing else.
+#
+#     use EmptyStateWithAction("No matching plans", "Try a different filter.", "Clear filters", clearFilters)
+#
+# ── WHY THIS IS A NEW FILE AND NOT A PARAMETER ADDED TO `ui/EmptyState` ──────
+#
+# `ui/EmptyState(title, body)` already has real call sites at that exact
+# arity; adding a third and fourth parameter would break every one of them
+# rather than grow the file. This wraps it instead — `use EmptyState(title,
+# body)` unchanged — and adds the control as a sibling underneath, the same
+# way `content/article.fct`'s `ArticleItem` wraps `ArticleSummary` rather than
+# copying its markup.
+#
+# `a: action` is a genuine no-argument action — `clearFilters`,
+# `createReport` — the same shape `forms/form.fct`'s `ActionButton` and
+# `auth/SignedInAs`'s `SignOutButton` already use for "this presses and takes
+# nothing with it." Its own `pending`/spinner state is shown the same way
+# `ActionButton`'s is, so a slow `createReport` reads as working rather than
+# as a second, unrelated click target.
+import "../ui/emptystate.fct"
+import "../ui/spinner.fct"
+app FacetData:
+    css:
+        [data-fa-mount] .x-blank-action-row { display: flex; justify-content: center;
+                       align-items: center; gap: 10px; margin-top: 14px;
+                       border: none; background: none; padding: 0; }
+    component EmptyStateWithAction(title: text, body: text, actionLabel: text, a: action):
+        box:
+            use EmptyState(title, body)
+            row class "x-blank-action-row":
+                if pending(a):
+                    use Spinner("")
+                button "{actionLabel}" -> a class "x-pill x-primary"

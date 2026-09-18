@@ -1,0 +1,49 @@
+# SessionsList / SessionRow — every device signed in as you, and a way to
+# throw one out. `profile/AccountSecurity`'s own note says plainly what is
+# NOT its job ("No crypto and no session/device management live here") — this
+# is that other half, in the category that owns identity rather than the one
+# that owns the profile.
+#
+#     use SettingsSection("Sessions", ""):
+#         use SessionsList():
+#             for s in Session where s.user == actor by lastActive desc limit 50:
+#                 use SessionRow(s)
+#
+# ── `SessionRow` TAKES THE ROW, THE WAY `graph/FriendRequestRow` DOES ────────
+#
+# `Session` is not declared here — the same reason `FriendRequestRow(r:
+# FriendRequest)` names a type it never defines: the host's own `data` facet
+# owns the entity (device, location, last-seen, which one this is), and this
+# file only knows the five fields it renders. `revokeSession(id)` is a fixed
+# action for the same reason `accept(id)`/`decline(id)` are on that file: a
+# row already knows which session it is, so the call needs no reference
+# threaded through a parameter, and the host's own `revokeSession` can
+# `requires` the row belongs to the caller the way any action in this library
+# guards a write.
+#
+# ── THE CURRENT SESSION HAS NO REVOKE BUTTON ─────────────────────────────────
+#
+# Ending the session you are reading this list FROM is `auth/SignOutButton`,
+# not a row in it — a "Revoke" that logs the reader out from under themselves,
+# sitting next to nine that do not, is the one button on this screen worth a
+# different word and a different place entirely. `s.current` only ever
+# renders the badge that says which row that is; it decides nothing else.
+app FacetAuth:
+    css:
+        [data-fa-mount] .x-session { display: flex; flex-direction: row; align-items: center;
+                     gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-session-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        [data-fa-mount] .x-session-head { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+    component SessionsList():
+        box class "x-sessions":
+            slot
+    component SessionRow(s: Session):
+        row class "x-session":
+            box class "x-session-body":
+                row class "x-session-head":
+                    text "{s.device}" class "x-strong"
+                    if s.current:
+                        badge "This device" class "x-pill x-light"
+                text "{s.location} · active {ago(s.lastActive)}" class "x-muted x-small"
+            if !s.current:
+                button "Revoke" -> revokeSession(s.id) class "x-pill"

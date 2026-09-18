@@ -1,0 +1,80 @@
+# TableSortHeadCell / TableSortHeadCellRight — a `data/Table` header cell that
+# is also the control for its own column's sort: click it, the column sorts;
+# click the column that is already active, it flips direction.
+#
+#     state sortField: text = "price" @client
+#     state sortDir: text = "asc" @client
+#     action sortAsc(key: text):
+#         sortField = key
+#         sortDir = "asc"
+#     action sortDesc(key: text):
+#         sortField = key
+#         sortDir = "desc"
+#
+#     use TableHead():
+#         use TableRow():
+#             use TableSortHeadCell("Plan", "name", sortField, sortDir, sortAsc, sortDesc)
+#             use TableSortHeadCellRight("Price", "price", sortField, sortDir, sortAsc, sortDesc)
+#     match sortField + sortDir:
+#         case "priceasc":
+#             for p in Plan by price asc limit 50 class "x-tbody":
+#                 use TableRow(): ...
+#         case "pricedesc":
+#             for p in Plan by price desc limit 50 class "x-tbody":
+#                 use TableRow(): ...
+#         case "nameasc":
+#             for p in Plan by name asc limit 50 class "x-tbody":
+#                 use TableRow(): ...
+#         else:
+#             for p in Plan by name desc limit 50 class "x-tbody":
+#                 use TableRow(): ...
+#
+# ── WHY THE ROWS UNDER THE HEADER ARE A `match`, WRITTEN BY THE HOST ─────────
+#
+# `data/table.fct`'s own note already says a `for`'s ordering field is a
+# literal — `by price asc`, not `by {sortField}` — because there is no
+# dynamic-field query in this language, the same reason there is no dynamic
+# `case` in a `match`: `internal/parser`'s own `for` grammar takes `by
+# <identifier> [desc|asc]`, parsed once at compile time, not an expression
+# evaluated per render. So the SET of sortable orderings a table offers is
+# still fixed at compile time and spelled out once per combination, the same
+# way `content/byline.fct`'s twelve-case month `match` is a fixed set spelled
+# out rather than an indexed lookup this language cannot express. What this
+# file buys is the other half: the header CELL that is also a button, with
+# its own arrow, so the host's job shrinks to the `match` itself instead of
+# also hand-rolling the click target.
+#
+# ── THE TWO ACTIONS ARE REFERENCES, NOT FIXED NAMES ──────────────────────────
+#
+# Passed in as `asc`/`desc` parameters rather than called as a single fixed
+# pair the way `live/EmotePicker`'s `insertEmote` is fixed — because a page
+# with two independently-sortable tables needs two independent pairs of state
+# cells, and a fixed action name could only ever answer to one pair. An
+# action reference invoked with an argument is `media/ImageGalleryTile`'s
+# `open(src)` technique: `key` is this component's OWN parameter, so each
+# table's pair of actions closes over that table's own two cells and this
+# file never has to know their names.
+app FacetData:
+    css:
+        [data-fa-mount] .x-th-sortbtn { display: inline-flex; border: none; background: none;
+                       padding: 0; margin: 0; font: inherit; font-size: inherit;
+                       font-weight: inherit; letter-spacing: inherit; text-transform: inherit;
+                       color: inherit; cursor: pointer; }
+        [data-fa-mount] .x-th-sortbtn:hover { color: var(--fa-fg); }
+        [data-fa-mount] .x-th-sortbtn-active { color: var(--fa-fg); }
+    component TableSortHeadCell(headText: text, key: text, activeKey: text, dir: text, asc: action, desc: action):
+        box class "x-th":
+            if activeKey == key && dir == "asc":
+                button "{headText} ↑" -> desc(key) class "x-th-sortbtn x-th-sortbtn-active"
+            if activeKey == key && dir == "desc":
+                button "{headText} ↓" -> asc(key) class "x-th-sortbtn x-th-sortbtn-active"
+            if activeKey != key:
+                button "{headText}" -> asc(key) class "x-th-sortbtn"
+    component TableSortHeadCellRight(headText: text, key: text, activeKey: text, dir: text, asc: action, desc: action):
+        box class "x-th x-th-right":
+            if activeKey == key && dir == "asc":
+                button "{headText} ↑" -> desc(key) class "x-th-sortbtn x-th-sortbtn-active"
+            if activeKey == key && dir == "desc":
+                button "{headText} ↓" -> asc(key) class "x-th-sortbtn x-th-sortbtn-active"
+            if activeKey != key:
+                button "{headText}" -> asc(key) class "x-th-sortbtn"
