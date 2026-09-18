@@ -1,0 +1,133 @@
+# Smoke (new atoms, round 2) — imports and exercises the seven components added
+# to close a second round of gaps in CATALOG.md: Poll, Playlist/PlaylistItem,
+# ViewerList, Schedule, ProfileEdit, FeedShell and ShortsCard. `facet check
+# smoke_new2.fct` compiling clean is the proof each one runs through the real
+# compiler, the same role `smoke_new.fct` plays for its own eight.
+import "social/poll.fct"
+import "media/playlist.fct"
+import "live/viewerlist.fct"
+import "live/schedule.fct"
+import "profile/profileedit.fct"
+import "ui/feedshell.fct"
+import "media/shortscard.fct"
+
+app FacetsSmokeNew2:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state avatarDraft: text = "" @client
+    state bannerDraft: text = "" @client
+    state nameDraft: text = "Ada Lovelace" @client
+    state bioDraft: text = "" @client
+    state linkDraft: text = "" @client
+    state feedMuted: bool = true @client
+
+    entity Stream:
+        id: int
+        owner: text
+        verified: bool
+        title: text
+        category: text
+        tags: text
+        hls: text
+        thumb: text
+        live: bool
+        viewers: int
+        startedAt: int
+        pinned: text
+        goalLabel: text
+        goalTarget: money
+    entity Viewer:
+        id: int
+        stream: Stream
+        handle: text
+        role: text
+    entity PollRow:
+        id: int
+        poll: int
+        label: text
+        votes: int
+    entity Vote:
+        id: int
+        poll: int
+        voter: text
+    entity Video:
+        id: int
+        series: int
+        position: int
+        title: text
+        thumb: text
+        durationLabel: text
+        durationSeconds: int
+        channel: text
+        watched: int
+    entity Short:
+        id: int
+        src: text
+        thumb: text
+        author: text
+        caption: text
+        likes: int
+        comments: int
+
+    action vote(option: int):
+        check option > -1 "nothing to vote for"
+        add Vote { poll: 1, voter: actor }
+    action share(id: int):
+        check id > -1 "nothing to share"
+    action like(id: int):
+        check id > -1 "nothing to like"
+    action save(avatar: text, banner: text, name: text, bio: text, link: text):
+        check name != "" "tell us what to call you"
+
+    view Watch at "/watch/:id":
+        text "Video placeholder for {id}."
+    view Live at "/live/:id":
+        text "Stream placeholder for {id}."
+    view PostDetail at "/post/:id":
+        text "Post placeholder for {id}."
+    view Browse at "/browse/:category":
+        text "Browse placeholder for {category}."
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 2"
+        box:
+            text "Poll" class "smoke-h2"
+            use Poll():
+                for o in PollRow where o.poll == 1 by id asc:
+                    use PollOption(o.id, o.label, o.votes, sum(x.votes in PollRow where x.poll == 1), exists(v in Vote where v.poll == 1 && v.voter == actor))
+                use PollFooter(sum(x.votes in PollRow where x.poll == 1), "Closes in 2h")
+
+            text "Playlist" class "smoke-h2"
+            use Playlist("Season 1", count(v in Video where v.series == 1)):
+                for v in Video where v.series == 1 by position asc limit 20:
+                    use PlaylistItem(v.id, v.position, v.title, v.thumb, v.durationLabel, v.channel, v.watched, v.durationSeconds)
+
+            text "ViewerList" class "smoke-h2"
+            for s in Stream where s.id == 1 limit 1:
+                use ViewerList():
+                    use ViewerListHeader(s.viewers)
+                    for v in Viewer where v.stream == s.id by role asc limit 50:
+                        use ViewerRow(v.handle, v.role)
+
+            text "Schedule" class "smoke-h2"
+            use Schedule():
+                use ScheduleDay("Today"):
+                    for s in Stream where !s.live by startedAt asc limit 10:
+                        use ScheduleItem(s, "7:00 PM")
+
+            text "ProfileEdit" class "smoke-h2"
+            use ProfileEdit(save, avatarDraft, bannerDraft, nameDraft, bioDraft, linkDraft)
+
+            text "FeedShell / ShortsCard" class "smoke-h2"
+            use FeedShell():
+                for sh in Short by id asc limit 10:
+                    use ShortsCard(sh.id, sh.src, sh.thumb, sh.author, sh.caption, sh.likes, sh.comments, feedMuted)

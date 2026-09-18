@@ -1,0 +1,39 @@
+# Paywall — the gated region a subscriber-only stream, VOD or archive sits
+# behind: locked chrome and a Subscribe call to action while the reader has
+# not unlocked it, the real content the moment they have. The same shape
+# `live/AgeGate` already proves for a content-warning interstitial, reused
+# here for a paywall instead — a region that renders one of two things off a
+# host-computed bool is one component, not two.
+#
+#     use Paywall(s.subscriberOnly, subscribed, s.id):
+#         use LivePlayer(s)
+#         use StreamInfo(s, following, subscribed, openTip)
+#
+# `gated` is the row's own flag ("this stream/post/archive is subscribers
+# only"); `unlocked` is computed the same way `live/SubscribeButton`'s own
+# `subscribed` is — an `exists()` over the host's subscription table — so the
+# render side (this file) and the action side (a `requires subscriber(id)` on
+# whatever action the gated content itself calls) agree without either one
+# reading the other's query. `stream` is passed straight through to
+# `SubscribeButton`, since the two already agree on what a channel id is.
+import "../ui/icon.fct"
+import "subscribebutton.fct"
+app FacetLive:
+    css:
+        [data-fa-mount] .x-paywall { display: flex; flex-direction: column; align-items: center;
+                      gap: 10px; text-align: center; padding: 48px 24px;
+                      border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);
+                      background: var(--x-hover, rgba(239,243,244,.03)); }
+        [data-fa-mount] .x-paywall .fa-icon { width: 30px; height: 30px; color: var(--fa-muted);
+                      margin-bottom: 4px; }
+        [data-fa-mount] .x-paywall-title { font-size: 20px; font-weight: 800; }
+        [data-fa-mount] .x-paywall-body { color: var(--fa-muted); font-size: 15px; max-width: 360px; }
+    component Paywall(gated: bool, unlocked: bool, stream: int):
+        if gated && !unlocked:
+            box class "x-paywall":
+                icon "lock"
+                text "Subscribers only" class "x-paywall-title"
+                text "Subscribe to this channel to watch." class "x-paywall-body"
+                use SubscribeButton(stream, false)
+        if !gated || unlocked:
+            slot

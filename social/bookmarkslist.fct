@@ -1,0 +1,43 @@
+# BookmarksList — the saved-posts page: the same `social/PostCard` a timeline
+# already renders, wrapped so "Remove bookmark" is one call instead of the
+# row of markup `home.fct`'s own Bookmarks view wrote by hand before this file
+# existed.
+#
+#     use BookmarksList():
+#         if !exists(b in Bookmark where b.user == actor):
+#             use BookmarksEmpty()
+#         for b in Bookmark where b.user == actor by id desc limit 50:
+#             for t in Tweet where t.id == b.tweet limit 1:
+#                 use BookmarkRow(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created,
+#                                 count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id),
+#                                 count(r in Repost where r.tweet == t.id))
+#
+# `unbookmark(id)` is the same fixed name `social/EngagementBar`'s own
+# bookmark button already calls to ADD one — the remove path is the natural
+# second half of the same verb, not a new one this file invents.
+#
+# ── THE REMOVE BUTTON IS IN `PostCard`'S SLOT, NOT A NEW CARD ────────────────
+#
+# `PostCard` already has a slot between the body and the engagement bar for
+# exactly this: something the host wants to put inside a post. A bookmarks
+# list is a timeline that happens to be filtered to saved posts and happens
+# to offer one extra control, not a different kind of card.
+import "postcard.fct"
+import "../ui/emptystate.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-bookmarks { display: flex; flex-direction: column; gap: 0;
+                       border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-bookmark-remove { margin-top: 4px; align-self: flex-start;
+                       border: 1px solid var(--x-line, #2f3336); border-radius: 9999px;
+                       background: none; color: var(--fa-muted); font-size: 13px; font-weight: 700;
+                       padding: 6px 14px; cursor: pointer; }
+        [data-fa-mount] .x-bookmark-remove:hover { color: var(--fa-fg); border-color: var(--fa-fg); }
+    component BookmarksList():
+        box class "x-bookmarks":
+            slot
+    component BookmarkRow(id: int, author: text, handle: text, verified: bool, kind: text, body: text, media: text, created: int, likes: int, replies: int, reposts: int):
+        use PostCard(id, author, handle, verified, kind, body, media, created, likes, replies, reposts, 0):
+            button "Remove bookmark" -> unbookmark(id) class "x-bookmark-remove"
+    component BookmarksEmpty():
+        use EmptyState("Nothing bookmarked yet", "Tap the bookmark icon on a post to save it here.")

@@ -1,0 +1,46 @@
+# ProfileEdit — avatar, banner, name, bio, one link, on the same `Form` scaffold
+# every action-carrying form in this library uses. Not a new form technique: it
+# is `forms/UploadField` twice, `forms/TextField`, `forms/TextAreaField` and
+# `forms/TextField` again, inside `forms/Form`, which is the whole component.
+#
+#     state avatar: text = p.avatar @client
+#     state banner: text = p.banner @client
+#     state name: text = p.name @client
+#     state bio: text = p.bio @client
+#     state link: text = p.link @client
+#
+#     use ProfileEdit(save, avatar, banner, name, bio, link)
+#
+# The host's `save` action takes exactly these five `text` values, in this
+# order, and writes them onto the actor's own profile row — `requires
+# owner(actor)` or equivalent is the host's to add, the same way every other
+# action this library calls (`follow`, `tip`, `accept`) is authorized where it
+# is declared and not here.
+#
+# ── WHY THIS IS FIVE FIELDS AND NOT A `links: [text]` REPEATER ────────────────
+#
+# There is no way for a component to render a variable number of fields from a
+# list a call site hands it — a `for` over a `@client` array of text has nothing
+# to bind each `input` to, since `bind` needs a named cell and a loop body has
+# no way to mint one per iteration. So this ships the one link a profile
+# universally has (a website, the way `ProfileHeader` renders no second row of
+# links either) rather than promising a repeater this language cannot build; a
+# host that wants several links composes more `TextField`s beside this
+# component's slot-less call the same way it would compose anything else this
+# library does not bundle.
+import "../forms/form.fct"
+import "../forms/uploadfield.fct"
+import "../forms/textfield.fct"
+import "../forms/textareafield.fct"
+app FacetProfile:
+    css:
+        [data-fa-mount] .x-profileedit { max-width: 480px; }
+    component ProfileEdit(save: action, avatar: cell text, banner: cell text, name: cell text, bio: cell text, link: cell text):
+        box class "x-profileedit":
+            use Form(save):
+                form "Save" -> save(avatar, banner, name, bio, link):
+                    use UploadField("Profile picture", "Choose image", false, "Square, at least 400px.", "", avatar)
+                    use UploadField("Banner image", "Choose image", false, "Wide, 3∶1.", "", banner)
+                    use TextField("Name", "Ada Lovelace", true, "", "", name)
+                    use TextAreaField("Bio", "Tell people about yourself.", false, "", "", bio)
+                    use TextField("Website", "https://example.com", false, "", "", link)

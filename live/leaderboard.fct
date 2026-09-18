@@ -1,0 +1,68 @@
+# Leaderboard — TopTippers / top-chatters / top-gifters: rank, name, an
+# amount, and an order. One shape serves every ranked list a live platform
+# shows, because the shape a leaderboard needs is exactly three facts per row,
+# not the entity underneath them.
+#
+#     use Leaderboard("Top tippers this week"):
+#         for u in Profile where exists(t in Tip where t.stream == s.id && t.from == u.handle)
+#                 by sum(t.cents in Tip where t.stream == s.id && t.from == u.handle) desc limit 10:
+#             use LeaderboardRow(index, u.handle, sum(t.cents in Tip where t.stream == s.id && t.from == u.handle), u.handle == actor)
+#
+# ── WHY THIS IS "A `for` OVER EVERY CANDIDATE, EACH WITH ITS OWN SUM" ────────
+#
+# CATALOG.md names the real gap plainly: the language has no group-by
+# aggregate, so there is no single query that turns a ledger into "one row per
+# person, ranked by their total". The host gets there the same way
+# `live/GoalBar` and `live/RecentTips` already total a ledger — a filtered
+# `sum(...)` — run once per candidate row (every profile, every viewer, every
+# follower — whatever roster the host already has) instead of once for the
+# whole stream. `rank` is the host's own 1-based counter for the same reason
+# `media/Playlist`'s `position` is a parameter and not something a component
+# counts for itself: a `for` has no index a component body can read.
+#
+# ── THIS FILE HAS NO ENTITY NAME, ON PURPOSE ─────────────────────────────────
+#
+# `Tip` already exists as a fixed schema elsewhere in this library
+# (`live/TipSheet`, `live/RecentTips`), but a leaderboard is not always a
+# money ranking — the same row shape ranks chat activity, watch minutes,
+# referrals. So `amount` is a plain `int` the host has already computed, the
+# way `ui/StatChip` takes a raw number rather than a query; `LeaderboardRow`
+# formats it as money, `LeaderboardRowText` is here for the count/duration
+# case that already arrived as words — the same split `ui/StatChip` and
+# `ui/StatChipText` make for the same reason.
+import "../ui/avatar.fct"
+app FacetLive:
+    css:
+        [data-fa-mount] .x-leaderboard { display: flex; flex-direction: column; gap: 0;
+                        border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-leaderboard-title { font-size: 16px; font-weight: 800; padding: 4px 4px 10px; }
+        [data-fa-mount] .x-leaderboard-row { display: flex; align-items: center; gap: 10px;
+                     padding: 8px 4px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-leaderboard-rank { width: 22px; flex: none; text-align: center;
+                        color: var(--fa-muted); font-weight: 800; font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-leaderboard-handle { flex: 1; min-width: 0; font-weight: 700;
+                          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        [data-fa-mount] .x-leaderboard-amount { flex: none; font-variant-numeric: tabular-nums;
+                          color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-leaderboard-you { background: var(--fa-accent); color: #fff; }
+    component Leaderboard(title: text):
+        box class "x-leaderboard":
+            if title != "":
+                text "{title}" class "x-leaderboard-title"
+            slot
+    component LeaderboardRow(rank: int, handle: text, amount: int, you: bool):
+        row class "x-leaderboard-row":
+            text "{rank}" class "x-leaderboard-rank"
+            use Avatar(handle)
+            text "{handle}" class "x-leaderboard-handle"
+            if you:
+                badge "You" class "x-leaderboard-you"
+            text "{money(amount)}" class "x-leaderboard-amount"
+    component LeaderboardRowText(rank: int, handle: text, amountLabel: text, you: bool):
+        row class "x-leaderboard-row":
+            text "{rank}" class "x-leaderboard-rank"
+            use Avatar(handle)
+            text "{handle}" class "x-leaderboard-handle"
+            if you:
+                badge "You" class "x-leaderboard-you"
+            text "{amountLabel}" class "x-leaderboard-amount"

@@ -1,0 +1,79 @@
+# Schedule — upcoming streams, grouped by day: what a channel's "Schedule" tab
+# or a browse page's "Coming up" rail is made of. Built on the `Stream` row this
+# whole category already shares (`live/StreamCard`, `live/LivePlayer`) rather
+# than a new entity, the same reuse `live/BrowseGrid`'s "VOD list = VideoTiles"
+# note in the catalog names: a scheduled broadcast is a `Stream` row that is not
+# `live` yet, ordered by the same `startedAt` field a live one uses for its
+# uptime — before it goes live that field reads as "starts at" instead of
+# "started at", and nothing about the row's shape has to change for the two
+# meanings.
+#
+#     use Schedule():
+#         use ScheduleDay("Today"):
+#             for s in Stream where !s.live && s.startedAt >= todayStart && s.startedAt < todayEnd by startedAt asc:
+#                 use ScheduleItem(s, clockLabel(s.startedAt))
+#         use ScheduleDay("Tomorrow"):
+#             for s in Stream where !s.live && s.startedAt >= tomorrowStart && s.startedAt < tomorrowEnd by startedAt asc:
+#                 use ScheduleItem(s, clockLabel(s.startedAt))
+#
+# ── THE DAY GROUPING IS THE HOST'S QUERIES, NOT A GROUP-BY IN THIS FILE ───────
+#
+# The language has no group-by aggregate yet (CATALOG.md's language-gap list,
+# item 5) — the same reason `live/RecentTips`-style leaderboards still fall back
+# to one query per bucket — so `ScheduleDay` is a labelled container the host
+# fills with one `for` per day boundary it already knows (today, tomorrow, this
+# weekend), exactly the two-slot-wrapper technique `social/ThreadView` uses to
+# split one component into named regions without a second `slot`.
+#
+# ── `when` ARRIVES AS TEXT, NOT A SECOND TIMESTAMP ────────────────────────────
+#
+# The same reasoning `media/VideoTile` gives for `duration`: this language has no
+# builtin that turns a timestamp into a clock reading ("7:00 PM"), so the host
+# formats it and this file renders whatever string it is handed. `ago()` is the
+# wrong builtin here on purpose — a schedule reads better as a clock time than
+# as "in 3h", because a clock time still means the same thing after the page has
+# been open for an hour and a relative one does not.
+import "../ui/avatar.fct"
+import "categorychip.fct"
+app FacetLive:
+    css:
+        [data-fa-mount] .x-schedule { display: flex; flex-direction: column; gap: 4px;
+                     border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-sched-day { display: flex; flex-direction: column; gap: 0;
+                      border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-sched-day-label { display: block; padding: 16px 4px 6px;
+                            font-size: 13px; font-weight: 800; color: var(--fa-muted);
+                            text-transform: uppercase; letter-spacing: .04em; }
+        [data-fa-mount] .x-sched-item { display: grid; grid-template-columns: 72px 40px minmax(0,1fr);
+                       gap: 12px; align-items: center; padding: 10px 4px;
+                       border: none; }
+        # The hairline between two rows needs a DOM sibling to sit between —
+        # `use ScheduleItem(...)` renders its own wrapper, so consecutive items
+        # are never adjacent `.x-sched-item` elements and a `+` between them would
+        # never match. `forms/checkfield.fct`'s `ToggleList` documents the same
+        # fix for the same reason: compare the WRAPPERS with `> * + *`, then reach
+        # the row inside the one that is not first.
+        [data-fa-mount] .x-sched-day > * + * .x-sched-item { border-top: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-sched-when { color: var(--fa-muted); font-size: 13px;
+                       font-variant-numeric: tabular-nums; }
+        [data-fa-mount] .x-sched-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        [data-fa-mount] .x-sched-title { color: var(--fa-fg); font-size: 15px; font-weight: 700;
+                        text-decoration: none; }
+        [data-fa-mount] .x-sched-title:hover { text-decoration: underline; }
+        [data-fa-mount] .x-sched-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    component Schedule():
+        box class "x-schedule":
+            slot
+    component ScheduleDay(label: text):
+        box class "x-sched-day":
+            text "{label}" class "x-sched-day-label"
+            slot
+    component ScheduleItem(s: Stream, when: text):
+        row class "x-sched-item":
+            text "{when}" class "x-sched-when"
+            use Avatar(s.owner)
+            box class "x-sched-body":
+                link "{s.title}" -> "/live/{s.id}" class "x-sched-title"
+                row class "x-sched-meta":
+                    text "{s.owner}" class "x-muted x-small"
+                    use CategoryChip(s.category)

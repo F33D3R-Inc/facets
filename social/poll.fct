@@ -1,0 +1,73 @@
+# Poll — options with vote bars, one vote per actor. A post's poll attachment:
+# while the reader has not voted, each option is a button; the moment they have,
+# every option in the SAME poll switches to a result bar, because a poll that
+# still asked the reader to pick after they picked would be lying to them.
+#
+#     use Poll():
+#         for o in PollOption where o.poll == t.id by id asc:
+#             use PollOption(o.id, o.label, o.votes,
+#                            sum(x.votes in PollOption where x.poll == t.id),
+#                            exists(v in Vote where v.poll == t.id && v.voter == actor))
+#         use PollFooter(sum(x.votes in PollOption where x.poll == t.id), "")
+#
+# ── `voted` IS ONE BOOLEAN FOR THE WHOLE POLL, NOT PER OPTION ─────────────────
+#
+# The library has no entity named `PollOption` or `Vote` — the host's does, with
+# whatever name it chose — so the query that decides "has this actor already
+# voted in THIS poll" cannot live here, the same reason `social/ThreadView`
+# takes its reply count as a parameter rather than counting a `Reply` this file
+# does not own. `exists(...)` is the right call for it, the same technique
+# `FollowButton`'s and `SubscribeButton`'s doc comments already name: a query
+# the HOST writes once and hands down as a plain `bool`. Every `PollOption` in
+# one poll is called with the same value, because voting is a single event
+# against the poll, not one against each option — the reader picked ONE row, and
+# every option's presentation has to agree with that fact at once. Passing a
+# different boolean per option (say, "did they vote for THIS one") could not
+# distinguish "voted for something else" from "has not voted yet", and a poll
+# that cannot tell those apart shows buttons to someone who already answered.
+#
+# ── THE BAR IS `ui/ProgressBar`, NOT A NEW BAR ────────────────────────────────
+#
+# A result is a label, a count and a total, which is exactly `ProgressBar`'s
+# contract — this file draws no fill of its own and carries no width-class
+# vocabulary, because `ui/progress.fct` already ships one and a second copy of
+# fifty-one width rules for the same 2%-resolution bar is not a trade this
+# library makes twice.
+#
+# ── THE VOTE ITSELF IS THE HOST'S FIXED `vote(option)` ACTION ─────────────────
+# Named the same way `like`, `repost` and `bookmark` are on `EngagementBar`: a
+# component parameter cannot forward a client cell's worth of context AND stay
+# reusable across every poll on a page, so the option's own row id is the one
+# argument the button needs, and `vote(id)` is the host action every poll on the
+# page calls.
+import "../ui/progress.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-poll { display: flex; flex-direction: column; gap: 8px;
+                   border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);
+                   padding: 12px 14px; margin-top: 8px; }
+        [data-fa-mount] .x-poll-opt-btn { display: block; width: 100%; text-align: left;
+                       padding: 10px 14px; border: 1px solid var(--x-line, #2f3336);
+                       border-radius: 9999px; font-size: 14px; font-weight: 600;
+                       background: none; color: var(--fa-fg); cursor: pointer; }
+        [data-fa-mount] .x-poll-opt-btn:hover { border-color: var(--fa-accent);
+                       background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-poll .x-progress-label { font-size: 14px; }
+        [data-fa-mount] .x-poll-foot { color: var(--fa-muted); font-size: 13px; }
+    component Poll():
+        box class "x-poll":
+            slot
+    component PollOption(id: int, label: text, votes: int, total: int, voted: bool):
+        if !voted:
+            button "{label}" -> vote(id) class "x-poll-opt-btn"
+        if voted:
+            use ProgressBar(label, votes, total)
+    # The line under the options: the total and, when the host has one, when the
+    # poll closes ("Final results", "Closes in 2h"). `closesLabel` is text and not
+    # a timestamp for the same reason `profile/ProfileHeader`'s `joined` is: the
+    # host owns the phrasing, this file only owns where it sits.
+    component PollFooter(total: int, closesLabel: text):
+        row class "x-poll-foot":
+            text "{commas(total)} votes"
+            if closesLabel != "":
+                text "· {closesLabel}"

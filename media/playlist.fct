@@ -1,0 +1,69 @@
+# Playlist — an ordered list of videos with a resume bar under each one: a
+# YouTube playlist, a course's lesson list, a VOD's chapter list, a Watch Later
+# queue. Built beside `VideoTile` rather than on top of it, because a tile has no
+# `slot` to grow a progress bar into and no index column — this is the same tile
+# substrate (`ui/AspectBox`, `ui/ProgressBar`) arranged as a numbered row instead
+# of a grid cell, the way `live/StreamCard` and `media/VideoTile` are two
+# arrangements of one frame rather than one component with a `layout` parameter.
+#
+#     use Playlist("Season 1", count(v in Video where v.series == s.id)):
+#         for v in Video where v.series == s.id by position asc limit 50:
+#             use PlaylistItem(v.id, v.position, v.title, v.thumb, v.durationLabel,
+#                              v.channel, watchedSeconds(v.id), v.durationSeconds)
+#
+# ── THE PROGRESS BAR IS `ui/ProgressBar`, WITH NO LABEL ───────────────────────
+#
+# `use ProgressBar("", watched, total)` is the whole resume indicator: an empty
+# label draws no head row at all (`ProgressBar`'s own `if label != ""` guards
+# it), so what is left is exactly the thin bar a resumable video wants under its
+# title — no width vocabulary duplicated here, the same reuse `social/Poll`
+# makes for its result bars.
+#
+# `watched` and `total` are both 0 for a video the reader has never opened
+# (`ProgressBar`'s `if max > 0` guard draws nothing), which is the correct
+# reading: a video with no progress shows no bar, not an empty one.
+import "../ui/aspectbox.fct"
+import "../ui/progress.fct"
+app FacetMedia:
+    css:
+        [data-fa-mount] .x-playlist { display: flex; flex-direction: column; gap: 2px;
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-playlist-head { display: flex; align-items: baseline;
+                       justify-content: space-between; padding: 4px 0 10px; }
+        [data-fa-mount] .x-playlist-title { font-size: 16px; font-weight: 800; }
+        [data-fa-mount] .x-playlist-count { color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-pitem { display: grid; grid-template-columns: 22px 160px minmax(0,1fr);
+                   gap: 12px; align-items: start; padding: 8px 0; border: none; background: none; }
+        [data-fa-mount] .x-pitem-n { color: var(--fa-muted); font-size: 13px;
+                    font-variant-numeric: tabular-nums; padding-top: 4px; text-align: center; }
+        [data-fa-mount] .x-pitem-frame a.x-pitem-cover { position: absolute; inset: 0;
+                        z-index: 2; font-size: 0; }
+        [data-fa-mount] .x-pitem-duration { position: absolute; right: 6px; bottom: 6px;
+                       background: rgba(0,0,0,.8); color: #fff; font-size: 11px; font-weight: 700;
+                       padding: 1px 5px; border-radius: 4px; }
+        [data-fa-mount] .x-pitem-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        [data-fa-mount] .x-pitem-title { display: -webkit-box; -webkit-line-clamp: 2;
+                        -webkit-box-orient: vertical; overflow: hidden; font-size: 14px;
+                        font-weight: 700; line-height: 1.3; color: var(--fa-fg); text-decoration: none; }
+        [data-fa-mount] .x-pitem-title:hover { text-decoration: underline; }
+        [data-fa-mount] .x-pitem-channel { color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-pitem .x-progress { gap: 0; margin-top: 2px; }
+        [data-fa-mount] .x-pitem .x-progress-track { height: 3px; }
+    component Playlist(title: text, count: int):
+        box class "x-playlist":
+            row class "x-playlist-head":
+                text "{title}" class "x-playlist-title"
+                text "{count} videos" class "x-playlist-count"
+            slot
+    component PlaylistItem(id: int, index: int, title: text, thumb: text, duration: text, channel: text, watched: int, total: int):
+        row class "x-pitem":
+            text "{index}" class "x-pitem-n"
+            box class "x-pitem-frame x-aspect x-aspect-16x9":
+                image "{thumb}" alt "{title}"
+                if duration != "":
+                    badge "{duration}" class "x-pitem-duration"
+                link "Watch" -> "/watch/{id}" class "x-pitem-cover"
+            box class "x-pitem-body":
+                link "{title}" -> "/watch/{id}" class "x-pitem-title"
+                text "{channel}" class "x-pitem-channel"
+                use ProgressBar("", watched, total)

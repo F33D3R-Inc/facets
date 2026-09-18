@@ -1,0 +1,59 @@
+# EmotePicker — the emoji/sticker grid a chat composer or a post composer
+# opens in a `ui/Sheet`: tap one, it lands in whichever draft is open. Built
+# on the exact `toggle` + `overlay bind` pair every dialog in this library
+# opens with (see `ui/Sheet`'s own note), plus one fixed action —
+# `insertEmote(token)` — that every picker on a page calls.
+#
+#     state chatDraft: text = "" @client
+#     state emotesOpen: bool = false @client
+#
+#     use ToggleButtonQuiet("🙂", emotesOpen)
+#     use EmotePicker(emotesOpen)
+#
+# The host's `insertEmote(token: text)` appends the token to whichever draft
+# cell is open — `chatDraft = chatDraft + token`, a plain client-only
+# assignment action, the same shape `openComposer`/`closeTip` already are in
+# every app that uses `ui/Sheet` or `ui/Modal`. It is a fixed name rather than
+# a parameter for the reason `social/Poll`'s `vote(option)` and
+# `live/TipSheet`'s `tip(...)` already are: a component argument cannot carry
+# a `@client` cell's assignment target and stay reusable across every
+# composer a page opens, so the ONE cell that is "currently focused" is a
+# fact the host already tracks — there is one draft per composer, and only
+# one composer is open at a time — and the fixed action is where that fact is
+# read.
+#
+# ── WHY THE GRID IS FIXED HERE AND NOT A `for` OVER AN `Emote` ROW ───────────
+#
+# A sticker keyboard backed by a real catalogue (custom sub emotes, purchased
+# stickers) is a genuine `for` over the host's own table — `EmotePickerRow`
+# is exported for exactly that case, taking one glyph and nothing else, so a
+# host with its own table composes `for e in Emote … use EmotePickerRow(e.glyph)`
+# beside (or instead of) the default grid below. The grid itself is the
+# standard keyboard-native set every picker wants on day one, so a host that
+# has not built a custom emote table yet still ships a working picker.
+import "../ui/sheet.fct"
+app FacetLive:
+    css:
+        [data-fa-mount] .x-emotes { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+                    gap: 4px; padding: 8px 4px; }
+        [data-fa-mount] .x-emote-btn { font-size: 26px; line-height: 1; padding: 8px;
+                       border: none; background: none; border-radius: 10px; cursor: pointer; }
+        [data-fa-mount] .x-emote-btn:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+    component EmotePicker(open: cell bool):
+        use Sheet("", open):
+            box class "x-emotes":
+                button "😀" -> insertEmote("😀") class "x-emote-btn"
+                button "😂" -> insertEmote("😂") class "x-emote-btn"
+                button "😍" -> insertEmote("😍") class "x-emote-btn"
+                button "😮" -> insertEmote("😮") class "x-emote-btn"
+                button "😢" -> insertEmote("😢") class "x-emote-btn"
+                button "😡" -> insertEmote("😡") class "x-emote-btn"
+                button "👍" -> insertEmote("👍") class "x-emote-btn"
+                button "👏" -> insertEmote("👏") class "x-emote-btn"
+                button "🔥" -> insertEmote("🔥") class "x-emote-btn"
+                button "🎉" -> insertEmote("🎉") class "x-emote-btn"
+                button "🙌" -> insertEmote("🙌") class "x-emote-btn"
+                button "💯" -> insertEmote("💯") class "x-emote-btn"
+            use SheetClose("Done", open)
+    component EmotePickerRow(glyph: text):
+        button "{glyph}" -> insertEmote(glyph) class "x-emote-btn"

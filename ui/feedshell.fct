@@ -1,0 +1,48 @@
+# FeedShell — the full-screen one-post-at-a-time vertical pager: TikTok, Shorts,
+# Reels. One scrolling column, snapped so a swipe (or a wheel notch, or a Page
+# Down) always lands on exactly one child filling the viewport, never half of
+# two.
+#
+#     use FeedShell():
+#         for v in Video by created desc limit 30:
+#             use ShortsCard(v.id, v.src, v.thumb, v.channel, v.caption, v.likes, v.comments)
+#
+# ── WHY THIS IS CSS AND NOTHING ELSE ──────────────────────────────────────────
+#
+# `scroll-snap-type` and `scroll-snap-align` are the browser's own answer to
+# "stop exactly here" — no pointer events, no drag threshold, nothing this
+# language would have to express as a gesture. `FeedShell` sets the first; each
+# CHILD needs the second, and every child arrives through a `use` (its own
+# wrapper element, the note every layout facet in this library repeats), so the
+# rule below targets `.fa-use` directly rather than asking a second component to
+# wrap each card — the same `.fa-use`-targeting technique `ui/theatershell.fct`
+# uses for its own two children, except every child here gets it, not just one.
+#
+# ── EACH CHILD IS SIZED HERE, NOT BY THE CARD INSIDE IT ───────────────────────
+#
+# `ui/theatershell.fct` draws that same line between a shell and what it holds:
+# the shell states the arrangement (a column, a grid, a snap point), the thing
+# inside states its own content. `media/ShortsCard` fills `height: 100%` of
+# whatever it is put in and has no opinion about the viewport — it is this file
+# that says "that box is 100vh", so a `ShortsCard` composed inside `ui/Modal`
+# someday is not stuck assuming a full screen it was never given.
+#
+# ── NO AUTOPLAY-ON-SNAP, AND THIS FILE CANNOT ADD ONE ─────────────────────────
+# A card scrolled INTO view starting to play (and the one scrolled OUT pausing)
+# is an intersection observer wiring a `video` element's `play()`/`pause()` to a
+# scroll event — there is no such wiring in this language, whose only channel to
+# a client element is `bind`/`toggle` on a state cell. Every `video` here plays
+# the way `live/LivePlayer`'s already does: `autoplay loop muted` from the
+# moment it mounts, which is the right default for a snap-scrolled feed since a
+# card that has scrolled into place is, in practice, the one the reader is on.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-feedshell { height: 100vh; overflow-y: scroll;
+                        scroll-snap-type: y mandatory; scroll-behavior: smooth;
+                        -webkit-overflow-scrolling: touch;
+                        border: none; background: rgb(0,0,0); padding: 0; gap: 0; }
+        [data-fa-mount] .x-feedshell > .fa-use { display: block; height: 100vh;
+                        scroll-snap-align: start; scroll-snap-stop: always; }
+    component FeedShell():
+        box class "x-feedshell":
+            slot

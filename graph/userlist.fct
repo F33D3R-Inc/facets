@@ -1,0 +1,66 @@
+# UserList — a curated list of people (X's "Lists", a WeChat contact group): a
+# tile in a grid of a reader's own lists, and the list's own page with its
+# members, each an identity row with an Add/Remove control keyed to THIS list.
+#
+#     use ListCard(l.id, l.name, l.description, count(m in ListMember where m.list == l.id))
+#
+#     use UserList(l.name, l.description):
+#         for m in ListMember where m.list == l.id by id asc limit 200:
+#             use UserListRow(l.id, m.handle, true)
+#
+# ── THE LIST ID TRAVELS WITH THE ROW, NOT WITH THE COMPONENT ────────────────
+#
+# A reader can be on, or own, several lists at once, so "Add" and "Remove"
+# cannot be fixed zero-argument actions the way `social/FollowButton`'s
+# follow/unfollow are — the list a row belongs to is part of the call, the
+# same reason `social/Poll`'s vote takes the option's own id rather than
+# being one button per poll. `addToList(list, handle)` /
+# `removeFromList(list, handle)` are the fixed two-argument names every list
+# page in an app built on this library calls.
+#
+# ── THIS DOES NOT SHARE `graph/ContactCard`'S CLASSES ────────────────────────
+#
+# The two look alike — an avatar, a name, one action on the right — but a row
+# only carries the styling of a file an app actually imports, and a host that
+# imports this file for its Lists page without also importing ContactCard for
+# a Contacts page would otherwise get an unstyled row. Each file states its
+# own look, the same independence `notify/NotificationItem` keeps from
+# `social/PostCard` for an identical-looking grid.
+import "../ui/avatar.fct"
+app FacetGraph:
+    css:
+        [data-fa-mount] .x-listcard { display: flex; flex-direction: column; gap: 4px;
+                      padding: 16px; border: 1px solid var(--x-line, #2f3336);
+                      border-radius: var(--fa-radius, 16px); }
+        [data-fa-mount] a.x-listcard-name { color: var(--fa-fg); font-size: 16px; font-weight: 800;
+                          text-decoration: none; }
+        [data-fa-mount] a.x-listcard-name:hover { text-decoration: underline; }
+        [data-fa-mount] .x-userlist-head { padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-userlist-name { font-size: 19px; font-weight: 800; }
+        [data-fa-mount] .x-userlist-desc { color: var(--fa-muted); font-size: 14px; margin-top: 2px; }
+        [data-fa-mount] .x-userlist-row { display: flex; align-items: center; gap: 12px;
+                       padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-userlist-body { flex: 1; min-width: 0; }
+    component ListCard(id: int, name: text, description: text, memberCount: int):
+        box class "x-listcard":
+            link "{name}" -> "/list/{id}" class "x-listcard-name"
+            if description != "":
+                text "{description}" class "x-muted x-small"
+            text "{compact(memberCount)} members" class "x-muted x-small"
+    component UserList(name: text, description: text):
+        box class "x-userlist":
+            box class "x-userlist-head":
+                text "{name}" class "x-userlist-name"
+                if description != "":
+                    text "{description}" class "x-userlist-desc"
+            slot
+    component UserListRow(list: int, handle: text, member: bool):
+        row class "x-userlist-row":
+            use Avatar(handle)
+            box class "x-userlist-body":
+                text "{handle}" class "x-strong"
+                text "@{handle}" class "x-muted x-small"
+            if member:
+                button "Remove" -> removeFromList(list, handle) class "x-pill"
+            if !member:
+                button "Add" -> addToList(list, handle) class "x-pill x-primary"

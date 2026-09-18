@@ -1,0 +1,54 @@
+# NotificationsPage — the header (title, unread count, clear-all) around the
+# list of `NotificationItem` rows, so a notifications tab is one `use` instead
+# of the header row every app built on this library was rebuilding by hand
+# (see `home.fct`'s own inline version, written before this file existed).
+#
+#     use NotificationsPage(count(n in Notification where n.user == actor && !n.read), clearNotifications):
+#         if !exists(n in Notification where n.user == actor):
+#             use NotificationsEmpty()
+#         for n in Notification where n.user == actor by created desc limit 50:
+#             use NotificationRow(n.id, n.who, n.verb, n.subject, !n.read)
+#
+# `clear` is the host's fixed clear-all action, called with no arguments —
+# `forms/Form`'s own note on `ActionButton` is why that is safe here and would
+# not be for a per-row action: the button carries none of the list's own
+# data, so an action reference with zero parameters is exactly what it needs.
+#
+# ── `NotificationRow` IS THE ONE PLACE `markRead(id)` IS HARDCODED ───────────
+#
+# The same fixed-action convention `social/Poll`'s `vote(option)` and
+# `graph/FriendRequestRow`'s `accept(id)`/`decline(id)` already use: marking
+# ONE notification needs that notification's own id as an argument, which an
+# `action` reference cannot carry, so the id is a real parameter and the
+# action name is fixed across every notifications page in an app built on
+# this library.
+import "../ui/emptystate.fct"
+import "unreadbadge.fct"
+import "notificationitem.fct"
+app FacetNotify:
+    css:
+        [data-fa-mount] .x-notifpage { display: flex; flex-direction: column; gap: 0;
+                        border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-notifpage-head { display: flex; align-items: center; gap: 10px;
+                        padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-notifpage-title { font-size: 19px; font-weight: 800; flex: 1; }
+        [data-fa-mount] .x-notifpage-row { display: flex; align-items: center; gap: 4px; }
+        [data-fa-mount] .x-notifpage-row .x-notif { flex: 1; }
+        [data-fa-mount] .x-notifpage-mark { border: none; background: none; color: var(--fa-accent);
+                        font-weight: 700; font-size: 13px; padding: 8px 10px; cursor: pointer;
+                        white-space: nowrap; }
+        [data-fa-mount] .x-notifpage-mark:hover { text-decoration: underline; }
+    component NotificationsPage(unread: int, clear: action):
+        box class "x-notifpage":
+            row class "x-notifpage-head":
+                text "Notifications" class "x-notifpage-title"
+                use UnreadBadge(unread)
+                button "Clear all" -> clear class "x-pill"
+            slot
+    component NotificationRow(id: int, who: text, verb: text, subject: text, unread: bool):
+        row class "x-notifpage-row":
+            use NotificationItem(who, verb, subject, unread)
+            if unread:
+                button "Mark read" -> markRead(id) class "x-notifpage-mark"
+    component NotificationsEmpty():
+        use EmptyState("Nothing yet", "Likes, replies and follows will show up here.")

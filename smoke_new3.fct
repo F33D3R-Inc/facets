@@ -1,0 +1,173 @@
+# Smoke (new atoms, round 3) — imports and exercises the eight components
+# added to close a third round of gaps in CATALOG.md: Leaderboard, Paywall,
+# EmotePicker, NotificationsPage, BookmarksList, UserList, Community and
+# VideoPage. `facet check smoke_new3.fct` compiling clean is the proof each
+# one runs through the real compiler, the same role `smoke_new.fct` and
+# `smoke_new2.fct` play for their own rounds.
+import "live/leaderboard.fct"
+import "live/paywall.fct"
+import "live/emotepicker.fct"
+import "ui/togglebutton.fct"
+import "notify/notificationspage.fct"
+import "social/bookmarkslist.fct"
+import "graph/userlist.fct"
+import "social/community.fct"
+import "media/videopage.fct"
+import "media/videotile.fct"
+
+app FacetsSmokeNew3:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state emotesOpen: bool = false @client
+    state chatDraft: text = "" @client
+    state descExpanded: bool = false @client
+
+    entity LeaderboardEntry:
+        id: int
+        rank: int
+        handle: text
+        cents: int
+    entity Notification:
+        id: int
+        who: text
+        verb: text
+        subject: text
+        read: bool
+    entity Tweet:
+        id: int
+        author: text
+        handle: text
+        verified: bool
+        kind: text
+        body: text
+        media: text
+        created: int
+    entity ListMember:
+        id: int
+        list: int
+        handle: text
+    entity Community:
+        id: int
+        name: text
+        description: text
+        memberCount: int
+    entity Membership:
+        id: int
+        community: int
+        user: text
+    entity Vid:
+        id: int
+        src: text
+        thumb: text
+        title: text
+        channel: text
+        channelVerified: bool
+        channelId: int
+        subscribers: int
+        likes: int
+        dislikes: int
+        description: text
+        durationLabel: text
+        views: int
+        created: int
+
+    action insertEmote(token: text):
+        chatDraft = chatDraft + token
+    action markRead(id: int):
+        set Notification(id).read = true
+    action clearNotifications:
+        remove n in Notification where n.id > 0
+    action unbookmark(id: int):
+        check id > -1 "nothing to remove"
+    action addToList(list: int, handle: text):
+        check handle != "" "no handle"
+    action removeFromList(list: int, handle: text):
+        check handle != "" "no handle"
+    action joinCommunity(id: int):
+        check id > -1 "no community"
+    action leaveCommunity(id: int):
+        check id > -1 "no community"
+    action like(id: int):
+        check id > -1 "nothing to like"
+    action dislike(id: int):
+        check id > -1 "nothing to dislike"
+    action share(id: int):
+        check id > -1 "nothing to share"
+    action bookmark(id: int):
+        check id > -1 "nothing to bookmark"
+    action subscribe(stream: int):
+        check stream > -1 "no channel"
+    action unsubscribe(stream: int):
+        check stream > -1 "no channel"
+
+    view Watch at "/watch/:id":
+        text "Video placeholder for {id}."
+    view CommunityPage at "/community/:id":
+        text "Community placeholder for {id}."
+    view ListPage at "/list/:id":
+        text "List placeholder for {id}."
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 3"
+        box:
+            text "Leaderboard" class "smoke-h2"
+            use Leaderboard("Top tippers this week"):
+                for e in LeaderboardEntry by rank asc limit 10:
+                    use LeaderboardRow(e.rank, e.handle, e.cents, e.handle == actor)
+
+            text "Paywall" class "smoke-h2"
+            use Paywall(true, false, 1)
+            use Paywall(true, true, 1):
+                text "Unlocked content would render here."
+
+            text "EmotePicker" class "smoke-h2"
+            use ToggleButtonQuiet("🙂", emotesOpen)
+            use EmotePicker(emotesOpen)
+            text "{chatDraft}" class "x-muted"
+
+            text "NotificationsPage" class "smoke-h2"
+            use NotificationsPage(count(n in Notification where !n.read), clearNotifications):
+                if !exists(n in Notification where n.id > 0):
+                    use NotificationsEmpty()
+                for n in Notification by id desc limit 50:
+                    use NotificationRow(n.id, n.who, n.verb, n.subject, !n.read)
+
+            text "BookmarksList" class "smoke-h2"
+            use BookmarksList():
+                if !exists(t in Tweet where t.id > 0):
+                    use BookmarksEmpty()
+                for t in Tweet by id asc limit 5:
+                    use BookmarkRow(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, 0, 0, 0)
+
+            text "UserList" class "smoke-h2"
+            use ListCard(1, "Close friends", "People I follow closely.", count(m in ListMember where m.list == 1))
+            use UserList("Close friends", "People I follow closely."):
+                for m in ListMember where m.list == 1 by id asc limit 50:
+                    use UserListRow(1, m.handle, true)
+
+            text "Community" class "smoke-h2"
+            use CommunityGrid():
+                for c in Community by memberCount desc limit 24:
+                    use CommunityCard(c.id, c.name, c.description, c.memberCount, exists(m in Membership where m.community == c.id && m.user == actor))
+
+            text "VideoPage" class "smoke-h2"
+            for v in Vid where v.id == 1 limit 1:
+                use VideoPageShell():
+                    box:
+                        use VideoPlayerFrame(v.src, v.thumb, v.title)
+                        use VideoPageHeader(v.title)
+                        use VideoChannelRow(v.channel, v.channelVerified, v.subscribers, v.channelId, false)
+                        use VideoActions(v.id, v.likes, v.dislikes)
+                        use VideoDescription(v.description, descExpanded)
+                    use UpNext():
+                        for r in Vid where r.id != v.id by created desc limit 20:
+                            use VideoTile(r.id, r.title, r.thumb, r.durationLabel, r.channel, r.views, r.created)

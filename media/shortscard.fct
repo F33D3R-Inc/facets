@@ -1,0 +1,93 @@
+# ShortsCard — one full-bleed vertical video: TikTok, Shorts, Reels. The frame
+# fills whatever it is put in (see `ui/FeedShell`, its usual home — one card per
+# 100vh section), a right-hand action column carries like / comment / share /
+# sound, and the caption and author sit bottom-left over a gradient so white
+# marks stay legible whatever the video underneath is doing.
+#
+#     use FeedShell():
+#         for v in Video by created desc limit 30:
+#             use ShortsCard(v.id, v.src, v.thumb, v.channel, v.caption,
+#                            count(l in Like where l.video == v.id),
+#                            count(c in Comment where c.video == v.id), feedMuted)
+#
+# ── LIKE, COMMENT AND SHARE ARE THE SAME FIXED ACTIONS AS EVERYWHERE ELSE ────
+#
+# `like(id)` is `social/EngagementBar`'s own action, called here on the same
+# name and the same argument shape rather than a new one — a like is a like
+# whether the row it is drawn on is a post or a short. `comment` has no button of
+# its own: it is a `link` to the video's own page, the same "reply opens the
+# post's page instead of a second composer" call `social/EngagementBar`'s own
+# note makes. `share(id)` is new to this file: TikTok's action bar shares a clip
+# rather than reposting it into a timeline, so it is its own fixed name and not
+# `repost`, which this library already spends on the X-shaped action.
+#
+# ── SOUND IS ONE SHARED CELL, NOT ONE PER CARD ────────────────────────────────
+#
+# A per-video mute flag would need one `@client bool` cell per row, and a `for`
+# loop cannot mint a fresh cell per iteration — the same wall this library hits
+# everywhere a list wants independent per-row client state. It is also the wrong
+# model anyway: every short-form feed that ships this control (TikTok, Reels)
+# treats sound as one standing preference for the whole session, not a per-clip
+# setting nobody would bother re-touching thirty times a minute. So `muted` is
+# ONE cell the host declares once and passes to every card in the feed.
+#
+# ── THE CONTROL IS A LABELLED TOGGLE, NOT A SPEAKER GLYPH ─────────────────────
+#
+# `ui/icon.fct`'s set has no mute/speaker mark yet — CATALOG.md's own icon
+# backlog names `mic-off` among the ones still to draw — so this renders the
+# word "Sound" on a `toggle`, in the same hidden-checkbox-inside-a-label shape
+# `ui/togglebutton.fct` documents, and lets `:has(input:checked)` dim it rather
+# than inventing a glyph out of strokes this file has no authority to add to the
+# shared set. A future `mic-off` mark drops in as a class on this same control
+# without changing what it is bound to.
+import "../ui/avatar.fct"
+app FacetMedia:
+    css:
+        [data-fa-mount] .x-shorts { position: relative; width: 100%; height: 100%;
+                    overflow: hidden; background: rgb(0,0,0); border: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-shorts .fa-video { position: absolute; inset: 0; width: 100%; height: 100%;
+                    object-fit: cover; border-radius: 0; }
+        # The legibility gradient. Under the text and the action column, above
+        # the video, and it must never intercept a tap meant for the controls
+        # sitting on top of it.
+        [data-fa-mount] .x-shorts::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+                    height: 42%; z-index: 1; pointer-events: none;
+                    background: linear-gradient(to top, rgba(0,0,0,.7), transparent); }
+        [data-fa-mount] .x-shorts-actions { position: absolute; right: 10px; bottom: 96px; z-index: 3;
+                    display: flex; flex-direction: column; align-items: center; gap: 20px; }
+        [data-fa-mount] .x-shorts-actions button,
+        [data-fa-mount] .x-shorts-actions a.fa-link { display: flex; flex-direction: column;
+                    align-items: center; gap: 3px; border: none; background: none; padding: 0;
+                    color: #fff; font-size: 12px; font-weight: 700; text-decoration: none; }
+        [data-fa-mount] .x-shorts-actions [class*="x-glyph-"]::before { width: 30px; height: 30px;
+                    margin-right: 0; }
+        [data-fa-mount] .x-shorts-like:hover { color: rgb(249,24,128); }
+        [data-fa-mount] .x-shorts-sound { border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-shorts-sound .fa-toggle { display: flex; flex-direction: column;
+                    align-items: center; gap: 3px; color: #fff; font-size: 12px; font-weight: 700;
+                    cursor: pointer; }
+        [data-fa-mount] .x-shorts-sound .fa-toggle input { position: absolute; width: 1px; height: 1px;
+                    opacity: 0; margin: 0; }
+        [data-fa-mount] .x-shorts-sound .fa-toggle:has(input:checked) { opacity: .55; }
+        [data-fa-mount] .x-shorts-body { position: absolute; left: 12px; right: 76px; bottom: 22px;
+                    z-index: 2; color: #fff; }
+        [data-fa-mount] .x-shorts-author { display: flex; align-items: center; gap: 8px;
+                    font-weight: 700; font-size: 15px; }
+        [data-fa-mount] .x-shorts-author .fa-image { width: 32px; height: 32px; }
+        [data-fa-mount] .x-shorts-caption { display: block; margin-top: 6px; font-size: 14px;
+                    line-height: 1.35; overflow-wrap: anywhere; }
+    component ShortsCard(id: int, src: text, poster: text, author: text, caption: text, likes: int, comments: int, muted: cell bool):
+        box class "x-shorts":
+            video "{src}" poster "{poster}" alt "{caption}" autoplay loop muted
+            box class "x-shorts-actions":
+                button "{compact(likes)}" -> like(id) class "x-shorts-like x-glyph-heart"
+                link "{compact(comments)}" -> "/post/{id}" class "x-glyph-chat"
+                button "" -> share(id) class "x-glyph-share"
+                box class "x-shorts-sound":
+                    toggle bind muted label "Sound"
+            box class "x-shorts-body":
+                row class "x-shorts-author":
+                    use Avatar(author)
+                    text "@{author}"
+                if caption != "":
+                    text "{caption}" class "x-shorts-caption"

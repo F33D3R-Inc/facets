@@ -1,0 +1,60 @@
+# ViewerList — who is watching, with roles: the same role-glyph technique
+# `live/ChatMessage` already draws (broadcaster · mod · sub), on a plain list of
+# names instead of a line of chat. The panel a "Viewers" tab in `TheaterShell`'s
+# chat column opens beside the message list.
+#
+#     use ViewerList():
+#         use ViewerListHeader(s.viewers)
+#         for v in Viewer where v.stream == s.id by role asc limit 200:
+#             use ViewerRow(v.handle, v.role)
+#
+# ── THE LIBRARY HAS NO `Viewer` ENTITY, AND THAT IS FINE ─────────────────────
+#
+# The same shape `live/ChatMessage` is already built on: `ChatMessage(m: Chat, …)`
+# takes the host's row type by name and reads `m.role` off it, so this file does
+# the same with `handle`/`role` passed as plain values rather than a whole row —
+# a viewer list is drawn from whatever the host calls its presence table (a
+# `Viewer` row added on join and removed on leave, a `Session` table, a Redis set
+# projected into a `for`), and the two facts every one of those shapes can supply
+# are a handle and a role.
+#
+# ── THE ROW ORDER, NOT THIS FILE, PUTS BROADCASTER AND MODS FIRST ────────────
+#
+# `role asc` in the example sorts "broadcaster" ahead of "mod" ahead of "sub"
+# ahead of "viewer" only because those four words happen to sort that way — a
+# host whose role names do not alphabetize into the order it wants orders the
+# query by whatever column does, the same way `live/BrowseGrid` orders by
+# `viewers desc` rather than asking the component to re-sort what it was handed.
+import "../ui/icon.fct"
+app FacetLive:
+    css:
+        [data-fa-mount] .x-viewerlist { display: flex; flex-direction: column; gap: 0;
+                        border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-viewerlist-head { display: flex; align-items: center; gap: 6px;
+                            padding: 8px 4px 10px; font-size: 13px; font-weight: 800;
+                            color: var(--fa-muted); }
+        [data-fa-mount] .x-viewerlist-head .fa-icon { width: 15px; height: 15px; }
+        [data-fa-mount] .x-viewer-row { display: flex; align-items: center; gap: 8px;
+                       padding: 6px 4px; border: none; background: none; }
+        [data-fa-mount] .x-viewer-row .x-role { width: 15px; height: 15px; color: var(--fa-accent);
+                        flex: none; }
+        [data-fa-mount] .x-viewer-name { font-size: 14px; font-weight: 600; }
+        [data-fa-mount] .x-viewer-broadcaster .x-viewer-name { color: var(--fa-accent); }
+        [data-fa-mount] .x-viewer-mod .x-viewer-name { color: rgb(0,186,124); }
+        [data-fa-mount] .x-viewer-sub .x-viewer-name { color: rgb(145,71,255); }
+    component ViewerList():
+        box class "x-viewerlist":
+            slot
+    component ViewerListHeader(count: int):
+        row class "x-viewerlist-head":
+            icon "users"
+            text "{compact(count)} watching"
+    component ViewerRow(handle: text, role: text):
+        row class "x-viewer-row x-viewer-{role}":
+            if role == "broadcaster":
+                icon "mic" class "x-role"
+            if role == "mod":
+                icon "bolt" class "x-role"
+            if role == "sub":
+                icon "heart" class "x-role"
+            text "{handle}" class "x-viewer-name"

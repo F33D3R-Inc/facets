@@ -1,0 +1,48 @@
+# Community — a topic group (Facebook Groups, Discord servers, a WeChat
+# group's own moments): a card in a directory grid, and the join/leave
+# control that is the one thing every one of those needs and none of them
+# differ on.
+#
+#     use CommunityGrid():
+#         for c in Community by memberCount desc limit 24:
+#             use CommunityCard(c.id, c.name, c.description, c.memberCount, exists(m in Membership where m.community == c.id && m.user == actor))
+#
+# `joinCommunity(id)` / `leaveCommunity(id)` are fixed, the same shape
+# `live/SubscribeButton` already uses for exactly one action per direction —
+# a community is joined or left, never partially, so there is nothing for a
+# parameter to carry that the id does not already say.
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-community-grid { display: grid; gap: 12px;
+                        grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+                        border: none; background: none; padding: 0; }
+        # Every tile arrives through a `use`; flattening the wrapper is what
+        # makes tiles line up as a grid instead of a column of wrappers, the
+        # same rule `ui/gallery.fct` and `marketing/pricing.fct` both state.
+        [data-fa-mount] .x-community-grid > .fa-use { display: contents; }
+        [data-fa-mount] .x-community-card { display: flex; flex-direction: column; gap: 8px;
+                      height: 100%; box-sizing: border-box; padding: 16px;
+                      border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px); }
+        [data-fa-mount] a.x-community-name { color: var(--fa-fg); font-size: 16px; font-weight: 800;
+                          text-decoration: none; }
+        [data-fa-mount] a.x-community-name:hover { text-decoration: underline; }
+        [data-fa-mount] .x-community-desc { color: var(--fa-muted); font-size: 14px; line-height: 1.4;
+                       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                       overflow: hidden; }
+        [data-fa-mount] .x-community-foot { display: flex; align-items: center;
+                       justify-content: space-between; margin-top: auto; padding-top: 4px; }
+        [data-fa-mount] .x-community-card > div:empty:not([class]) { display: none; }
+    component CommunityGrid():
+        box class "x-community-grid":
+            slot
+    component CommunityCard(id: int, name: text, description: text, memberCount: int, joined: bool):
+        box class "x-community-card":
+            link "{name}" -> "/community/{id}" class "x-community-name"
+            if description != "":
+                text "{description}" class "x-community-desc"
+            row class "x-community-foot":
+                text "{compact(memberCount)} members" class "x-muted x-small"
+                if joined:
+                    button "Joined" -> leaveCommunity(id) class "x-pill"
+                if !joined:
+                    button "Join" -> joinCommunity(id) class "x-pill x-primary"

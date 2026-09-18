@@ -1,0 +1,123 @@
+# VideoPage — the YouTube shape: a player, a title, a channel row with
+# Subscribe, a like/dislike/share/save bar, a description that folds, and an
+# Up-next rail beside it. CATALOG.md already had every one of these as an
+# atom — `ui/AspectBox` for the frame, `live/SubscribeButton` for the
+# channel action, `media/VideoTile` for a rail row, `content/CommentList` for
+# the conversation underneath — so this file is the arrangement, not new
+# primitives.
+#
+#     use VideoPageShell():
+#         box:
+#             use VideoPlayerFrame(v.src, v.thumb, v.title)
+#             use VideoPageHeader(v.title)
+#             use VideoChannelRow(v.channel, v.channelVerified, v.subscribers, v.channelId, subscribed)
+#             use VideoActions(v.id, v.likes, v.dislikes)
+#             use VideoDescription(v.description, descExpanded)
+#             use CommentList():
+#                 for c in Comment where c.video == v.id by created desc limit 100:
+#                     use CommentRow(c.author, "/profile/" + c.author, c.created):
+#                         use CommentBody(c.body)
+#         use UpNext():
+#             for r in Video where r.id != v.id by created desc limit 20:
+#                 use VideoTile(r.id, r.title, r.thumb, r.durationLabel, r.channel, r.views, r.created)
+#
+# ── EXACTLY TWO CHILDREN, THE SAME CONTRACT `ui/TheaterShell` STATES ─────────
+#
+# A `slot` is one hole, not two typed sockets: the first child is the page
+# (whatever the caller puts in it — player, meta, comments), the second is
+# the Up-next rail, and the CSS grid hands each the column its position says,
+# exactly the way `ui/TheaterShell` splits a stage from a chat column. Two
+# unenforced children, not zero — `layout/split.fct` explains why that trade
+# is still right for a plain app rather than a checked `wireframe`.
+#
+# ── THE ACTION BAR HAS NO DISLIKE GLYPH, AND THAT IS A REAL GAP ──────────────
+#
+# `ui/icon.fct`'s fifty-four marks have a heart, a share glyph and a bookmark
+# for Like/Share/Save, but no thumbs-down — CATALOG.md's own icon backlog
+# does not list one either. `VideoActions` renders Dislike as a plain
+# labelled button rather than inventing a mismatched mark for it; a future
+# `thumb-down` glyph drops onto the same button as a class, the way
+# `media/ShortsCard`'s note says a future `mic-off` will.
+#
+# ── THE DESCRIPTION FOLD IS TWO `if` ARMS, NOT A CSS TRICK ───────────────────
+#
+# The same shape `social/Poll`'s voted/unvoted split and `live/AgeGate`'s
+# gated/ungated split already use: `expanded` is a `@client bool` cell only a
+# bound `toggle` can write, so the component renders the clamped body OR the
+# full body depending on its value, and the one `toggle` beneath both is the
+# only thing that ever changes it.
+import "../ui/aspectbox.fct"
+import "../ui/avatar.fct"
+import "../ui/verifiedbadge.fct"
+import "../ui/icon.fct"
+import "../live/subscribebutton.fct"
+app FacetMedia:
+    css:
+        [data-fa-mount] .x-vp { display: grid; grid-template-columns: minmax(0,1fr) 360px;
+                align-items: start; gap: 24px; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-vp > .fa-use:first-child { min-width: 0; display: flex;
+                flex-direction: column; gap: 12px; }
+        [data-fa-mount] .x-vp > .fa-use:last-child { min-width: 0; }
+        @media (max-width: 960px) {
+            [data-fa-mount] .x-vp { grid-template-columns: minmax(0,1fr); }
+        }
+        [data-fa-mount] .x-vp-frame { border-radius: var(--fa-radius, 16px); overflow: hidden;
+                       background: rgb(0,0,0); }
+        [data-fa-mount] .x-vp-title { font-size: 20px; font-weight: 800; line-height: 1.3;
+                       overflow-wrap: anywhere; }
+        [data-fa-mount] .x-vp-channel { display: flex; align-items: center; gap: 10px; }
+        [data-fa-mount] .x-vp-channel-body { flex: 1; min-width: 0; display: flex;
+                       flex-direction: column; gap: 2px; }
+        [data-fa-mount] .x-vp-channel-name { display: flex; align-items: center; gap: 4px;
+                       font-weight: 700; font-size: 15px; }
+        [data-fa-mount] .x-vp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        [data-fa-mount] .x-vp-actbtn { border: 1px solid var(--x-line, #2f3336); border-radius: 9999px;
+                       background: none; color: var(--fa-fg); font-weight: 700; font-size: 14px;
+                       padding: 9px 16px; cursor: pointer; }
+        [data-fa-mount] .x-vp-actbtn:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-vp-desc { padding: 12px; border-radius: var(--fa-radius, 16px);
+                       background: var(--x-hover, rgba(239,243,244,.04)); display: flex;
+                       flex-direction: column; gap: 6px; align-items: flex-start; }
+        [data-fa-mount] .x-vp-desc-body { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+        [data-fa-mount] .x-vp-desc-clamped { display: -webkit-box; -webkit-line-clamp: 3;
+                       -webkit-box-orient: vertical; overflow: hidden; }
+        [data-fa-mount] .x-vp-desc .fa-toggle { font-size: 13px; font-weight: 700;
+                       color: var(--fa-fg); cursor: pointer; }
+        [data-fa-mount] .x-vp-desc .fa-toggle input { position: absolute; width: 1px; height: 1px;
+                       opacity: 0; margin: 0; }
+        [data-fa-mount] .x-upnext { display: flex; flex-direction: column; gap: 12px; }
+        [data-fa-mount] .x-upnext-title { font-size: 16px; font-weight: 800; }
+    component VideoPageShell():
+        box class "x-vp":
+            slot
+    component VideoPlayerFrame(src: text, poster: text, title: text):
+        box class "x-vp-frame x-aspect x-aspect-16x9":
+            video "{src}" poster "{poster}" alt "{title}"
+    component VideoPageHeader(title: text):
+        text "{title}" class "x-vp-title"
+    component VideoChannelRow(channel: text, verified: bool, subscribers: int, channelId: int, subscribed: bool):
+        row class "x-vp-channel":
+            use Avatar(channel)
+            box class "x-vp-channel-body":
+                row class "x-vp-channel-name":
+                    text "{channel}"
+                    use VerifiedBadge(verified)
+                text "{compact(subscribers)} subscribers" class "x-muted x-small"
+            use SubscribeButton(channelId, subscribed)
+    component VideoActions(id: int, likes: int, dislikes: int):
+        row class "x-vp-actions":
+            button "{compact(likes)}" -> like(id) class "x-vp-actbtn x-glyph-heart"
+            button "Dislike" -> dislike(id) class "x-vp-actbtn"
+            button "Share" -> share(id) class "x-vp-actbtn x-glyph-share"
+            button "Save" -> bookmark(id) class "x-vp-actbtn x-glyph-bookmark"
+    component VideoDescription(body: text, expanded: cell bool):
+        box class "x-vp-desc":
+            if !expanded:
+                richtext "{body}" class "x-vp-desc-body x-vp-desc-clamped"
+            if expanded:
+                richtext "{body}" class "x-vp-desc-body"
+            toggle bind expanded label "Show more"
+    component UpNext():
+        box class "x-upnext":
+            text "Up next" class "x-upnext-title"
+            slot
