@@ -1,0 +1,45 @@
+# StatChip — one number and its label, on one line, sized to sit beside two or
+# three others: "1.2M Followers", "348 views", "12.4K members". Extracted from
+# `profile/ProfileHeader`'s own follow-count row, which drew this shape once and
+# hard-coded it, the way this library's stat rows keep starting.
+#
+#     use StatChipRow():
+#         use StatChip(followers, "Followers")
+#         use StatChip(following, "Following")
+#
+# ── WHY THIS IS NOT `data/Stat` ──────────────────────────────────────────────
+#
+# `data/Stat` is a dashboard's own headline figure: big type, its own column, a
+# delta arrow underneath. A chip is not the reason the reader opened the page —
+# it is one fact among several, inline, in a header or a tile, and it is scanned
+# rather than read. Different object, not a smaller size of the same one.
+#
+# ── `compact`, NOT `commas` ───────────────────────────────────────────────────
+#
+# `data/Stat` takes its value as pre-formatted text because a dashboard number
+# wants the exact figure (`commas`, a currency, a duration) and the host is the
+# only place that knows which. A chip wants the OPPOSITE: "240.1M Followers", not
+# "240,133,982 Followers", because a chip is read at a glance and a glance wants
+# the rounded form. So `StatChip` takes the raw `int` and calls `compact` itself,
+# which is also why it is `int` and not `text` — there is nothing for the host to
+# format. `StatChipText` is here for the one case that still needs the host's own
+# words: a stat that already arrived as a string ("Top 1%", a currency amount).
+app FacetUI:
+    css:
+        [data-fa-mount] .x-statchips { display: flex; flex-direction: row; flex-wrap: wrap;
+                       align-items: baseline; gap: 16px; border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-statchip { display: inline-flex; align-items: baseline; gap: 4px;
+                      font-size: 14px; color: var(--fa-muted); border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-statchip-n { color: var(--fa-fg); font-weight: 700;
+                        font-variant-numeric: tabular-nums; }
+    component StatChipRow():
+        row class "x-statchips":
+            slot
+    component StatChip(value: int, label: text):
+        row class "x-statchip":
+            text "{compact(value)}" class "x-statchip-n"
+            text "{label}"
+    component StatChipText(value: text, label: text):
+        row class "x-statchip":
+            text "{value}" class "x-statchip-n"
+            text "{label}"

@@ -1,0 +1,64 @@
+# ThreadView — a post opened on its own, with its replies under it: the shape
+# `home.fct`'s `PostDetail` view already assembles by hand from `FocusedPost`,
+# `PostStats`, `EngagementBar`, `ReplyComposer` and a loop of `ReplyRow`, given a
+# name and the two seams that arrangement actually needs — a boundary around the
+# post-plus-composer and a labelled boundary around the replies under it.
+#
+#     use ThreadView():
+#         use ThreadRoot():
+#             use FocusedPost(t.author, t.handle, t.verified, t.kind, t.body, t.media)
+#             use PostStats(replyCount, repostCount, likeCount)
+#             use EngagementBar(t.id, likeCount, replyCount, repostCount, 0)
+#             use ReplyComposer("Post your reply", replyDraft):
+#                 button "Reply" -> reply(t.id, replyDraft)
+#         use ThreadReplies(replyCount):
+#             for r in Reply where r.tweet == t.id by created desc limit 50:
+#                 use ReplyRow(r.author, r.author, false, r.body):
+#                     if r.author == actor:
+#                         button "Delete" -> removeReply(r.id)
+#
+# ── WHY THIS IS TWO NAMED SLOTS AND NOT ONE ──────────────────────────────────
+#
+# A component has at most one `slot`, so `ThreadView` cannot itself hold both the
+# post and the loop of replies as two independent trees — the same wall
+# `content/comments.fct` and `layout/split.fct` each hit and each solved the same
+# way: a wrapper per region, one slot apiece, composed inside a single outer
+# slot in a fixed order. `ThreadRoot` is the post and everything that acts on
+# THAT post (its stats, its bar, its own reply composer); `ThreadReplies` is the
+# list under it. Nothing in either wrapper is new markup this library did not
+# already have a component for — `ThreadView` contributes the boundary between
+# them and the "N Replies" label, which is the one piece `PostDetail` was writing
+# as a bare `text "Replies" class "x-section"` with no count on it.
+#
+# ── THE REPLY COUNT IS A PARAMETER, NOT A `count(...)` INSIDE THIS FILE ──────
+#
+# This library has no entity named `Reply` — the host's does, with whatever name
+# and whatever fields it chose — so a query over it cannot live here. The caller
+# already computes the count for `PostStats` and `EngagementBar` two lines above;
+# `ThreadReplies` takes the same number rather than asking the host to compute it
+# a third time in three different words.
+import "../ui/icon.fct"
+app FacetSocial:
+    css:
+        [data-fa-mount] .x-thread { display: flex; flex-direction: column;
+                    border: none; background: none; padding: 0; gap: 0; }
+        [data-fa-mount] .x-thread-root { border-bottom: 8px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-thread-replies-label { display: flex; align-items: center; gap: 6px;
+                       padding: 16px 16px 4px; font-size: 15px; font-weight: 800;
+                       color: var(--fa-muted); }
+        [data-fa-mount] .x-thread-replies-label .fa-icon { width: 16px; height: 16px; }
+        # An empty list still renders its own region under the label; the empty
+        # state a caller puts there (`ui/EmptyState`, or nothing) owns its own
+        # spacing, so this file adds none of its own beyond the label above it.
+    component ThreadView():
+        box class "x-thread":
+            slot
+    component ThreadRoot():
+        box class "x-thread-root":
+            slot
+    component ThreadReplies(count: int):
+        box class "x-thread-replies":
+            row class "x-thread-replies-label":
+                icon "chat"
+                text "{commas(count)} Replies"
+            slot

@@ -1,0 +1,34 @@
+# RelativeTime — `ago(ts)` on its own, in a muted span, for the many places a
+# row wants an age without wanting the rest of a byline around it: a
+# notification, an inbox preview, a stat card's "updated 4h ago". `social/
+# PostCard` and `ui/MediaCard` already call `ago()` inline for exactly this; this
+# is that same call, extracted, for a caller that has nothing else to put beside
+# it.
+#
+#     use RelativeTime(n.created)
+#
+# ── `ago` IS A RENDER-TIME BUILTIN, AND THAT COMES WITH A CAVEAT ─────────────
+#
+# It reads the clock at render time, not at the moment the row was written, so
+# the server's first paint and a later client re-render can disagree by however
+# long the page has been open — "4h" can become "5h" under the reader without the
+# underlying row changing. `live/TimeAgo` is the other answer to the same
+# problem: it takes an explicit `asOf` so a host that wants every age on a page
+# measured against one instant, and re-measured only when THAT instant changes,
+# can seed one. This component is for the common case, which is everywhere this
+# library already calls `ago()` directly.
+#
+# ── NO TOOLTIP, AND THIS FILE CANNOT ADD ONE ─────────────────────────────────
+#
+# A full date on hover needs a `title` (or equivalent) attribute on the element,
+# and no node in this language carries one — only the fixed set each node type
+# defines for itself (`alt` on an image, `placeholder` on an input, `poster` on a
+# video). `ui/gallery.fct` records the same gap for `alt`. So this renders the
+# short form only; a host that needs the exact date on hover is waiting on
+# whatever `fct` node eventually carries a generic tooltip attribute, the same
+# way a described image is.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-relago { color: var(--fa-muted); font-size: 13px; white-space: nowrap; }
+    component RelativeTime(at: int):
+        text "{ago(at)}" class "x-relago"

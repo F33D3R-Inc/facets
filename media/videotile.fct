@@ -1,0 +1,62 @@
+# VideoTile — a thumbnail tile in a grid or an "Up next" rail: 16∶9 thumbnail
+# with a duration badge in the corner, then a small avatar, a two-line title, the
+# channel name, and "views · age" underneath. What a YouTube/VOD/playlist tile is
+# made of everywhere, built from atoms this library already ships rather than a
+# new frame of its own — the same `x-aspect` substrate `ui/MediaCard` and
+# `live/StreamCard` are built on, `Avatar` for the channel face, `compact`/`ago`
+# for the meta line.
+#
+#     for v in Video by created desc limit 24 class "x-l-grid3":
+#         use VideoTile(v.id, v.title, v.thumb, v.durationLabel, v.channel, v.views, v.created)
+#
+# ── `duration` ARRIVES AS TEXT, NOT SECONDS ──────────────────────────────────
+#
+# The same reasoning `data/stat.fct` gives for its own value parameter: the
+# language has no formatting builtin that turns 724 into "12:04", so the host is
+# the only place that can do it, and an `int` parameter would force every call
+# site to hand over a raw number this component has no way to render. Pass "" for
+# a video with no known length (a live VOD still recording) and no badge draws.
+#
+# ── THE WHOLE TILE IS THE LINK, THE TITLE IS ALSO ONE ────────────────────────
+#
+# `ui/gallery.fct` settled this shape first and for the same reason: a tile whose
+# picture is not clickable and whose caption is disappoints in the single most
+# common way. The frame carries its own full-cover anchor (`font-size: 0`, so it
+# contributes no visible text of its own) UNDER the visible title link below the
+# frame — two separate `<a>` elements to the same place is not a bug here, it is
+# how a picture and its caption both get to be the click target without nesting
+# one inside the other, which this language's leaf `link` node cannot do anyway.
+import "../ui/aspectbox.fct"
+import "../ui/avatar.fct"
+app FacetMedia:
+    css:
+        [data-fa-mount] .x-vtile { display: flex; flex-direction: column; gap: 8px;
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-vtile-frame a.x-vtile-cover { position: absolute; inset: 0;
+                        z-index: 2; font-size: 0; }
+        [data-fa-mount] .x-vtile-duration { position: absolute; right: 8px; bottom: 8px;
+                       background: rgba(0,0,0,.8); color: #fff; font-size: 12px;
+                       font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+        [data-fa-mount] .x-vtile-body { display: grid; grid-template-columns: 36px minmax(0,1fr);
+                       gap: 10px; align-items: start; }
+        [data-fa-mount] .x-vtile-title { display: -webkit-box; -webkit-line-clamp: 2;
+                        -webkit-box-orient: vertical; overflow: hidden; font-size: 15px;
+                        font-weight: 700; line-height: 1.3; color: var(--fa-fg);
+                        text-decoration: none; }
+        [data-fa-mount] .x-vtile-title:hover { text-decoration: underline; }
+        [data-fa-mount] .x-vtile-channel { display: block; color: var(--fa-muted);
+                        font-size: 13px; margin-top: 4px; }
+        [data-fa-mount] .x-vtile-meta { display: block; color: var(--fa-muted); font-size: 13px; }
+    component VideoTile(id: int, title: text, thumb: text, duration: text, channel: text, views: int, created: int):
+        box class "x-vtile":
+            box class "x-vtile-frame x-aspect x-aspect-16x9":
+                image "{thumb}" alt "{title}"
+                if duration != "":
+                    badge "{duration}" class "x-vtile-duration"
+                link "Watch" -> "/watch/{id}" class "x-vtile-cover"
+            box class "x-vtile-body":
+                use Avatar(channel)
+                box:
+                    link "{title}" -> "/watch/{id}" class "x-vtile-title"
+                    text "{channel}" class "x-vtile-channel"
+                    text "{compact(views)} views · {ago(created)}" class "x-vtile-meta"

@@ -18,19 +18,19 @@ listed at the end. Bold rows are the ones that unblock the most screens.
 | **Look** | the theme + `x-` layout vocabulary every atom uses | ✅ |
 | **Icons** | 30 glyph masks (`icon "heart"`, `class "x-glyph-heart"`) | ✅ (grow to ~60: gift, coin, crown, mic-off, camera, screen, pin-map, shield, flag, translate, poll, emoji, sticker, image, wallet, qr, scan, moments, mini-app) |
 | AppShell (3-col) | rail · main · aside, sticky | ✅ (`wireframes/shell.fct`, on `layout/vocabulary.fct`'s `x-l-app3`) |
-| **TheaterShell** | the live layout: video left, chat right, no rail; collapses to video-over-chat on mobile | ⬜ |
+| **TheaterShell** | the live layout: video left, chat right, no rail; collapses to video-over-chat on mobile | ✅ `ui/theatershell.fct` (proven via `smoke_new.fct`) |
 | **FeedShell (vertical)** | full-screen one-post-at-a-time vertical pager (TikTok / Shorts / Reels) with snap scrolling and an action column | ⬜ |
 | TopBar | sticky blurred header with back + title + sub | ✅ |
-| **BottomNav** | 5-tab mobile bar (Home · Discover · + · Inbox · Me) | ⬜ |
+| **BottomNav** | 5-tab mobile bar (Home · Discover · + · Inbox · Me) | ✅ `ui/bottomnav.fct` (proven via `smoke_new.fct`) |
 | Pill / buttons | primary, light, ghost | ✅ (classes) |
 | SignUpCard · GuestBanner · Login | the signed-out surfaces | ✅ |
 | **Popover / Menu** | anchored menu (the "More" list, a post's "…") | 🟡 Menu ✅ `ui/menu.fct` (a modal sheet, not an anchored dropdown — proven via `smoke.fct`) · Popover ⬜ (`overlay` is centered; needs a `popover` node or an anchored class — see lang) |
-| **Sheet** | bottom sheet (mobile dialogs: share, gift picker, comments) | ⬜ (overlay + class) |
+| **Sheet** | bottom sheet (mobile dialogs: share, gift picker, comments) | ✅ `ui/sheet.fct` (proven via `smoke_new.fct`) |
 | Toast | transient confirmation ("Copied", "Followed") | ✅ `ui/toast.fct` (proven via `smoke.fct`; auto-dismiss still needs a timer — lang) |
 | Skeleton / Empty / Error states | one facet each, used everywhere | ✅ `ui/skeleton.fct` (SkeletonLine/SkeletonPost) · `ui/emptystate.fct` · `ui/errorstate.fct` (all proven via `smoke.fct`) |
 | Tabs · Badge · Avatar · VerifiedBadge · AuthorRow · UserChip | identity atoms | ✅ |
-| **StatChip** | "240.1M Followers" — `compact` number + label | 🟡 (inline in ProfileHeader; extract) |
-| RelativeTime | `ago(ts)` in a muted span with a full-date title | 🟡 (inline; extract) |
+| **StatChip** | "240.1M Followers" — `compact` number + label | ✅ `ui/statchip.fct` (proven via `smoke_new.fct`) |
+| RelativeTime | `ago(ts)` in a muted span with a full-date title | ✅ `ui/relativetime.fct` (no tooltip — no generic `title` attribute in the language yet; proven via `smoke_new.fct`) |
 
 ## 1 · Content (`social/`, `media/`)
 
@@ -38,12 +38,12 @@ listed at the end. Bold rows are the ones that unblock the most screens.
 |---|---|---|
 | PostCard (slot) · QuoteCard · EngagementBar · MediaCard | the post | ✅ |
 | **Composer** | text + attach (image/video) + poll + audience + schedule; shows `pending`/`failed` | 🟡 (`ComposeBox` is text-only; `upload` exists) |
-| **ThreadView** | a post with its replies, nested one level, inline reply composer | ⬜ |
+| **ThreadView** | a post with its replies, nested one level, inline reply composer | ✅ `social/threadview.fct` (proven via `smoke_new.fct`) |
 | **Gallery** | 1–4 images in the X grid; tap → lightbox (`overlay`) | ✅ `ui/gallery.fct` (proven via `smoke.fct`; lightbox composition is a call-site `overlay`) |
 | **VideoPlayer** | `video` + poster + custom controls + mute toggle; autoplay muted in feeds | 🟡 (`MediaCard`; controls are native) |
 | **ShortsCard** | full-bleed vertical video with the right-hand action column (like, comment, share, sound) and bottom caption/author | ⬜ |
 | **VideoPage (YouTube)** | player · title · channel row with Subscribe · like/dislike/share/save bar · description fold · comments · Up-next rail | ⬜ (all atoms exist except Up-next = a `for` of `VideoTile`) |
-| **VideoTile** | thumbnail + duration badge + title + channel + views · time | ⬜ |
+| **VideoTile** | thumbnail + duration badge + title + channel + views · time | ✅ `media/videotile.fct` (proven via `smoke_new.fct`) |
 | **Playlist / Series** | ordered list of VideoTiles with progress | ⬜ |
 | **LinkPreview** | og-card for a URL in a post | ⬜ (needs a service `call` to unfurl — lang: service exists) |
 | **Poll** | options with vote bars, one vote per actor (`exists`) | ⬜ |
@@ -110,7 +110,7 @@ listed at the end. Bold rows are the ones that unblock the most screens.
 |---|---|---|
 | Login / SignUpCard | | ✅ |
 | **SocialLogin buttons** | Google / Apple | 🟡 (one OIDC provider — lang for a second) |
-| **SettingsPage** | sections list + toggles (`toggle` node) | ⬜ |
+| **SettingsPage** | sections list + toggles (`toggle` node) | ✅ `profile/settingspage.fct` (proven via `smoke_new.fct`) |
 | **ProfileEdit** | avatar/banner `upload`, bio, links | ⬜ |
 | **Checkout / Pricing** | plans grid, PayButton | ⬜ (billing exists) |
 | **AdminTable** | auto-admin already exists in the runtime | ✅ |

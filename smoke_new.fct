@@ -1,0 +1,233 @@
+# Smoke (new atoms) — imports and exercises the eight components added to close
+# gaps in CATALOG.md: BottomNav, Sheet, StatChip, RelativeTime, TheaterShell,
+# ThreadView, SettingsPage and VideoTile. `facet check smoke_new.fct` compiling
+# clean is the proof each one runs through the real compiler, the same role
+# `smoke.fct` plays for the eight categories it covers.
+import "ui/bottomnav.fct"
+import "ui/sheet.fct"
+import "ui/statchip.fct"
+import "ui/relativetime.fct"
+import "ui/theatershell.fct"
+import "ui/togglebutton.fct"
+import "social/threadview.fct"
+import "social/postcard.fct"
+import "social/poststats.fct"
+import "social/engagementbar.fct"
+import "social/replycomposer.fct"
+import "social/replyrow.fct"
+import "social/focusedpost.fct"
+import "profile/settingspage.fct"
+import "forms/checkfield.fct"
+import "media/videotile.fct"
+import "live/liveplayer.fct"
+import "live/streaminfo.fct"
+import "live/chatpanel.fct"
+import "live/goalbar.fct"
+import "live/subscribebutton.fct"
+import "live/tipsheet.fct"
+import "social/followbutton.fct"
+
+app FacetsSmokeNew:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state composeOpen: bool = false @client
+    state shareOpen: bool = false @client
+    state pushEnabled: bool = true @client
+    state emailDigest: bool = false @client
+    state publicProfile: bool = true @client
+    state replyDraft: text = "" @client
+    state chatDraft: text = "" @client
+    state tipOpen: bool = false @client
+    state tipNote: text = "" @client
+
+    entity Video:
+        id: int
+        title: text
+        thumb: text
+        durationLabel: text
+        channel: text
+        views: int
+        created: int
+    entity Tweet:
+        id: int
+        author: text
+        handle: text
+        verified: bool
+        kind: text
+        body: text
+        media: text
+        created: int
+    entity Reply:
+        id: int
+        tweet: Tweet
+        author: text
+        body: text
+        created: int
+    entity Stream:
+        id: int
+        owner: text
+        verified: bool
+        title: text
+        category: text
+        tags: text
+        hls: text
+        thumb: text
+        live: bool
+        viewers: int
+        startedAt: int
+        pinned: text
+        goalLabel: text
+        goalTarget: money
+    entity Chat:
+        id: int
+        stream: Stream
+        author: text
+        role: text
+        body: text
+        sent: int
+
+    action openComposer:
+        composeOpen = true
+    action closeComposer:
+        composeOpen = false
+    action openShare:
+        shareOpen = true
+    action closeShare:
+        shareOpen = false
+    action copyLink(id: int):
+        check id > -1 "nothing to copy"
+    action reply(id: int, body: text):
+        check body != "" "say something"
+        add Reply { tweet: id, author: actor, body: body, created: now() }
+    action removeReply(id: int):
+        remove Reply(id)
+    action clearDrafts:
+        replyDraft = ""
+        chatDraft = ""
+    action say(stream: int, body: text):
+        check body != "" "say something"
+        add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now() }
+    action deleteChat(id: int):
+        remove Chat(id)
+    action ban(stream: int, user: text):
+        check user != "" "no user"
+    action tip(stream: int, cents: money, note: text):
+        check cents > 0 "pick an amount"
+    action openTip:
+        tipOpen = true
+    action closeTip:
+        tipOpen = false
+    action subscribe(stream: int):
+        check stream > -1 "no channel"
+    action unsubscribe(stream: int):
+        check stream > -1 "no channel"
+    action follow(handle: text):
+        check handle != "" "no handle"
+    action unfollow(handle: text):
+        check handle != "" "no handle"
+    action like(id: int):
+        check id > -1 "nothing to like"
+    action repost(id: int):
+        check id > -1 "nothing to repost"
+    action bookmark(id: int):
+        check id > -1 "nothing to bookmark"
+
+    view Watch at "/watch/:id":
+        text "Video placeholder for {id}."
+    view Discover at "/discover":
+        text "Discover placeholder."
+    view Inbox at "/inbox":
+        text "Inbox placeholder."
+    view Profile at "/profile/:handle":
+        text "Profile placeholder for {handle}."
+    view PostDetail at "/post/:id":
+        text "Post placeholder for {id}."
+    view Browse at "/browse/:category":
+        text "Browse placeholder for {category}."
+    view Settings at "/settings/profile":
+        text "Profile settings placeholder."
+    view Password at "/settings/password":
+        text "Password settings placeholder."
+
+    view Home at "/":
+        meta title "New-atoms smoke host"
+        box:
+            text "BottomNav" class "smoke-h2"
+            use BottomNav():
+                use BottomNavItem("home", "Home", "/")
+                use BottomNavItem("search", "Discover", "/discover")
+                use BottomNavAction("plus", "Post", openComposer)
+                use BottomNavItem("mail", "Inbox", "/inbox")
+                use BottomNavItem("user", "Me", "/profile/" + actor)
+
+            text "Sheet" class "smoke-h2"
+            use ToggleButton("Share", shareOpen)
+            use Sheet("Share this post", shareOpen):
+                use SheetRow():
+                    button "Copy link" -> copyLink(1)
+                use SheetRow():
+                    button "Send in a message" -> openShare
+                use SheetClose("Cancel", shareOpen)
+
+            text "StatChip / RelativeTime" class "smoke-h2"
+            use StatChipRow():
+                use StatChip(240100000, "Followers")
+                use StatChip(312, "Following")
+                use StatChipText("Top 1%", "Rank")
+            use RelativeTime(1700000000)
+
+            text "VideoTile" class "smoke-h2"
+            for v in Video by created desc limit 6:
+                use VideoTile(v.id, v.title, v.thumb, v.durationLabel, v.channel, v.views, v.created)
+
+            text "ThreadView" class "smoke-h2"
+            for t in Tweet where t.id == 1 limit 1:
+                use ThreadView():
+                    use ThreadRoot():
+                        use FocusedPost(t.author, t.handle, t.verified, t.kind, t.body, t.media)
+                        use PostStats(count(r in Reply where r.tweet == t.id), 0, 0)
+                        use EngagementBar(t.id, 0, count(r in Reply where r.tweet == t.id), 0, 0)
+                        use ReplyComposer("Post your reply", replyDraft):
+                            button "Reply" -> reply(t.id, replyDraft)
+                    use ThreadReplies(count(r in Reply where r.tweet == t.id)):
+                        for r in Reply where r.tweet == t.id by created desc limit 50:
+                            use ReplyRow(r.author, r.author, false, r.body):
+                                if r.author == actor:
+                                    button "Delete" -> removeReply(r.id)
+
+            text "SettingsPage" class "smoke-h2"
+            use SettingsPage():
+                use SettingsSection("Account", ""):
+                    use SettingsRow("Edit profile", "/settings/profile")
+                    use SettingsRow("Change password", "/settings/password")
+                use SettingsSection("Notifications", ""):
+                    use ToggleList():
+                        use Toggle("Push notifications", pushEnabled)
+                        use Toggle("Email digest", emailDigest)
+                use SettingsSection("Privacy", "Who can see what you post."):
+                    use ToggleList():
+                        use Toggle("Public profile", publicProfile)
+                use SettingsSection("", ""):
+                    use SettingsAction("Log out", "", logout)
+                    use SettingsAction("Clear drafts", "danger", clearDrafts)
+
+    view Theater at "/live/:id":
+        meta title "Theater / smoke"
+        for s in Stream where s.id == id limit 1:
+            use TheaterShell():
+                box:
+                    use LivePlayer(s)
+                    use StreamInfo(s, false, false, openTip)
+                    use GoalBar(s.goalLabel, 0, s.goalTarget)
+                box:
+                    use ChatPanel(s, chatDraft, false)
+            use TipSheet(s, tipOpen, tipNote, closeTip)

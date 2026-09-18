@@ -1,0 +1,95 @@
+# SettingsPage — the sections-and-rows screen every account needs: a
+# prose-width column, a stack of named sections, and the two kinds of row that
+# make up almost every settings screen ever shipped — a live switch
+# (`forms/checkfield.fct`'s `Toggle`/`ToggleList`, already in this library and
+# reused rather than redrawn) and a row that navigates to a deeper screen
+# (`SettingsRow`, new here, because nothing in this library was a plain
+# chevron-tipped navigation row before this).
+#
+#     use SettingsPage():
+#         use SettingsSection("Account", ""):
+#             use SettingsRow("Edit profile", "/settings/profile")
+#             use SettingsRow("Change password", "/settings/password")
+#         use SettingsSection("Notifications", ""):
+#             use ToggleList():
+#                 use Toggle("Push notifications", pushEnabled)
+#                 use Toggle("Email digest", emailDigest)
+#         use SettingsSection("Privacy", "Who can see what you post."):
+#             use ToggleList():
+#                 use Toggle("Public profile", publicProfile)
+#         use SettingsSection("", ""):
+#             use SettingsAction("Log out", "", logout)
+#             use SettingsAction("Delete account", "danger", deleteAccount)
+#
+# ── WHY `SettingsRow` IS NOT JUST `NavLink` ──────────────────────────────────
+#
+# `NavLink` is a rail item: compact, an icon first, meant to sit among others
+# like it in a strip that marks which one is current. A settings row is read
+# top to bottom in a list, never marks itself current (there is no "current"
+# settings page the way there is a current tab), and always carries the one
+# affordance that says "there is more on the next screen" — the trailing
+# chevron. Same underlying `Link`, a different object built on it, the same
+# relationship `profile/ProfileHeader`'s note draws between itself and
+# `ui/UserChip`.
+#
+# ── `SettingsAction` TAKES A TONE FOR THE SAME REASON `ui/Tag` DOES ──────────
+#
+# A component parameter cannot reach `style` — that modifier takes a literal —
+# so a call site can never hand this component a colour, only a NAME from the
+# small vocabulary this file actually draws. "danger" is red text for a
+# destructive action (delete account, deactivate); anything else, including "",
+# is the plain row every other settings action wants (log out, clear cache).
+import "../layout/page.fct"
+import "../layout/section.fct"
+import "../navigation/link.fct"
+import "../ui/icon.fct"
+app FacetProfile:
+    css:
+        [data-fa-mount] .x-settings-list { display: flex; flex-direction: column;
+                        border: 1px solid var(--x-line, #2f3336);
+                        border-radius: var(--fa-radius, 16px); overflow: hidden;
+                        background: none; padding: 0; gap: 0; }
+        # The hairline between rows needs a DOM sibling to be between, and every
+        # row here arrives through a `use` — its own wrapper element — so the
+        # comparison is `> * + *` against the wrappers, the same fix
+        # `forms/checkfield.fct`'s `ToggleList` documents for the identical
+        # problem with a stack of `Toggle`s.
+        [data-fa-mount] .x-settings-list > * + * { border-top: 1px solid var(--x-line, #2f3336); }
+        [data-fa-mount] .x-settings-row { display: flex; align-items: center;
+                       justify-content: space-between; gap: 12px; padding: 14px 16px;
+                       border: none; background: none; font-size: 16px; }
+        [data-fa-mount] .x-settings-row:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-settings-row a.x-link { color: var(--fa-fg); }
+        [data-fa-mount] .x-settings-row .fa-icon { width: 18px; height: 18px; color: var(--fa-muted); }
+        [data-fa-mount] .x-settings-action { display: block; width: 100%; text-align: left;
+                       padding: 14px 16px; font: inherit; font-size: 16px;
+                       border: none; background: none; border-radius: 0; color: var(--fa-fg); }
+        [data-fa-mount] .x-settings-action:hover { background: var(--x-hover, rgba(239,243,244,.06)); }
+        [data-fa-mount] .x-settings-action-danger { color: #f4212e; }
+    component SettingsPage():
+        use PageNarrow():
+            box class "x-settings":
+                slot
+    component SettingsSection(title: text, subtitle: text):
+        use Section(title, subtitle):
+            box class "x-settings-list":
+                slot
+    # A row that goes somewhere else. `href` is the route-expression form
+    # `navigation/Link` already checks, so a settings row pointed at a route this
+    # app does not serve degrades to inert text rather than a dead link — the
+    # chevron still renders beside it, which is the one place that degradation
+    # looks slightly odd and is still the honest failure.
+    component SettingsRow(label: text, href: text):
+        row class "x-settings-row":
+            use Link(label, href)
+            icon "chevron-right"
+    # A row that fires a client-only or member action instead of navigating —
+    # "Log out", "Clear cache", "Delete account". Takes no arguments for the same
+    # reason `forms/form.fct`'s `ActionButton` does not: an `action` reference is
+    # invoked bare, so this is for the action that genuinely needs nothing else.
+    component SettingsAction(label: text, tone: text, a: action):
+        match tone:
+            case "danger":
+                button "{label}" -> a class "x-settings-action x-settings-action-danger"
+            else:
+                button "{label}" -> a class "x-settings-action"

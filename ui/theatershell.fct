@@ -1,0 +1,55 @@
+# TheaterShell — the live layout: a stage that takes the space, a chat column
+# beside it that does not, no nav rail. Twitch, Kick, YouTube Live and a cam site
+# all watch the same way, and this is the one arrangement all four actually use.
+#
+#     use TheaterShell():
+#         use LivePlayer(s)
+#         use StreamInfo(s, following, subscribed, openTip)
+#         use GoalBar(s.goalLabel, sum(t.cents in Tip where t.stream == s.id), s.goalTarget)
+#         box class "x-chatcol":
+#             use ChatPanel(s, chatDraft, mod)
+#
+# Exactly two children, in order — the stage's nodes, then the chat column. That
+# is the same convention `layout/split.fct` states for the same reason: a `slot`
+# is one hole, not two typed sockets, and the arrangement is enforced by which
+# column the CSS grid hands each child rather than by the compiler. `Split`
+# documents why a lightweight, unchecked pairing is still the right shape for a
+# plain app, and why the checked version is a `wireframe` instead — this is that
+# same trade, made for the theater layout in particular.
+#
+# ── WHY THE CHAT COLUMN IS STICKY AND SCROLLS ON ITS OWN ─────────────────────
+#
+# A live chat is the one piece of a page that keeps producing new rows for as
+# long as the reader stays on it, so it is given its own scrolling region at the
+# viewport's full height rather than growing the page underneath the player. The
+# stage scrolls with the page — the description, the goal bar, the tip rail all
+# want to be reachable by scrolling down — and only the SECOND child gets this
+# treatment, which is why the rule below targets `:last-child` rather than the
+# container: `layout/vocabulary.fct`'s note on `.fa-use` wrappers applies here
+# too, and the wrapper `use` renders around each child is what a positional
+# selector actually reaches.
+#
+# ── THE COLLAPSE IS VIDEO-OVER-CHAT, NOT VIDEO-BESIDE-A-HIDDEN-CHAT ──────────
+#
+# Below 900px the grid drops to one column and the chat column un-sticks and
+# lies down under the stage at a fixed 60vh — shown, not hidden, because a chat a
+# viewer cannot reach on a phone is a stream nobody can talk during.
+app FacetUI:
+    css:
+        [data-fa-mount] .x-theater { display: grid; grid-template-columns: minmax(0,1fr) 380px;
+                    align-items: start; min-height: 100vh; gap: 0;
+                    border: none; background: none; padding: 0; }
+        [data-fa-mount] .x-theater > .fa-use:first-child { min-width: 0; }
+        [data-fa-mount] .x-theater > .fa-use:last-child { position: sticky; top: 0;
+                    align-self: start; height: 100vh; overflow-y: auto; display: flex;
+                    flex-direction: column; min-width: 0;
+                    border-left: 1px solid var(--x-line, #2f3336); }
+        @media (max-width: 900px) {
+            [data-fa-mount] .x-theater { grid-template-columns: minmax(0,1fr); }
+            [data-fa-mount] .x-theater > .fa-use:last-child { position: static;
+                        height: 60vh; border-left: none;
+                        border-top: 1px solid var(--x-line, #2f3336); }
+        }
+    component TheaterShell():
+        box class "x-theater":
+            slot
