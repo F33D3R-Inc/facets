@@ -1,0 +1,106 @@
+# Smoke (new atoms, round 8) — proves the one gap this round closes:
+# ChatPanel's own "slow mode ⬜ — timer" note, now that `after <duration>:
+# <cell> = <expr>` is real. `SlowModeComposer` (live/chatpanelslowmode.fct)
+# is the new file; the two `after` statements below carry the visible
+# countdown and the composer's own re-enable (the part this round is
+# actually about). They live HERE, in the host's view, next to the literal
+# `chatArmedAt`/`chatSecondsLeft` cells they assign, rather than inside
+# SlowModeComposer itself — a confirmed compiler limit documented in
+# chatpanelslowmode.fct's own header: `after`'s body-assignment target is
+# resolved by a literal-name lookup against the app being compiled and is
+# never substituted through a component's `cell` parameter, so a component
+# cannot own its own `after` the way it can own an `input bind`. `facet
+# check smoke_new8.fct` compiling clean is the same proof `smoke_new.fct`
+# through `smoke_new7.fct` carry for their own rounds.
+#
+# `say`'s own header comment explains why real time-based rejection (a
+# `check` against `Stream.lastMsgAt`) is a separate, still-open gap — `check`
+# must be pure and an action has no way to bind `now()` to a name it can
+# reuse — so this demo's actual gate is the composer withholding its own
+# form while `secondsLeft > 0`.
+#
+# Drive it from `facet console smoke_new8.fct`:
+#   :run seedStream(1)
+#   :as ada
+#   :run say(1, "hey")            # adds a Chat row, sets Stream.lastMsgAt
+#   :get Stream                   # lastMsgAt now holds that message's time
+#   :get Chat
+import "live/chatpanelslowmode.fct"
+app FacetsSmokeNew8:
+    auth
+    theme:
+        bg "#0b0e11"
+        fg "#f5f7fa"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#2f3336"
+        card-border "#2f3336"
+        radius "16px"
+        maxwidth "1100px"
+
+    state chatDraft: text = "" @client
+    state chatArmedAt: int = now() @client
+    state chatSecondsLeft: int = 0 @client
+
+    entity Stream:
+        id: int
+        owner: text
+        title: text
+        viewers: int
+        pinned: text
+        lastMsgAt: int
+    entity Chat:
+        id: int
+        stream: Stream
+        author: text
+        role: text
+        body: text
+        sent: int
+
+    action seedStream(id: int):
+        add Stream { owner: actor, title: "Demo stream", viewers: 12, pinned: "", lastMsgAt: 0 }
+
+    # NOTE: real server-side "reject if too soon" enforcement (`check now() -
+    # Stream(stream).lastMsgAt >= 10 ...`) is not expressible — `check`'s
+    # condition must be pure (build.go: "a check cannot use an effectful
+    # builtin (now/rand)"), and an action body has no `if`/local-variable
+    # binding to compute `now()` once and compare it elsewhere either (`let`
+    # inside an action binds only a `call`/`do` result — see parser.go's
+    # `let` case). So this demo's enforcement is the composer itself: the
+    # form only exists in the tree while `secondsLeft <= 0` (see
+    # `SlowModeComposer`), which is enough to prove the VISUAL half this
+    # task is about. A genuinely abuse-proof slow mode is a separate,
+    # already-named gap (time-based server validation), not one `after` or
+    # `@ephemeral` were ever going to close.
+    action say(stream: int, body: text):
+        check body != "" "say something"
+        add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now() }
+        set Stream(stream).lastMsgAt = now()
+    action deleteChat(id: int):
+        remove Chat(id)
+    action ban(stream: int, user: text):
+        check user != "" "no user"
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 8"
+        box:
+            for s in Stream where s.id == 1 limit 1:
+                text "SlowModeComposer (ChatPanel + a real slow-mode countdown)" class "smoke-h2"
+                # Arm: a message newer than this tab's own baseline showed up.
+                # Pushes the baseline forward by the cooldown window itself, so
+                # this cannot re-fire on the message that just armed it (the
+                # composer is also withheld for those same 10s, so nothing
+                # from THIS tab can land inside the window it just opened) —
+                # see chatpanelslowmode.fct's own header for the full idiom.
+                if count(m in Chat where m.stream == s.id && m.sent > chatArmedAt) > 0:
+                    after 1s:
+                        chatSecondsLeft = 10
+                        chatArmedAt = chatArmedAt + 10
+                # Countdown: ticks itself to 0, one flip a second, the same
+                # self-rescheduling `if`+`after` chain timer.fct's own toast uses.
+                if chatSecondsLeft > 0:
+                    after 1s:
+                        chatSecondsLeft = chatSecondsLeft - 1
+                use SlowModeComposer(s, chatDraft, actor == s.owner, chatSecondsLeft)
+            if !exists(s in Stream where s.id == 1):
+                text "no stream yet — :run seedStream(1) from facet console" class "x-muted"

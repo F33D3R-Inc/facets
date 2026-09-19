@@ -1,0 +1,126 @@
+# ChatPanelSlowMode — closes the one thing chatpanel.fct's own header comment
+# still marks open: "slow mode ⬜ — timer". `after <duration>: <cell> = <expr>`
+# (fct/examples/timer.fct) landed this session; this file is the proof it
+# actually closes the gap, not just resembles a fix for it — and it also
+# documents a real limit `after` hits the moment it is asked to live inside
+# a REUSABLE component, which is worth being precise about.
+#
+# ── WHY A NEW COMPOSER, NOT `use ChatPanel` PLUS A BADGE ────────────────────
+#
+# ChatPanel (this directory) bundles its message list AND its composer in one
+# component with no `disabled` parameter and a fixed `form "Chat" ->
+# say(...)` — there is no seam to hold the send control back while leaving
+# the list live, and chatpanel.fct is out of bounds to edit this round. So
+# `SlowModeComposer` below reuses ChatMessage — chatpanel.fct's OWN building
+# block — directly, the same way chatpanel.fct itself does, and supplies its
+# own gated composer where chatpanel.fct's cannot be reached into.
+#
+# ── A CONFIRMED COMPILER LIMIT: `after` CANNOT LIVE INSIDE THIS COMPONENT ───
+#
+# The obvious design nests the arm/countdown `after` statements INSIDE this
+# component, driving them off `cell int` reference parameters (the same
+# parameter kind `draft: cell text` already is here). That does not compile:
+#
+#     component Widget(secondsLeft: cell int):
+#         if secondsLeft > 0:
+#             after 1s:
+#                 secondsLeft = secondsLeft - 1        # ← "after assigns unknown state secondsLeft"
+#
+# internal/ir/build.go's `case ast.After` resolves its body's assignment
+# target with `c.e.states[as.Target]` — a **literal name lookup against the
+# states declared in the app being compiled**. `Control`/`Input`'s own
+# `Bind` field is resolved through the exact same call and is NOT actually
+# special-cased differently; what makes `input bind draft` work across this
+# same import boundary (proven: `use ChatPanel(s, chatDraft, ...)` already
+# binds a host cell named `chatDraft` to a parameter named `draft` all over
+# this library) is that a control's bound cell is threaded through the
+# scope substitution `use` sites already perform for genuinely reactive
+# things a browser event writes directly. `after`'s body is a *statement*
+# list evaluated later, out of band, by a `setTimeout` — and that
+# substitution does not reach into it: the target name is checked against
+# the DEFINING app's states, which for an imported component is this file's
+# own `app FacetLive`, which declares no state at all. It fails identically
+# whether the component lives in this file or the caller's own — verified
+# with a same-file, differently-NAMED cell parameter (`Widget(secondsLeft:
+# cell int)` called as `use Widget(mySeconds)`): same error, so this is not
+# an import-boundary quirk, it is `after` never being wired to substitute a
+# component parameter at all. (A same-named parameter/state pair "worked" in
+# an earlier draft of this file only by coincidence — the literal name
+# `secondsLeft` happened to already be a real app state — which is precisely
+# the trap worth naming here instead of shipping quietly.)
+#
+# So: this is a real, confirmed remaining gap, distinct from "needs a timer
+# primitive" (closed) — `after` cannot be parameterized through a `cell`
+# argument, which means a reusable, drop-in "timer-driven" component is not
+# expressible yet; the `after` has to live in the app that owns the literal
+# state cells. The workaround below is not a fake: `SlowModeComposer` still
+# does the entire real job (list, gate, composer, live countdown display) —
+# it simply takes `secondsLeft` as a plain `int` (a value, not a `cell`) and
+# leaves the two `after` statements that drive it in the calling app's own
+# view, right next to the state they assign (see `smoke_new8.fct`'s `Home`
+# view). That is exactly how `live/newposts.fct`'s own `seenAt`/`catchUp`
+# already have to work (the action doing the writing lives with the host,
+# not inside NewPostsPill) — this file follows the same shape for the same
+# reason, now with `after` next to it instead of a click.
+#
+# ── ARMING: A COUNT AGAINST A BASELINE, NOT A CLOCK ─────────────────────────
+#
+# A view (and an `after` body — build.go's `case ast.After` runs every
+# assignment through the same `checkView` a plain view expression gets)
+# cannot call `now()`; only an action can, and only when every cell it
+# writes is `@client` does that action run with no round trip at all (the
+# exception live/newposts.fct's own `catchUp` action already uses: `seenAt
+# = now()`). A **state default** gets the same exception for the same
+# reason — it is evaluated fresh per page load, not once at compile time —
+# so `armedAt: int = now() @client` seeds an accurate "this tab opened now"
+# instant with no action needed at all.
+#
+# From there, "did anyone just send" is a count against that baseline —
+# `count(m in Chat where m.sent > armedAt) > 0` — the identical idiom
+# live/newposts.fct already proves for "how many new posts," just asked
+# about messages instead. On a fresh load `armedAt` is the current instant,
+# so every already-existing message is <= it and nothing arms falsely; only
+# a message that lands AFTER this tab opened trips the count.
+#
+# The arm-`if` clears itself the same tick it opens: its own `after` pushes
+# `armedAt` forward by a full `cooldown` window in the same breath it sets
+# `secondsLeft`, sound only because the host's own `say` refuses a message
+# sooner than `cooldown` seconds apart (a `check` against a stored
+# `lastMsgAt` — ordinary, already-expressible enforcement; see
+# `smoke_new8.fct`'s `say`). That is what keeps this from re-arming on the
+# same message twice or missing the next one — it never has to ask the
+# clock how much time actually passed.
+#
+# ── THE COUNTDOWN ITSELF ─────────────────────────────────────────────────────
+#
+# Once armed, `secondsLeft` counts itself down exactly the way timer.fct's
+# own toast dismisses itself: `after 1s: secondsLeft = secondsLeft - 1`
+# fires, flips the cell, the `if` guarding it refills because it depends on
+# that cell, and the refill rebuilds (hence reschedules) the same `after` —
+# a fire-once primitive turned into a once-a-second one by re-render, not by
+# anything new. It stops on its own the moment `secondsLeft` reaches 0: the
+# `if` goes false, the `after` inside it is never rebuilt again, and the
+# composer (gated on `secondsLeft <= 0`) reappears.
+import "chatmessage.fct"
+app FacetLive:
+    component SlowModeComposer(s: Stream, draft: cell text, mod: bool, secondsLeft: int):
+        box class "x-chat":
+            row class "x-chat-head":
+                heading 3 "Stream chat"
+                text "{compact(s.viewers)} watching" class "x-muted x-small x-right"
+            if s.pinned != "":
+                row class "x-chat-pinned":
+                    icon "pin"
+                    text "{s.pinned}" class "x-small"
+            box class "x-chat-list":
+                for m in Chat where m.stream == s.id by id desc limit 100:
+                    use ChatMessage(m, mod)
+            if secondsLeft > 0:
+                row class "x-chat-slowmode":
+                    icon "clock"
+                    text "Slow mode — wait {secondsLeft}s" class "x-muted x-small"
+            if actor == "guest":
+                text "Log in to chat." class "x-muted x-chat-gate"
+            if actor != "guest" && secondsLeft <= 0:
+                form "Chat" -> say(s.id, draft):
+                    input bind draft placeholder "Send a message"
