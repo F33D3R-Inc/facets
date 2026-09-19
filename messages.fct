@@ -38,6 +38,16 @@ app F33D3RMessages:
         from: text
         body: text
         sent: int
+    # A heartbeat, not a flag — see chat/dmthread.fct and live/typing.fct's own
+    # header. @ephemeral because nobody wants a history of who was typing;
+    # `typing` upserts by (thread, actor) so there is at most one live row per
+    # typer, and the row simply goes stale on its own once dmAsOf outruns `at`
+    # by 5s — no removal job needed.
+    entity Typing @ephemeral:
+        id: int
+        thread: Thread
+        who: text
+        at: int
     entity FriendRequest:
         id: int
         from: text
@@ -60,6 +70,13 @@ app F33D3RMessages:
         at: int
 
     state draft: text = "" @client
+    # The instant DMThread's TypingIndicator measures against — seeded once
+    # from now() (state initializers may call it; views may not, see
+    # live/timeago.fct) and then ticked forward client-side, the same
+    # self-rescheduling if+after idiom smoke_new8.fct's slow-mode countdown
+    # already proves, so a stale Typing row actually stops rendering ~5s after
+    # the last heartbeat instead of only on the next unrelated SSE update.
+    state dmAsOf: int = now() @client
     state newHandle: text = "" @client
     state addHandle: text = "" @client
     state menuOpen: bool = false @client
@@ -97,6 +114,13 @@ app F33D3RMessages:
             readA = now()
         set t in Thread where t.id == thread && t.b == actor:
             readB = now()
+    # Fired (debounced) by DMThread's own composer input as the actor types —
+    # see chat/dmthread.fct. Upsert by (thread, actor) so a typer who keeps
+    # typing keeps refreshing one row's `at` instead of piling up rows.
+    action typing(thread: int):
+        requires participant(thread)
+        remove ty in Typing where ty.thread == thread && ty.who == actor
+        add Typing { thread: thread, who: actor, at: now() }
 
     # ── the graph ──
     action request(handle: text):
@@ -172,7 +196,16 @@ app F33D3RMessages:
                 if actor == Thread(id).b:
                     use TopBar(Thread(id).a, "direct message", "/")
                 if actor == Thread(id).a || actor == Thread(id).b:
-                    use DMThread(Thread(id), draft)
+                    # Ticks dmAsOf forward once a second so a Typing row that
+                    # goes quiet actually stops rendering ~5s later, not only
+                    # whenever the next unrelated message triggers a re-render
+                    # (see dmAsOf's own declaration above and
+                    # chatpanelslowmode.fct's header on why this lives in the
+                    # host view rather than inside DMThread itself).
+                    if dmAsOf > 0:
+                        after 1s:
+                            dmAsOf = dmAsOf + 1
+                    use DMThread(Thread(id), draft, dmAsOf)
                 if actor != Thread(id).a && actor != Thread(id).b:
                     text "This conversation is between other people." class "x-muted x-chat-gate"
             box class "x-l-app3-aside":

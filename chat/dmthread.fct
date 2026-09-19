@@ -1,18 +1,39 @@
 # DMThread — a 1:1 conversation: the messages (newest at the bottom, live over
-# SSE), the composer, and a "mark read" control. Takes the Thread row — two
-# participants `a` and `b`, and each side's read marker `readA` / `readB`, which
-# is what makes unread counts and "Seen" receipts a pure predicate over the row
-# instead of a per-user table the language would need `let id = add …` to seed.
-# `draft` is the host's `@client` text; `send(thread, body)` and `markRead(thread)`
-# the host actions, both `requires participant(thread)`.
+# SSE), the composer, a "mark read" control, and the OTHER participant's
+# TypingIndicator. Takes the Thread row — two participants `a` and `b`, and
+# each side's read marker `readA` / `readB`, which is what makes unread counts
+# and "Seen" receipts a pure predicate over the row instead of a per-user table
+# the language would need `let id = add …` to seed. `draft` is the host's
+# `@client` text; `send(thread, body)` and `markRead(thread)` the host actions,
+# both `requires participant(thread)`.
+#
+# `asOf` and the `Typing` row it is compared against are exactly
+# live/typing.fct's own documented shape (a heartbeat timestamp, not a flag):
+# the host owns the clock instant (see live/timeago.fct — a view cannot read
+# it) and a `Typing` row per active typer, `{ thread, who, at }`. What is new
+# this round is the WRITE side: `input`'s `on change` dispatch fires `typing`
+# as the composer's own text changes, debounced to one dispatch per pause
+# rather than one per keystroke — the first real trigger for a heartbeat that,
+# before now, nothing in the language could invoke from the act of typing
+# itself. The host still owns advancing `asOf` (an `after`-driven tick next to
+# `use DMThread`, per chatpanelslowmode.fct's own header on why a component
+# cannot own its own `after`), and the countdown lives entirely in the
+# comparison `asOf - ty.at < 5`, never in a stored flag or a removal job.
 import "messagebubble.fct"
+import "../live/typing.fct"
 app FacetChat:
-    component DMThread(t: Thread, draft: cell text):
+    component DMThread(t: Thread, draft: cell text, asOf: int):
         box class "x-thread":
             box class "x-thread-list":
                 for m in Message where m.thread == t.id by sent desc limit 200:
                     use MessageBubble(m, m.from == actor, (t.a == actor && m.sent <= t.readB) || (t.b == actor && m.sent <= t.readA))
+                if t.a == actor:
+                    if exists(ty in Typing where ty.thread == t.id && ty.who != actor && asOf - ty.at < 5):
+                        use TypingIndicator(t.b)
+                if t.b == actor:
+                    if exists(ty in Typing where ty.thread == t.id && ty.who != actor && asOf - ty.at < 5):
+                        use TypingIndicator(t.a)
             row class "x-composer":
                 form "Send" -> send(t.id, draft):
-                    input bind draft placeholder "Message"
+                    input bind draft placeholder "Message" on change -> typing(t.id) debounce 1s
                 button "Mark read" -> markRead(t.id) class "x-pill x-small"

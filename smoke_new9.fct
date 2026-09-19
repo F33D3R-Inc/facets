@@ -1,0 +1,83 @@
+# Smoke (new atoms, round 9) — proves the integration this round is actually
+# about: DMThread (chat/dmthread.fct) now wires in TypingIndicator
+# (live/typing.fct) for real, using `input`'s `on change` dispatch as the
+# heartbeat trigger and live/typing.fct's own documented heartbeat-timestamp
+# shape (`asOf - t.at < 5`), not a stored flag and not a removal `job`. See
+# dmthread.fct's own header for the full rationale; this host just seeds two
+# participants and a thread the way messages.fct (the real reference app)
+# does, plus the same `dmAsOf` ticker messages.fct's ThreadPage view carries.
+#
+# `facet check smoke_new9.fct` compiling clean is the same proof smoke_new.fct
+# through smoke_new8.fct carry for their own rounds.
+#
+# Drive it from `facet console smoke_new9.fct`:
+#   :as ada
+#   :run startThread("bo")        # Thread{a:ada,b:bo}, id 1
+#   :run typing(1)                # ada's composer fires the heartbeat
+#   :as bo
+#   exists(ty in Typing where ty.thread == 1 && ty.who != actor && now() - ty.at < 5)
+#                                  # -> true: bo's TypingIndicator would show "ada is typing…"
+#   (wait 6s)
+#   exists(ty in Typing where ty.thread == 1 && ty.who != actor && now() - ty.at < 5)
+#                                  # -> false: the heartbeat went stale, no removal needed
+import "chat/dmthread.fct"
+app FacetsSmokeNew9:
+    auth
+
+    entity Thread:
+        id: int
+        a: text
+        b: text
+        readA: int
+        readB: int
+        created: int
+    entity Message:
+        id: int
+        thread: Thread
+        from: text
+        body: text
+        sent: int
+    entity Typing @ephemeral:
+        id: int
+        thread: Thread
+        who: text
+        at: int
+
+    state draft: text = "" @client
+    state dmAsOf: int = now() @client
+
+    policy participant(id: int):
+        actor == Thread(id).a || actor == Thread(id).b
+
+    action startThread(handle: text):
+        add Thread { a: actor, b: handle, readA: now(), readB: 0, created: now() }
+    action send(thread: int, body: text):
+        requires participant(thread)
+        check body != "" "write something first"
+        add Message { thread: thread, from: actor, body: body, sent: now() }
+        set t in Thread where t.id == thread && t.a == actor:
+            readA = now()
+        set t in Thread where t.id == thread && t.b == actor:
+            readB = now()
+    action markRead(thread: int):
+        requires participant(thread)
+        set t in Thread where t.id == thread && t.a == actor:
+            readA = now()
+        set t in Thread where t.id == thread && t.b == actor:
+            readB = now()
+    action typing(thread: int):
+        requires participant(thread)
+        remove ty in Typing where ty.thread == thread && ty.who == actor
+        add Typing { thread: thread, who: actor, at: now() }
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 9"
+        box:
+            for t in Thread where t.id == 1 limit 1:
+                text "DMThread (TypingIndicator wired in for real)" class "smoke-h2"
+                if dmAsOf > 0:
+                    after 1s:
+                        dmAsOf = dmAsOf + 1
+                use DMThread(t, draft, dmAsOf)
+            if !exists(t in Thread where t.id == 1):
+                text "no thread yet — :run startThread(\"bo\") from facet console" class "x-muted"
