@@ -1,0 +1,56 @@
+# Smoke (new atoms, round 10) — proves LiveSearchBox (forms/livesearchbox.fct):
+# an input whose `on change -> liveSearch(q) debounce 400ms` dispatches a real
+# HOST ACTION on each pause in typing, rather than a client predicate read
+# straight off the cell the way `forms/SearchBox`/`data/FilterBar` do.
+#
+# The host declares exactly the two names LiveSearchBox's own header
+# documents: `state q: text = "" @client` (bound by the component's input,
+# live on every keystroke) and `action liveSearch(q: text)`. The round trip
+# is modelled by committing into a SEPARATE, @server-owned `lastQuery` only
+# when `liveSearch` actually runs — so the product list below narrows only
+# once the debounced action fires, never on the raw keystroke. An empty
+# `lastQuery` is the sensible default: `contains(anything, "")` is always
+# true, so a cleared query falls straight out to "show everything" with no
+# special-casing needed, the same convention `data/feed.fct`/`timeline.fct`
+# already use for their own (client-side) `contains(lower(...), lower(q))`
+# filters.
+#
+# `facet check smoke_new10.fct` compiling clean is the same proof
+# smoke_new.fct through smoke_new9.fct carry for their own rounds.
+#
+# Drive it from `facet console smoke_new10.fct`:
+#   :run addProduct("Wireless Mouse")
+#   :run addProduct("Wireless Keyboard")
+#   :run addProduct("USB-C Cable")
+#   count(p in Product)                    # -> 3, all visible: lastQuery == ""
+#   :run liveSearch("wireless")            # the debounced round trip landing
+#   count(p in Product where contains(lower(p.name), lower(lastQuery)))
+#                                           # -> 2 (Mouse, Keyboard)
+#   :run liveSearch("")                    # query cleared -> reset to default
+#   count(p in Product where contains(lower(p.name), lower(lastQuery)))
+#                                           # -> 3, everything visible again
+import "forms/livesearchbox.fct"
+app FacetsSmokeNew10:
+    auth
+
+    entity Product:
+        id: int
+        name: text
+
+    state q: text = "" @client
+    state lastQuery: text = ""
+
+    action addProduct(name: text):
+        add Product { name: name }
+    action liveSearch(term: text):
+        lastQuery = term
+
+    view Home at "/":
+        meta title "New-atoms smoke host, round 10"
+        box:
+            text "LiveSearchBox (debounced round-trip search)" class "smoke-h2"
+            use LiveSearchBox("Search products")
+            if !exists(p in Product where contains(lower(p.name), lower(lastQuery))):
+                text "no matches" class "x-muted"
+            for p in Product where contains(lower(p.name), lower(lastQuery)) by name asc limit 50:
+                text "{p.name}"

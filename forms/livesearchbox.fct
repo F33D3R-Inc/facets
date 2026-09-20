@@ -1,0 +1,93 @@
+# LiveSearchBox — a search box that debounces into a HOST ACTION, for the case
+# `forms/SearchBox` and `data/FilterBar` do not cover: a query that has to make
+# a round trip (a server-side search index, a full-text rank, anything too
+# expensive to just re-run as a client predicate on every keystroke) rather
+# than a predicate the client can already evaluate over a list it has fully
+# loaded.
+#
+# ── WHY NOT `forms/SearchBox` OR `data/FilterBar` ────────────────────────────
+#
+# Both of those bind a text cell and stop there — the host's own `for` reads
+# the cell straight off `contains(lower(row.field), lower(q))`, live, with no
+# action and no round trip, because the whole list is already on the client.
+# That is the right shape when there is nothing to wait for. This file's job
+# starts exactly where that stops holding: `q` still gets typed into, but each
+# pause in typing DISPATCHES a host action instead of just being read by a
+# filter — so a page whose search is a real operation the authority has to
+# perform (not a predicate over data already on the client) gets a working
+# in-flight state for it.
+#
+# ── THE PRIMITIVE, AND WHY THIS IS `SearchBox`'S FIXED-NAME SHAPE AND NOT
+#    `FilterBar`'S REFERENCE-PARAMETER ONE ────────────────────────────────────
+#
+# `input`'s `on change -> Action(args) [debounce <duration>]` (see
+# `chat/dmthread.fct`, which uses the same clause to fire a typing heartbeat)
+# is the write side this depends on. `chat/dmthread.fct` only ever feeds it a
+# VALUE parameter (`typing(t.id)`) — never a `cell`/`action` REFERENCE
+# parameter of its own component. That turns out to matter: a reference
+# parameter is expanded by substituting its name throughout the component
+# body wherever the body is later specialized per call site (`substNode`,
+# `internal/ir/component.go`), and that substitution walks every node kind's
+# bindable fields (`Input.Bind`, `Button.Action`/`Args`, `Form.Action`/`Args`,
+# …) EXCEPT `Input.OnChange` — confirmed against this build: a `q: cell text`
+# / `a: action` pair used as `on change -> a(q)` compiles the file as a
+# template (checked against synthetic references) but fails at a REAL call
+# site with `` `on change` references unknown action "a" `` — the template's
+# own parameter name, never substituted for the caller's, so it cannot work
+# for any second caller either. That is a real gap in the primitive as it
+# lowers reference-parameter templates today, not something a wrapper here can
+# route around, and it is not this component's job to patch `internal/ir` —
+# so this file takes the shape that already provably lowers correctly:
+# `forms/SearchBox`'s fixed-name contract, exactly the reason that file's own
+# header gives for binding a hardcoded `q` — extended one field further to a
+# hardcoded `on change` action, `liveSearch(q)`, which needs no substitution
+# at all because there is no reference parameter left for it to skip.
+#
+# A host wires it by declaring the state name this file assumes, the same
+# obligation `smoke.fct` already documents for `SearchBox`'s `q`, plus an
+# action named `liveSearch` taking one text argument — give that PARAMETER a
+# name other than `q` (`term` below): naming it `q` after `q` is already an
+# app-level `@client` state trips this build's server-safety check, which
+# does not shadow an action's own parameter over an outer client state of the
+# same name — a real gap in that analysis, not something this file's host
+# example should paper over by accident:
+#
+#     state q: text = "" @client
+#     action liveSearch(term: text):
+#         ...whatever the host's real search operation is, off `term`...
+#
+#     use LiveSearchBox("Search products")
+#     for p in Product where <the host's own condition off whatever liveSearch wrote>:
+#         ...
+#
+# With no `debounce` clause, `on change` fires on the parser's own default of
+# 400ms (`defaultDebounceMS`, parser.go) — since `parseDuration`'s finest grain
+# is a whole second, that default IS the only way to spell a sub-second
+# debounce in this grammar, and 400ms is exactly the one-request-per-pause
+# window a live search wants.
+#
+# ── DATA OWNERSHIP: HOST OWNS RESULTS, THIS OWNS THE INPUT ───────────────────
+#
+# `liveSearch` is the host's own action — whatever it writes (a state cell, a
+# flag on rows, a whole re-filtered `for`) is entirely the host's business.
+# This component never renders a result row and never sees the entity being
+# searched; it renders exactly one thing beyond the input itself, the in-flight
+# indicator `pending(a)` already gives every action for free, the same
+# `if pending(a): use Spinner("")` every other action-backed atom in this
+# library reads off its own action (see `forms/form.fct`, `social/composebox.fct`).
+import "../ui/spinner.fct"
+app FacetForms:
+    css:
+        [data-fa-mount] .x-livesearch { display: flex; align-items: center; gap: 8px;
+                       padding: 6px 12px; }
+        [data-fa-mount] .x-livesearch-input { flex: 1; position: relative; }
+        [data-fa-mount] .x-livesearch-input input { width: 100%; box-sizing: border-box;
+                          background: var(--x-panel, #16181c); border: 1px solid transparent;
+                          border-radius: 9999px; padding: 12px 16px; font-size: 15px; color: var(--fa-fg); }
+        [data-fa-mount] .x-livesearch-input input:focus { background: none; border-color: var(--fa-accent); outline: none; }
+    component LiveSearchBox(placeholder: text):
+        row class "x-livesearch":
+            box class "x-livesearch-input":
+                input bind q placeholder "{placeholder}" on change -> liveSearch(q)
+            if pending(liveSearch):
+                use Spinner("")
