@@ -1,0 +1,225 @@
+import "entities.fct"
+import "core.fct"
+
+app F33D3RLive:
+    policy hostsStream(id: int):
+        LiveStream(id).author == max(a.id in Account where a.handle == actor)
+    policy hostsFrequency(id: int):
+        Frequency(id).host == max(a.id in Account where a.handle == actor)
+
+    proc streamState(status: text) -> text:
+        return status
+    proc capOr(v: int, fallback: int) -> int:
+        if v <= 0:
+            return fallback
+        return v
+
+    action listLive() -> V2LiveListDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return V2LiveListDTO{count: count(s in LiveStream where s.status == "live"), streams: list(V2LiveStreamDTO{id: "" + s.id, title: s.title, description: s.description, audience: s.audience, lane: s.lane, is_nsfw: s.is_nsfw, status: s.status, has_video: false, heart_count: s.heart_count, tip_goal_uaet: s.tip_goal_uaet, tip_total_uaet: s.tip_total_uaet, viewer_count: s.viewer_count, reminder_count: 0, reminder_set: false, author: WorkAuthorDTO{handle: Account(s.author).handle, display_name: Account(s.author).display_name, avatar_url: Account(s.author).avatar_url, is_creator: Account(s.author).is_creator, is_verified: Account(s.author).is_verified, official_type: Account(s.author).official_type, realm: Account(s.author).realm, role: Account(s.author).role_type, is_mutual: false}} in LiveStream where s.status == "live" by id desc), scheduled: list(V2LiveStreamDTO{id: "" + s.id, title: s.title, description: s.description, audience: s.audience, lane: s.lane, is_nsfw: s.is_nsfw, status: s.status, has_video: false, heart_count: 0, tip_goal_uaet: s.tip_goal_uaet, tip_total_uaet: 0, viewer_count: 0, reminder_count: 0, reminder_set: false, scheduled_at: "" + s.scheduled_at, author: WorkAuthorDTO{handle: Account(s.author).handle, display_name: Account(s.author).display_name, avatar_url: Account(s.author).avatar_url, is_creator: Account(s.author).is_creator, is_verified: Account(s.author).is_verified, official_type: Account(s.author).official_type, realm: Account(s.author).realm, role: Account(s.author).role_type, is_mutual: false}} in LiveStream where s.status == "scheduled" by scheduled_at), upcoming: [], own: V2LiveStreamDTO{id: "0", title: "", description: "", audience: "", lane: "", is_nsfw: false, status: "none", has_video: false, heart_count: 0, tip_goal_uaet: 0, tip_total_uaet: 0, viewer_count: 0, reminder_count: 0, reminder_set: false, author: WorkAuthorDTO{handle: "", display_name: "", avatar_url: "", is_creator: false, is_verified: false, official_type: "", realm: 0, role: "", is_mutual: false}}}
+    action goLive(title: text, description: text?, audience: text?, lane: text?, is_nsfw: bool?, tip_goal_aet: int?, stream_id: text?, notify_followers: bool?, save_replay: bool?) -> V2LiveStreamDTO:
+        requires member
+        check title != "" "a title is required"
+        let me = max(a.id in Account where a.handle == actor)
+        check !exists(s in LiveStream where s.author == me && s.status == "live") "already live" status 409
+        let _h1 = do orText(audience, "public")
+        let _h2 = do orText(lane, "live")
+        let sid = add LiveStream { author: me, title: title, description: description, audience: _h1, lane: _h2, is_nsfw: is_nsfw, status: "live", scheduled_at: 0, started_at: now(), ended_at: 0, tip_goal_uaet: tip_goal_aet * 1000000, tip_total_uaet: 0, heart_count: 0, pinned_body: "", viewer_count: 0 }
+        return V2LiveStreamDTO{id: "" + sid, title: title, description: description, audience: LiveStream(sid).audience, lane: LiveStream(sid).lane, is_nsfw: is_nsfw, status: "live", has_video: false, heart_count: 0, tip_goal_uaet: LiveStream(sid).tip_goal_uaet, tip_total_uaet: 0, viewer_count: 0, reminder_count: 0, reminder_set: false, author: WorkAuthorDTO{handle: Account(me).handle, display_name: Account(me).display_name, avatar_url: Account(me).avatar_url, is_creator: Account(me).is_creator, is_verified: Account(me).is_verified, official_type: Account(me).official_type, realm: Account(me).realm, role: Account(me).role_type, is_mutual: false}}
+    action getStream(id: int) -> V2LiveRoomDTO:
+        requires member
+        check exists(s in LiveStream where s.id == id) "no such stream" status 404
+        return V2LiveRoomDTO{stream: V2LiveStreamDTO{id: "" + id, title: LiveStream(id).title, description: LiveStream(id).description, audience: LiveStream(id).audience, lane: LiveStream(id).lane, is_nsfw: LiveStream(id).is_nsfw, status: LiveStream(id).status, has_video: false, heart_count: LiveStream(id).heart_count, tip_goal_uaet: LiveStream(id).tip_goal_uaet, tip_total_uaet: LiveStream(id).tip_total_uaet, viewer_count: LiveStream(id).viewer_count, reminder_count: 0, reminder_set: false, pinned_body: LiveStream(id).pinned_body, author: WorkAuthorDTO{handle: Account(LiveStream(id).author).handle, display_name: Account(LiveStream(id).author).display_name, avatar_url: Account(LiveStream(id).author).avatar_url, is_creator: Account(LiveStream(id).author).is_creator, is_verified: Account(LiveStream(id).author).is_verified, official_type: Account(LiveStream(id).author).official_type, realm: Account(LiveStream(id).author).realm, role: Account(LiveStream(id).author).role_type, is_mutual: false}}, chat: list(V2LiveChatDTO{id: "" + c.id, body: c.body, kind: c.kind, amount_uaet: c.amount_uaet, created_at: "" + c.created, author: WorkAuthorDTO{handle: Account(c.author).handle, display_name: Account(c.author).display_name, avatar_url: Account(c.author).avatar_url, is_creator: Account(c.author).is_creator, is_verified: Account(c.author).is_verified, official_type: Account(c.author).official_type, realm: Account(c.author).realm, role: Account(c.author).role_type, is_mutual: false}} in LiveChatMsg where c.stream == id by id desc limit 50)}
+    action endStream(id: int) -> V2LiveSummaryDTO:
+        requires member
+        requires hostsStream(id)
+        set LiveStream(id).status = "ended"
+        set LiveStream(id).ended_at = now()
+        return V2LiveSummaryDTO{duration_secs: LiveStream(id).ended_at - LiveStream(id).started_at, peak_viewers: LiveStream(id).viewer_count, chat_lines: count(c in LiveChatMsg where c.stream == id), hearts: LiveStream(id).heart_count, tips_uaet: LiveStream(id).tip_total_uaet, new_followers: 0, replay_saved: false}
+    action pinLiveMessage(id: int, body: text):
+        requires member
+        requires hostsStream(id)
+        set LiveStream(id).pinned_body = body
+    action sendLiveChat(id: int, body: text) -> V2LiveChatDTO:
+        requires member
+        check exists(s in LiveStream where s.id == id) "no such stream" status 404
+        check body != "" "say something"
+        let me = max(a.id in Account where a.handle == actor)
+        let cid = add LiveChatMsg { stream: id, author: me, body: body, kind: "text", amount_uaet: 0, created: now() }
+        return V2LiveChatDTO{id: "" + cid, body: body, kind: "text", amount_uaet: 0, created_at: "" + now(), author: WorkAuthorDTO{handle: Account(me).handle, display_name: Account(me).display_name, avatar_url: Account(me).avatar_url, is_creator: Account(me).is_creator, is_verified: Account(me).is_verified, official_type: Account(me).official_type, realm: Account(me).realm, role: Account(me).role_type, is_mutual: false}}
+    action sendHearts(id: int):
+        requires member
+        check exists(s in LiveStream where s.id == id) "no such stream" status 404
+        set LiveStream(id).heart_count = LiveStream(id).heart_count + 1
+    action streamEvents(id: int):
+        requires member
+        check exists(s in LiveStream where s.id == id) "no such stream" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(v in LiveViewer where v.stream == id && v.account == me):
+            add LiveViewer { stream: id, account: me, joined: now() }
+            set LiveStream(id).viewer_count = LiveStream(id).viewer_count + 1
+    action liveScheduleCreate(title: text?, description: text?, is_nsfw: bool?, scheduled_at: text, tz: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        add LiveStream { author: me, title: title, description: description, audience: "public", lane: "scheduled", is_nsfw: is_nsfw, status: "scheduled", scheduled_at: toInt(scheduled_at), started_at: 0, ended_at: 0, tip_goal_uaet: 0, tip_total_uaet: 0, heart_count: 0, pinned_body: "", viewer_count: 0 }
+    action liveScheduleUpdate(stream_id: text, title: text?, description: text?, is_nsfw: bool?, scheduled_at: text, tz: text?):
+        requires member
+        let id = toInt(stream_id)
+        check LiveStream(id).author == max(a.id in Account where a.handle == actor) "not your stream" status 403
+        set LiveStream(id).title = title
+        set LiveStream(id).description = description
+        set LiveStream(id).scheduled_at = toInt(scheduled_at)
+    action liveScheduleCancel(stream_id: text):
+        requires member
+        let id = toInt(stream_id)
+        check LiveStream(id).author == max(a.id in Account where a.handle == actor) "not your stream" status 403
+        set LiveStream(id).status = "cancelled"
+    action liveRemind(stream_id: text, on: bool?):
+        requires member
+        let id = toInt(stream_id)
+        check exists(s in LiveStream where s.id == id) "no such stream" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        if on:
+            if !exists(r in LiveReminder where r.account == me && r.stream == id):
+                add LiveReminder { account: me, stream: id }
+        else:
+            remove r in LiveReminder where r.account == me && r.stream == id
+
+    action listFrequencies(lane: text?) -> V2FrequencyListDTO:
+        requires member
+        let l = do orText(lane, "live")
+        return V2FrequencyListDTO{count: count(f in Frequency where f.state == l), lane: l, frequencies: list(V2FrequencySummaryDTO{id: "" + f.id, title: f.title, description: f.description, language: f.language, is_nsfw: f.adult_content, state: f.state, visibility: f.visibility, locked: f.locked, requests_open: f.requests_open, max_speakers: f.max_speakers, max_listeners: f.max_listeners, speaker_count: count(m in FrequencyMember where m.frequency == f.id && m.role == "speaker"), listener_count: count(m in FrequencyMember where m.frequency == f.id && m.role == "listener"), participant_count: count(m in FrequencyMember where m.frequency == f.id), requires_payment: false, requires_vip_tier: false, replay_status: "none", host: WorkAuthorDTO{handle: Account(f.host).handle, display_name: Account(f.host).display_name, avatar_url: Account(f.host).avatar_url, is_creator: Account(f.host).is_creator, is_verified: Account(f.host).is_verified, official_type: Account(f.host).official_type, realm: Account(f.host).realm, role: Account(f.host).role_type, is_mutual: false}} in Frequency where f.state == l by id desc)}
+    action createFrequency(title: text, description: text?, visibility: text?, language: text?, adult_content: bool?, max_speakers: int?, max_listeners: int?, speaker_verity_min_tier: int?, scheduled_at: text?, community_id: text?, idempotency_key: text?) -> V2FrequencyRoomDTO:
+        requires member
+        check title != "" "a title is required"
+        let me = max(a.id in Account where a.handle == actor)
+        let _h3 = do orText(visibility, "public")
+        let _h4 = do orText(language, "en")
+        let _h5 = do capOr(max_speakers, 8)
+        let _h6 = do capOr(max_listeners, 500)
+        let fid = add Frequency { host: me, title: title, description: description, visibility: _h3, language: _h4, adult_content: adult_content, max_speakers: _h5, max_listeners: _h6, state: "live", locked: false, requests_open: true, scheduled_at: toInt(scheduled_at), started_at: now(), ended_at: 0, end_reason: "" }
+        add FrequencyMember { frequency: fid, account: me, role: "host", muted: false, present: true, joined: now() }
+        return V2FrequencyRoomDTO{frequency: V2FrequencySummaryDTO{id: "" + fid, title: title, description: description, language: Frequency(fid).language, is_nsfw: adult_content, state: "live", visibility: Frequency(fid).visibility, locked: false, requests_open: true, max_speakers: Frequency(fid).max_speakers, max_listeners: Frequency(fid).max_listeners, speaker_count: 1, listener_count: 0, participant_count: 1, requires_payment: false, requires_vip_tier: false, replay_status: "none", host: WorkAuthorDTO{handle: Account(me).handle, display_name: Account(me).display_name, avatar_url: Account(me).avatar_url, is_creator: Account(me).is_creator, is_verified: Account(me).is_verified, official_type: Account(me).official_type, realm: Account(me).realm, role: Account(me).role_type, is_mutual: false}}, cohosts: [], requests: [], speakers: [], viewer: V2FrequencyViewerDTO{present: true, muted: false, can_speak: true, can_listen: true, can_moderate: true, can_end: true, can_request_mic: false, blocked: false}}
+    action getFrequency(id: int) -> V2FrequencyRoomDTO:
+        requires member
+        check exists(f in Frequency where f.id == id) "no such frequency" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        return V2FrequencyRoomDTO{frequency: V2FrequencySummaryDTO{id: "" + id, title: Frequency(id).title, description: Frequency(id).description, language: Frequency(id).language, is_nsfw: Frequency(id).adult_content, state: Frequency(id).state, visibility: Frequency(id).visibility, locked: Frequency(id).locked, requests_open: Frequency(id).requests_open, max_speakers: Frequency(id).max_speakers, max_listeners: Frequency(id).max_listeners, speaker_count: count(m in FrequencyMember where m.frequency == id && m.role == "speaker"), listener_count: count(m in FrequencyMember where m.frequency == id && m.role == "listener"), participant_count: count(m in FrequencyMember where m.frequency == id), requires_payment: false, requires_vip_tier: false, replay_status: "none", host: WorkAuthorDTO{handle: Account(Frequency(id).host).handle, display_name: Account(Frequency(id).host).display_name, avatar_url: Account(Frequency(id).host).avatar_url, is_creator: Account(Frequency(id).host).is_creator, is_verified: Account(Frequency(id).host).is_verified, official_type: Account(Frequency(id).host).official_type, realm: Account(Frequency(id).host).realm, role: Account(Frequency(id).host).role_type, is_mutual: false}}, cohosts: list(WorkAuthorDTO{handle: Account(m.account).handle, display_name: Account(m.account).display_name, avatar_url: Account(m.account).avatar_url, is_creator: Account(m.account).is_creator, is_verified: Account(m.account).is_verified, official_type: Account(m.account).official_type, realm: Account(m.account).realm, role: Account(m.account).role_type, is_mutual: false} in FrequencyMember where m.frequency == id && m.role == "cohost"), requests: list(V2FrequencyRequestDTO{id: "" + r.id, reason: r.reason, created_at: "" + r.created, upvotes: 0, author: WorkAuthorDTO{handle: Account(r.account).handle, display_name: Account(r.account).display_name, avatar_url: Account(r.account).avatar_url, is_creator: Account(r.account).is_creator, is_verified: Account(r.account).is_verified, official_type: Account(r.account).official_type, realm: Account(r.account).realm, role: Account(r.account).role_type, is_mutual: false}} in FrequencyRequest where r.frequency == id by id), speakers: list(V2FrequencyParticipantDTO{joined_at: "" + m.joined, muted: m.muted, present: m.present, role: m.role, author: WorkAuthorDTO{handle: Account(m.account).handle, display_name: Account(m.account).display_name, avatar_url: Account(m.account).avatar_url, is_creator: Account(m.account).is_creator, is_verified: Account(m.account).is_verified, official_type: Account(m.account).official_type, realm: Account(m.account).realm, role: Account(m.account).role_type, is_mutual: false}} in FrequencyMember where m.frequency == id && (m.role == "speaker" || m.role == "host" || m.role == "cohost")), viewer: V2FrequencyViewerDTO{present: exists(m in FrequencyMember where m.frequency == id && m.account == me), muted: false, can_speak: exists(m in FrequencyMember where m.frequency == id && m.account == me && (m.role == "speaker" || m.role == "host")), can_listen: true, can_moderate: Frequency(id).host == me, can_end: Frequency(id).host == me, can_request_mic: !exists(m in FrequencyMember where m.frequency == id && m.account == me), blocked: false}}
+    action frequencyStart(frequency_id: text):
+        requires member
+        set Frequency(toInt(frequency_id)).state = "live"
+    action frequencyEnd(frequency_id: text):
+        requires member
+        let id = toInt(frequency_id)
+        check Frequency(id).host == max(a.id in Account where a.handle == actor) "not your frequency" status 403
+        set Frequency(id).state = "ended"
+        set Frequency(id).ended_at = now()
+    action frequencyCancel(frequency_id: text):
+        requires member
+        let id = toInt(frequency_id)
+        set Frequency(id).state = "cancelled"
+    action frequencyLeave(frequency_id: text):
+        requires member
+        let id = toInt(frequency_id)
+        let me = max(a.id in Account where a.handle == actor)
+        remove m in FrequencyMember where m.frequency == id && m.account == me
+    action frequencyTuneIn(frequency_id: text):
+        requires member
+        let id = toInt(frequency_id)
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(m in FrequencyMember where m.frequency == id && m.account == me):
+            add FrequencyMember { frequency: id, account: me, role: "listener", muted: false, present: true, joined: now() }
+    action frequencyEvents(id: int):
+        requires member
+        check exists(f in Frequency where f.id == id) "no such frequency" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(l in FrequencyListener where l.frequency == id && l.account == me):
+            add FrequencyListener { frequency: id, account: me, joined: now() }
+    action frequencyHeartbeat(frequency_id: text):
+        requires member
+        let id = toInt(frequency_id)
+        let me = max(a.id in Account where a.handle == actor)
+        for m in FrequencyMember where m.frequency == id && m.account == me:
+            set FrequencyMember(m.id).present = true
+    action frequencyLock(frequency_id: text, locked: bool):
+        requires member
+        set Frequency(toInt(frequency_id)).locked = locked
+    action frequencyRequestsOpen(frequency_id: text, open: bool):
+        requires member
+        set Frequency(toInt(frequency_id)).requests_open = open
+    action frequencySchedule(frequency_id: text, scheduled_at: text):
+        requires member
+        set Frequency(toInt(frequency_id)).scheduled_at = toInt(scheduled_at)
+    action frequencyRequestMic(frequency_id: text, reason: text?):
+        requires member
+        let id = toInt(frequency_id)
+        let me = max(a.id in Account where a.handle == actor)
+        add FrequencyRequest { frequency: id, account: me, reason: reason, created: now() }
+    action frequencyApprove(frequency_id: text, request_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let target = FrequencyRequest(toInt(request_id)).account
+        if !exists(m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target):
+            add FrequencyMember { frequency: toInt(frequency_id), account: target, role: "speaker", muted: false, present: true, joined: now() }
+        remove FrequencyRequest(toInt(request_id))
+    action frequencyDecline(frequency_id: text, request_id: text):
+        requires member
+        remove FrequencyRequest(toInt(request_id))
+    action frequencyUpvote(frequency_id: text, request_id: text):
+        requires member
+        let id = toInt(request_id)
+        check exists(r in FrequencyRequest where r.id == id) "no such request" status 404
+        set FrequencyRequest(id).created = FrequencyRequest(id).created
+    action frequencyWithdraw(frequency_id: text, request_id: text):
+        requires member
+        remove FrequencyRequest(toInt(request_id))
+    action frequencyMute(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let _h7 = do orText(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h7)
+        for m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target:
+            set FrequencyMember(m.id).muted = true
+    action frequencyUnmute(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let _h8 = do orText(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h8)
+        for m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target:
+            set FrequencyMember(m.id).muted = false
+    action frequencyRemove(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let _h9 = do orText(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h9)
+        remove m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target
+    action frequencyBlock(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let target = max(a.id in Account where a.handle == target_handle)
+        remove m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target
+    action frequencyUnblock(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let target = max(a.id in Account where a.handle == target_handle)
+        if !exists(m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target):
+            add FrequencyMember { frequency: toInt(frequency_id), account: target, role: "listener", muted: false, present: false, joined: now() }
+    action frequencyCohost(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let _h10 = do orText(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h10)
+        for m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target:
+            set FrequencyMember(m.id).role = "cohost"
+    action frequencyUncohost(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let _h11 = do orText(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h11)
+        for m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target:
+            set FrequencyMember(m.id).role = "listener"
+    action frequencyDemote(frequency_id: text, target_pial: text?, target_handle: text?, reason: text?):
+        requires member
+        let _h12 = do orText(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h12)
+        for m in FrequencyMember where m.frequency == toInt(frequency_id) && m.account == target:
+            set FrequencyMember(m.id).role = "listener"
+    action frequencyReport(frequency_id: text, reason: text, detail: text?, target_handle: text?):
+        requires member
+        check reason != "" "reason required"
+        let me = max(a.id in Account where a.handle == actor)
+        add FrequencyReport { frequency: toInt(frequency_id), reporter: me, reason: reason, detail: detail, target_handle: target_handle, created: now() }

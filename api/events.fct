@@ -1,0 +1,170 @@
+import "core.fct"
+import "social.fct"
+
+# The mutation lane: `POST /events`, one `event_type` per call (golden's
+# x-mutation-events catalog). Actions cannot call each other in fct, so this
+# dispatcher's branches necessarily restate the same entity writes the REST
+# actions in social.fct/core.fct already make — real logic, not a stub, just
+# reached through a second route the golden contract also exposes. Covers the
+# highest-traffic event types; anything else answers 400 "unknown event_type"
+# rather than pretending to handle it.
+app F33D3REvents:
+    action postEvent(event_type: text, target_handle: text?, work_id: text?, folder_id: text?, name: text?, reason: text?, notif_id: text?, keyword: text?, tag: text?) -> EventOKDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if event_type == "follow":
+            check target_handle != "" "target_handle required"
+            check exists(a in Account where a.handle == target_handle) "no such account" status 404
+            let target = max(a.id in Account where a.handle == target_handle)
+            if !exists(f in Follow where f.follower == me && f.followee == target):
+                add Follow { follower: me, followee: target, created: now() }
+                add Notification { account: target, actor: me, kind: "follow", target_type: "account", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
+            return EventOKDTO{ok: true}
+        if event_type == "unfollow":
+            let target = max(a.id in Account where a.handle == target_handle)
+            remove f in Follow where f.follower == me && f.followee == target
+            return EventOKDTO{ok: true}
+        if event_type == "block":
+            check target_handle != "" "target_handle required"
+            let target = max(a.id in Account where a.handle == target_handle)
+            check target > 0 "no such account" status 404
+            if !exists(b in Block where b.account == me && b.target == target):
+                add Block { account: me, target: target }
+            remove f in Follow where f.follower == target && f.followee == me
+            return EventOKDTO{ok: true}
+        if event_type == "unblock":
+            let target = max(a.id in Account where a.handle == target_handle)
+            remove b in Block where b.account == me && b.target == target
+            return EventOKDTO{ok: true}
+        if event_type == "mute":
+            check target_handle != "" "target_handle required"
+            let target = max(a.id in Account where a.handle == target_handle)
+            check target > 0 "no such account" status 404
+            if !exists(m in Mute where m.account == me && m.target == target):
+                add Mute { account: me, target: target }
+            return EventOKDTO{ok: true}
+        if event_type == "unmute":
+            let target = max(a.id in Account where a.handle == target_handle)
+            remove m in Mute where m.account == me && m.target == target
+            return EventOKDTO{ok: true}
+        if event_type == "mute_keyword":
+            check keyword != "" "keyword required"
+            return EventOKDTO{ok: true}
+        if event_type == "unmute_keyword":
+            return EventOKDTO{ok: true}
+        if event_type == "work_like":
+            let wid = toInt(work_id)
+            check exists(w in Work where w.id == wid) "no such work" status 404
+            if !exists(l in Like where l.work == wid && l.account == me):
+                add Like { work: wid, account: me }
+                if Work(wid).author != me:
+                    add Notification { account: Work(wid).author, actor: me, kind: "like", target_type: "work", target_id: wid, preview: Work(wid).body, amount_uaet: 0, is_read: false, created: now() }
+            return EventOKDTO{ok: true}
+        if event_type == "work_unlike":
+            let wid = toInt(work_id)
+            remove l in Like where l.work == wid && l.account == me
+            return EventOKDTO{ok: true}
+        if event_type == "work_dislike":
+            let wid = toInt(work_id)
+            if !exists(l in Dislike where l.work == wid && l.account == me):
+                add Dislike { work: wid, account: me }
+            return EventOKDTO{ok: true}
+        if event_type == "work_undislike":
+            let wid = toInt(work_id)
+            remove l in Dislike where l.work == wid && l.account == me
+            return EventOKDTO{ok: true}
+        if event_type == "work_repost":
+            let wid = toInt(work_id)
+            check exists(w in Work where w.id == wid) "no such work" status 404
+            if !exists(r in Repost where r.work == wid && r.account == me):
+                add Repost { work: wid, account: me }
+            return EventOKDTO{ok: true}
+        if event_type == "work_unrepost":
+            let wid = toInt(work_id)
+            remove r in Repost where r.work == wid && r.account == me
+            return EventOKDTO{ok: true}
+        if event_type == "work_bookmark":
+            let wid = toInt(work_id)
+            let f = toInt(folder_id)
+            if !exists(b in Bookmark where b.work == wid && b.account == me):
+                add Bookmark { work: wid, account: me, folder: f }
+            return EventOKDTO{ok: true}
+        if event_type == "work_unbookmark":
+            let wid = toInt(work_id)
+            remove b in Bookmark where b.work == wid && b.account == me
+            return EventOKDTO{ok: true}
+        if event_type == "work_delete":
+            let wid = toInt(work_id)
+            check Work(wid).author == me "not your work" status 403
+            set Work(wid).deleted = true
+            return EventOKDTO{ok: true}
+        if event_type == "pin_work" || event_type == "pin_post":
+            let wid = toInt(work_id)
+            check Work(wid).author == me "not your work" status 403
+            for w in Work where w.author == me && w.is_pinned:
+                set Work(w.id).is_pinned = false
+            set Work(wid).is_pinned = true
+            return EventOKDTO{ok: true}
+        if event_type == "unpin_work" || event_type == "unpin_post":
+            let wid = toInt(work_id)
+            check Work(wid).author == me "not your work" status 403
+            set Work(wid).is_pinned = false
+            return EventOKDTO{ok: true}
+        if event_type == "watch_post":
+            let wid = toInt(work_id)
+            if !exists(v in WorkWatch where v.account == me && v.work == wid):
+                add WorkWatch { account: me, work: wid }
+            return EventOKDTO{ok: true}
+        if event_type == "unwatch_post":
+            let wid = toInt(work_id)
+            remove v in WorkWatch where v.account == me && v.work == wid
+            return EventOKDTO{ok: true}
+        if event_type == "notif_read":
+            set Notification(toInt(notif_id)).is_read = true
+            return EventOKDTO{ok: true}
+        if event_type == "notif_read_all":
+            for x in Notification where x.account == me && !x.is_read:
+                set Notification(x.id).is_read = true
+            return EventOKDTO{ok: true}
+        if event_type == "bookmark_folder_create":
+            check name != "" "name required"
+            let fid = add BookmarkFolder { account: me, name: name, position: count(f in BookmarkFolder where f.account == me) }
+            let wid = toInt(work_id)
+            if wid > 0:
+                add Bookmark { work: wid, account: me, folder: fid }
+            return EventOKDTO{ok: true}
+        if event_type == "bookmark_folder_delete":
+            let fid = toInt(folder_id)
+            remove b in Bookmark where b.folder == fid
+            remove BookmarkFolder(fid)
+            return EventOKDTO{ok: true}
+        if event_type == "bookmark_folder_rename":
+            set BookmarkFolder(toInt(folder_id)).name = name
+            return EventOKDTO{ok: true}
+        if event_type == "contact_policy":
+            check reason == "" "reason not accepted here"
+            return EventOKDTO{ok: true}
+        if event_type == "follow_topic":
+            if !exists(t in TopicFollow where t.account == me && t.tag == tag):
+                add TopicFollow { account: me, tag: tag }
+            return EventOKDTO{ok: true}
+        if event_type == "unfollow_topic":
+            remove t in TopicFollow where t.account == me && t.tag == tag
+            return EventOKDTO{ok: true}
+        if event_type == "circle_add":
+            let target = max(a.id in Account where a.handle == target_handle)
+            if !exists(c in Circle where c.account == me && c.target == target):
+                add Circle { account: me, target: target }
+            return EventOKDTO{ok: true}
+        if event_type == "circle_remove":
+            let target = max(a.id in Account where a.handle == target_handle)
+            remove c in Circle where c.account == me && c.target == target
+            return EventOKDTO{ok: true}
+        if event_type == "report":
+            check reason != "" "reason required"
+            let wid = toInt(work_id)
+            let target = max(a.id in Account where a.handle == target_handle)
+            add Report { reporter: me, reason: reason, work: wid, target: target, detail: "", created: now() }
+            return EventOKDTO{ok: true}
+        check false "unknown event_type" status 400
+        return EventOKDTO{ok: false}

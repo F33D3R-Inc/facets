@@ -1,0 +1,91 @@
+import "entities.fct"
+import "core.fct"
+
+app F33D3RMusic:
+    action musicFeed(genre: text?, cursor: text?, limit: int?) -> [TrackDTO]:
+        requires member
+        let n = do pageSize(limit, 20, 50)
+        let start = do cursorStart(cursor)
+        return list(TrackDTO{id: "" + t.id, title: t.title, description: t.description, genre: t.genre, audio_url: t.audio_url, cover_url: t.cover_url, duration_secs: t.duration_secs, price_cents: t.price_cents, is_free: t.is_free, play_count: t.play_count, like_count: count(l in TrackLike where l.track == t.id), tags: [], created_at: "" + t.created, author: WorkAuthorDTO{handle: Account(t.author).handle, display_name: Account(t.author).display_name, avatar_url: Account(t.author).avatar_url, is_creator: Account(t.author).is_creator, is_verified: Account(t.author).is_verified, official_type: Account(t.author).official_type, realm: Account(t.author).realm, role: Account(t.author).role_type, is_mutual: false}} in Track where t.id < start by id desc limit n)
+    action myTracks() -> V2MyTracksDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return V2MyTracksDTO{artist_stats: V2ArtistStatsDTO{total_tracks: count(t in Track where t.author == me), total_plays: sum(t.play_count in Track where t.author == me), total_likes: count(l in TrackLike where exists(t in Track where t.id == l.track && t.author == me))}, tracks: list(TrackDTO{id: "" + t.id, title: t.title, description: t.description, genre: t.genre, audio_url: t.audio_url, cover_url: t.cover_url, duration_secs: t.duration_secs, price_cents: t.price_cents, is_free: t.is_free, play_count: t.play_count, like_count: count(l in TrackLike where l.track == t.id), tags: [], created_at: "" + t.created, author: WorkAuthorDTO{handle: Account(me).handle, display_name: Account(me).display_name, avatar_url: Account(me).avatar_url, is_creator: Account(me).is_creator, is_verified: Account(me).is_verified, official_type: Account(me).official_type, realm: Account(me).realm, role: Account(me).role_type, is_mutual: false}} in Track where t.author == me by id desc)}
+    action createTrack(title: text, description: text?, genre: text?, audio_url: text?, cover_url: text?, duration_secs: int?, price_cents: int?, is_free: bool?) -> TrackDTO:
+        requires member
+        check title != "" "a title is required"
+        let me = max(a.id in Account where a.handle == actor)
+        let tid = add Track { author: me, title: title, description: description, genre: genre, audio_url: audio_url, cover_url: cover_url, duration_secs: duration_secs, price_cents: price_cents, is_free: is_free, play_count: 0, created: now() }
+        return TrackDTO{id: "" + tid, title: title, description: description, genre: genre, audio_url: audio_url, cover_url: cover_url, duration_secs: duration_secs, price_cents: price_cents, is_free: is_free, play_count: 0, like_count: 0, tags: [], created_at: "" + now(), author: WorkAuthorDTO{handle: Account(me).handle, display_name: Account(me).display_name, avatar_url: Account(me).avatar_url, is_creator: Account(me).is_creator, is_verified: Account(me).is_verified, official_type: Account(me).official_type, realm: Account(me).realm, role: Account(me).role_type, is_mutual: false}}
+    action getTrack(id: int) -> TrackDTO:
+        check exists(t in Track where t.id == id) "no such track" status 404
+        return TrackDTO{id: "" + id, title: Track(id).title, description: Track(id).description, genre: Track(id).genre, audio_url: Track(id).audio_url, cover_url: Track(id).cover_url, duration_secs: Track(id).duration_secs, price_cents: Track(id).price_cents, is_free: Track(id).is_free, play_count: Track(id).play_count, like_count: count(l in TrackLike where l.track == id), tags: [], created_at: "" + Track(id).created, author: WorkAuthorDTO{handle: Account(Track(id).author).handle, display_name: Account(Track(id).author).display_name, avatar_url: Account(Track(id).author).avatar_url, is_creator: Account(Track(id).author).is_creator, is_verified: Account(Track(id).author).is_verified, official_type: Account(Track(id).author).official_type, realm: Account(Track(id).author).realm, role: Account(Track(id).author).role_type, is_mutual: false}}
+    action likeTrack(id: int) -> V2TrackLikeDTO:
+        requires member
+        check exists(t in Track where t.id == id) "no such track" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        if exists(l in TrackLike where l.track == id && l.account == me):
+            remove l in TrackLike where l.track == id && l.account == me
+        else:
+            add TrackLike { track: id, account: me }
+        return V2TrackLikeDTO{liked: exists(l in TrackLike where l.track == id && l.account == me), like_count: count(l in TrackLike where l.track == id)}
+    action playTrack(id: int, event_type: text?, position_secs: text?, duration_secs: text?, session_id: text?):
+        check exists(t in Track where t.id == id) "no such track" status 404
+        set Track(id).play_count = Track(id).play_count + 1
+
+    action visionTray() -> V2VisionTrayDTO:
+        requires member
+        return V2VisionTrayDTO{own: V2VisionRingDTO{count: 0, is_live: false, latest_at: "" + now(), state: "none", unseen_count: 0, visions: [], author: WorkAuthorDTO{handle: actor, display_name: "", avatar_url: "", is_creator: false, is_verified: false, official_type: "", realm: 0, role: "", is_mutual: false}}, rings: []}
+    action createVision(body: text, content_type: text?, media_url: text?, audience: text?, is_nsfw: bool?, allow_replies: bool?, shared_work_id: text?, ttl_hours: int?, source: text?, poll_options: text?, artboard_align: text?, artboard_background: text?, artboard_type_scale: text?, artboard_typeface: text?) -> V2VisionCreatedDTO:
+        requires member
+        check body != "" || media_url != "" "say something"
+        let me = max(a.id in Account where a.handle == actor)
+        let hrs = do ttlOr(ttl_hours)
+        let _h401 = do orTextV(audience, "public")
+        let vid = add Vision { author: me, body: body, content_type: content_type, media_url: media_url, audience: _h401, is_nsfw: is_nsfw, allow_replies: allow_replies, shared_work_id: toInt(shared_work_id), created: now(), expires: now() + hrs * 3600 }
+        return V2VisionCreatedDTO{vision_id: "" + vid}
+    proc ttlOr(v: int) -> int:
+        if v <= 0:
+            return 24
+        return v
+    proc orTextV(v: text, fallback: text) -> text:
+        if v == "":
+            return fallback
+        return v
+    action deleteVision(id: int):
+        requires member
+        check Vision(id).author == max(a.id in Account where a.handle == actor) "not your vision" status 403
+        remove Vision(id)
+    action replyToVision(id: int, body: text):
+        requires member
+        check exists(v in Vision where v.id == id) "no such vision" status 404
+        check body != "" "say something"
+        let me = max(a.id in Account where a.handle == actor)
+        add VisionReply { vision: id, account: me, body: body, created: now() }
+    action viewVision(id: int):
+        requires member
+        check exists(v in Vision where v.id == id) "no such vision" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(x in VisionView where x.vision == id && x.account == me):
+            add VisionView { vision: id, account: me, created: now() }
+    action visionViewers(id: int) -> V2VisionViewersDTO:
+        requires member
+        check Vision(id).author == max(a.id in Account where a.handle == actor) "not your vision" status 403
+        return V2VisionViewersDTO{count: count(v in VisionView where v.vision == id), viewers: list(V2AccountDTO{handle: Account(v.account).handle, display_name: Account(v.account).display_name, avatar_url: Account(v.account).avatar_url, realm: Account(v.account).realm, realm_name: "aethyr", role: Account(v.account).role_type, xp: Account(v.account).xp, online: false, active_recently: true, is_creator: Account(v.account).is_creator, is_verified: Account(v.account).is_verified, is_private: Account(v.account).is_private, post_count: 0, follower_count: 0, following_count: 0} in VisionView where v.vision == id)}
+    action voteVision(id: int, option_idx: int):
+        requires member
+        check exists(v in Vision where v.id == id) "no such vision" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(x in VisionVote where x.vision == id && x.account == me):
+            add VisionVote { vision: id, account: me, option_idx: option_idx }
+    action muteVisions(handle: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let target = max(a.id in Account where a.handle == handle)
+        if !exists(m in VisionMute where m.account == me && m.target == target):
+            add VisionMute { account: me, target: target }
+    action unmuteVisions(handle: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let target = max(a.id in Account where a.handle == handle)
+        remove m in VisionMute where m.account == me && m.target == target

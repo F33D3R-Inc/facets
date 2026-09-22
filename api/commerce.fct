@@ -1,0 +1,113 @@
+import "entities.fct"
+import "core.fct"
+import "live.fct"
+
+app F33D3RCommerce:
+    action library() -> [ThemisPurchaseDTO]:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return list(ThemisPurchaseDTO{id: "" + p.id, listing_id: "" + p.listing, listing_title: Listing(p.listing).title, status: p.status, currency: Listing(p.listing).currency, expected_sats: p.expected_sats, content_hash: "", content_url: ""} in Purchase where p.buyer == me by id desc)
+    action marketplace(cursor: text?) -> [PublicListingDTO]:
+        requires member
+        let n = do pageSize(0, 20, 50)
+        let start = do cursorStart(cursor)
+        return list(PublicListingDTO{id: "" + l.id, title: l.title, description: l.description, price_sats: l.price_sats, price_xrp_drops: 0, payment_currency: l.currency, is_active: l.is_active, visibility: "public", created_at: "" + l.created} in Listing where l.is_active && l.id < start by id desc limit n)
+    action createListing(title: text, description: text?, price_sats: int, content_url: text?, content_hash: text?, cek_encrypted: text?, visibility: text?):
+        requires member
+        check title != "" "a title is required"
+        let me = max(a.id in Account where a.handle == actor)
+        add Listing { seller: me, title: title, description: description, price_sats: price_sats, currency: "sats", is_active: true, created: now() }
+    action editListing(listing_id: text, is_active: bool?, title: text?, description: text?, price_sats: int?):
+        requires member
+        let id = toInt(listing_id)
+        check Listing(id).seller == max(a.id in Account where a.handle == actor) "not your listing" status 403
+        set Listing(id).is_active = is_active
+        set Listing(id).title = title
+        set Listing(id).description = description
+    action deleteListing(listing_id: text):
+        requires member
+        let id = toInt(listing_id)
+        check Listing(id).seller == max(a.id in Account where a.handle == actor) "not your listing" status 403
+        set Listing(id).is_active = false
+    action initiatePurchase(listing_id: text, payment_currency: text):
+        requires member
+        let id = toInt(listing_id)
+        check exists(l in Listing where l.id == id && l.is_active) "no such listing" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        add Purchase { listing: id, buyer: me, status: "pending", expected_sats: Listing(id).price_sats, created: now() }
+
+    action shopStatus() -> V2ShopStatusDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(s in Shop where s.owner == me):
+            return V2ShopStatusDTO{exists: false, is_active: false, btc_address: "", xrp_address: ""}
+        let id = max(s.id in Shop where s.owner == me)
+        return V2ShopStatusDTO{exists: true, is_active: Shop(id).is_enabled, btc_address: Shop(id).btc_address, xrp_address: Shop(id).xrp_address}
+    action openShop(btc_address: text):
+        requires member
+        check btc_address != "" "a btc address is required"
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(s in Shop where s.owner == me):
+            add Shop { owner: me, is_enabled: true, btc_address: btc_address, xrp_address: "", created: now() }
+        else:
+            set Shop(max(s.id in Shop where s.owner == me)).is_enabled = true
+    action closeShop():
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(s in Shop where s.owner == me) "no shop to close" status 404
+        set Shop(max(s.id in Shop where s.owner == me)).is_enabled = false
+    action getShop(handle: text) -> V2ShopDTO:
+        requires member
+        check exists(a in Account where a.handle == handle) "no such user" status 404
+        let owner = max(a.id in Account where a.handle == handle)
+        check exists(s in Shop where s.owner == owner) "no such shop" status 404
+        let sid = max(s.id in Shop where s.owner == owner)
+        let me = max(a.id in Account where a.handle == actor)
+        return V2ShopDTO{handle: handle, is_enabled: Shop(sid).is_enabled, is_owner: owner == me, is_subscribed: exists(x in ShopSubscription where x.shop == sid && x.account == me), listings: list(PublicListingDTO{id: "" + l.id, title: l.title, description: l.description, price_sats: l.price_sats, price_xrp_drops: 0, payment_currency: l.currency, is_active: l.is_active, visibility: "public", created_at: "" + l.created} in Listing where l.seller == owner && l.is_active), plans: list(V2ShopPlanDTO{id: "" + p.id, name: p.name, description: p.description, price_aet: p.price_aet, price_display: "" + p.price_aet} in ShopPlan where p.shop == sid)}
+
+    action transparencyNotes(limit: int?, offset: int?) -> V2TransparencyNotesDTO:
+        let n = do pageSize(limit, 20, 100)
+        let off = do offsetOrM(offset)
+        return V2TransparencyNotesDTO{total: count(t in TransparencyNote where t.id > 0), limit: n, offset: off, items: list(V2TransparencyNoteDTO{id: "" + t.id, work_id: "" + t.work, author_token: t.author_token, note_type: t.note_type, body: t.body, factor: 0, intercept: 0, helpful_count: t.helpful_count, not_helpful_count: t.not_helpful_count, status: t.status, created_at: "" + t.created} in TransparencyNote where t.id > off by id limit n)}
+    action transparencyRatings(limit: int?, offset: int?) -> V2TransparencyRatingsDTO:
+        let n = do pageSize(limit, 20, 100)
+        let off = do offsetOrM(offset)
+        return V2TransparencyRatingsDTO{total: count(r in TransparencyRating where r.id > 0), limit: n, offset: off, items: list(V2TransparencyRatingDTO{note_id: "" + r.note, rater_token: r.rater_token, rating: r.rating, created_at: "" + r.created} in TransparencyRating where r.id > off by id limit n)}
+    proc orTextCom(v: text, fallback: text) -> text:
+        if v == "":
+            return fallback
+        return v
+    proc offsetOrM(v: int) -> int:
+        if v < 0:
+            return 0
+        return v
+
+    action frequencyTicket(id: text, price_aet: text?):
+        requires member
+        let fid = toInt(id)
+        check exists(f in Frequency where f.id == fid) "no such frequency" status 404
+        check Frequency(fid).host == max(a.id in Account where a.handle == actor) "not your frequency" status 403
+        let priceText = do orTextCom(price_aet, "0")
+        add FrequencyTicketOffer { frequency: fid, price_aet: toInt(priceText), created: now() }
+    action frequencyTicketPurchase(id: text) -> V2FrequencyTicketPurchaseDTO:
+        requires member
+        let fid = toInt(id)
+        check exists(f in Frequency where f.id == fid) "no such frequency" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let tid = add FrequencyTicket { frequency: fid, account: me, price_aet: 0, created: now() }
+        return V2FrequencyTicketPurchaseDTO{purchase_id: "" + tid, ain_soph_tx_id: "" + tid, amount_aet: 0}
+    action frequencyTip(id: text, amount_aet: text, message: text?) -> V2FrequencyTipReceiptDTO:
+        requires member
+        let fid = toInt(id)
+        check exists(f in Frequency where f.id == fid) "no such frequency" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let amt = toInt(amount_aet)
+        add WalletEntry { account: me, kind: "frequency_tip", amount_uaet: 0 - amt, counterparty: Frequency(fid).host, created: now() }
+        add WalletEntry { account: Frequency(fid).host, kind: "frequency_tip_received", amount_uaet: amt, counterparty: me, created: now() }
+        return V2FrequencyTipReceiptDTO{tip_id: "" + fid, ain_soph_tx_id: "" + fid, amount_aet: 0}
+    action frequencyVipTier(id: text, required_plan_id: text?):
+        requires member
+        let fid = toInt(id)
+        check exists(f in Frequency where f.id == fid) "no such frequency" status 404
+        check Frequency(fid).host == max(a.id in Account where a.handle == actor) "not your frequency" status 403
+        set Frequency(fid).description = Frequency(fid).description

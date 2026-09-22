@@ -1,0 +1,129 @@
+import "entities.fct"
+import "core.fct"
+
+app F33D3RMessaging:
+    proc maxUsesOr(v: int) -> int:
+        if v <= 0:
+            return 999999
+        return v
+
+    policy inConversation(id: int):
+        exists(m in ConversationMember where m.conversation == id && m.account == max(a.id in Account where a.handle == actor))
+
+    action listConversations(cursor: text?, limit: int?) -> [V2ConversationDTO]:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let n = do pageSize(limit, 20, 50)
+        return list(V2ConversationDTO{id: "" + c.id, is_group: c.is_group, title: c.title, mode: c.mode, message_ttl_seconds: c.message_ttl_seconds, last_at: "" + c.last_at, unread_count: max(m2.unread in ConversationMember where m2.conversation == c.id && m2.account == me), preview: ""} in Conversation where exists(m in ConversationMember where m.conversation == c.id && m.account == me) by last_at desc limit n)
+    action conversationChanges(since: text) -> [V2ConversationDTO]:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let sinceT = toInt(since)
+        return list(V2ConversationDTO{id: "" + c.id, is_group: c.is_group, title: c.title, mode: c.mode, message_ttl_seconds: c.message_ttl_seconds, last_at: "" + c.last_at, unread_count: max(m2.unread in ConversationMember where m2.conversation == c.id && m2.account == me), preview: ""} in Conversation where c.last_at > sinceT && exists(m in ConversationMember where m.conversation == c.id && m.account == me) by last_at desc)
+    action startConversation(handle: text?, body: text, number: text?, pending_id: text?) -> V2ConversationStartDTO:
+        requires member
+        check body != "" "say something"
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(a in Account where a.handle == handle) "no such user" status 404
+        let other = max(a.id in Account where a.handle == handle)
+        let cid = add Conversation { is_group: false, title: "", mode: "direct", message_ttl_seconds: 0, created: now(), last_at: now() }
+        add ConversationMember { conversation: cid, account: me, unread: 0, joined: now() }
+        add ConversationMember { conversation: cid, account: other, unread: 1, joined: now() }
+        add Message { conversation: cid, sender: me, body: body, kind: "text", reply_to: 0, deleted: false, edited_at: 0, created: now() }
+        return V2ConversationStartDTO{state: "created", pending_id: pending_id, conversation: V2ConversationDTO{id: "" + cid, is_group: false, title: "", mode: "direct", message_ttl_seconds: 0, last_at: "" + now(), unread_count: 0, preview: body}}
+    action getThread(id: int, cursor: text?, limit: int?) -> V2ThreadDTO:
+        requires member
+        requires inConversation(id)
+        let me = max(a.id in Account where a.handle == actor)
+        let n = do pageSize(limit, 30, 100)
+        let start = do cursorStart(cursor)
+        return V2ThreadDTO{conversation: V2ConversationDTO{id: "" + id, is_group: Conversation(id).is_group, title: Conversation(id).title, mode: Conversation(id).mode, message_ttl_seconds: Conversation(id).message_ttl_seconds, last_at: "" + Conversation(id).last_at, unread_count: 0, preview: ""}, members: list(V2AccountDTO{handle: Account(m.account).handle, display_name: Account(m.account).display_name, avatar_url: Account(m.account).avatar_url, realm: Account(m.account).realm, realm_name: "aethyr", role: Account(m.account).role_type, xp: Account(m.account).xp, online: false, active_recently: true, is_creator: Account(m.account).is_creator, is_verified: Account(m.account).is_verified, is_private: Account(m.account).is_private, post_count: 0, follower_count: 0, following_count: 0} in ConversationMember where m.conversation == id by id), messages: list(V2MessageDTO{id: "" + msg.id, conversation_id: "" + id, sender: V2AccountDTO{handle: Account(msg.sender).handle, display_name: Account(msg.sender).display_name, avatar_url: Account(msg.sender).avatar_url, realm: Account(msg.sender).realm, realm_name: "aethyr", role: Account(msg.sender).role_type, xp: Account(msg.sender).xp, online: false, active_recently: true, is_creator: Account(msg.sender).is_creator, is_verified: Account(msg.sender).is_verified, is_private: Account(msg.sender).is_private, post_count: 0, follower_count: 0, following_count: 0}, body: msg.body, kind: msg.kind, mode: Conversation(id).mode, created_at: "" + msg.created, is_mine: msg.sender == me, deleted: msg.deleted, reply_to_id: "" + msg.reply_to} in Message where msg.conversation == id && msg.id < start by id desc limit n)}
+    action sendMessage(id: int, body: text, reply_to: text?) -> V2MessageDTO:
+        requires member
+        requires inConversation(id)
+        check body != "" "say something"
+        let me = max(a.id in Account where a.handle == actor)
+        let rt = toInt(reply_to)
+        let mid = add Message { conversation: id, sender: me, body: body, kind: "text", reply_to: rt, deleted: false, edited_at: 0, created: now() }
+        set Conversation(id).last_at = now()
+        for m in ConversationMember where m.conversation == id && m.account != me:
+            set ConversationMember(m.id).unread = m.unread + 1
+        return V2MessageDTO{id: "" + mid, conversation_id: "" + id, sender: V2AccountDTO{handle: Account(me).handle, display_name: Account(me).display_name, avatar_url: Account(me).avatar_url, realm: Account(me).realm, realm_name: "aethyr", role: Account(me).role_type, xp: Account(me).xp, online: true, active_recently: true, is_creator: Account(me).is_creator, is_verified: Account(me).is_verified, is_private: Account(me).is_private, post_count: 0, follower_count: 0, following_count: 0}, body: body, kind: "text", mode: Conversation(id).mode, created_at: "" + now(), is_mine: true, deleted: false, reply_to_id: reply_to}
+    action markRead(id: int):
+        requires member
+        requires inConversation(id)
+        let me = max(a.id in Account where a.handle == actor)
+        for m in ConversationMember where m.conversation == id && m.account == me:
+            set ConversationMember(m.id).unread = 0
+    action typing(id: int):
+        requires member
+        requires inConversation(id)
+        let me = max(a.id in Account where a.handle == actor)
+        for m in ConversationMember where m.conversation == id && m.account == me:
+            set ConversationMember(m.id).last_typed = now()
+    action setTTL(id: int, ttl_seconds: int):
+        requires member
+        requires inConversation(id)
+        set Conversation(id).message_ttl_seconds = ttl_seconds
+    action callSignal(id: int, kind: text, media: text?, reason: text?) -> CallDTO:
+        requires member
+        requires inConversation(id)
+        check kind != "" "kind is required"
+        let me = max(a.id in Account where a.handle == actor)
+        add CallSignal { conversation: id, from_account: me, kind: kind, media: media, reason: reason, created: now() }
+        return CallDTO{call_id: "" + id, conversation_id: "" + id, media: media, role: "caller", state: kind, peer: ThreadMemberDTO{account: "" + me, handle: Account(me).handle, display: Account(me).display_name, avatar: Account(me).avatar_url}}
+
+    action getDMSettings(handle: text?) -> V2DMSettingsDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(d in DMSettings where d.account == me):
+            return V2DMSettingsDTO{access_level: "everyone", charge_mode: "none", price_aet: "0", vip_min_price_aet: "0"}
+        let d = max(x.id in DMSettings where x.account == me)
+        return V2DMSettingsDTO{access_level: DMSettings(d).access_level, charge_mode: DMSettings(d).charge_mode, price_aet: DMSettings(d).price_aet, vip_min_price_aet: DMSettings(d).vip_min_price_aet}
+    action setDMSettings(access_level: text, charge_mode: text?, price_aet: text?, vip_min_price_aet: text?) -> V2DMSettingsDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if exists(d in DMSettings where d.account == me):
+            let d = max(x.id in DMSettings where x.account == me)
+            set DMSettings(d).access_level = access_level
+            set DMSettings(d).charge_mode = charge_mode
+            set DMSettings(d).price_aet = price_aet
+            set DMSettings(d).vip_min_price_aet = vip_min_price_aet
+        else:
+            add DMSettings { account: me, access_level: access_level, charge_mode: charge_mode, price_aet: price_aet, vip_min_price_aet: vip_min_price_aet }
+        return V2DMSettingsDTO{access_level: access_level, charge_mode: charge_mode, price_aet: price_aet, vip_min_price_aet: vip_min_price_aet}
+
+    action getInvites(id: int) -> V2InviteListDTO:
+        requires member
+        requires inConversation(id)
+        return V2InviteListDTO{conversation_id: "" + id, invites: list(V2InviteDTO{token: i.token, url: "https://f33d3r.com/join/" + i.token, max_uses: i.max_uses, uses: i.uses, state: "active", created_at: "" + i.created, expires_at: "" + i.expires} in ConversationInvite where i.conversation == id by id desc)}
+    action createInvite(id: int, expires_in: int?, max_uses: int?) -> V2InviteDTO:
+        requires member
+        requires inConversation(id)
+        let ttl = do offsetOr(expires_in)
+        let t = do tokenText(20)
+        let m = do maxUsesOr(max_uses)
+        let iid = add ConversationInvite { conversation: id, token: t, max_uses: m, uses: 0, expires: now() + ttl, created: now() }
+        return V2InviteDTO{token: t, url: "https://f33d3r.com/join/" + t, max_uses: m, uses: 0, state: "active", created_at: "" + now(), expires_at: "" + (now() + ttl)}
+    action revokeInvite(token: text):
+        requires member
+        remove i in ConversationInvite where i.token == token
+    action previewJoin(token: text) -> V2JoinPreviewDTO:
+        requires member
+        check exists(i in ConversationInvite where i.token == token) "no such invite" status 401
+        let iid = max(i.id in ConversationInvite where i.token == token)
+        let cid = ConversationInvite(iid).conversation
+        let me = max(a.id in Account where a.handle == actor)
+        return V2JoinPreviewDTO{token: token, title: Conversation(cid).title, member_count: count(m in ConversationMember where m.conversation == cid), already_member: exists(m in ConversationMember where m.conversation == cid && m.account == me), conversation_id: "" + cid, sealed: false, state: "open", faces: []}
+    action join(token: text) -> V2JoinResultDTO:
+        requires member
+        let t = now()
+        check exists(i in ConversationInvite where i.token == token && i.expires > t) "no such invite" status 401
+        let iid = max(i.id in ConversationInvite where i.token == token)
+        let cid = ConversationInvite(iid).conversation
+        let me = max(a.id in Account where a.handle == actor)
+        let already = exists(m in ConversationMember where m.conversation == cid && m.account == me)
+        if !already:
+            add ConversationMember { conversation: cid, account: me, unread: 0, joined: now() }
+            set ConversationInvite(iid).uses = ConversationInvite(iid).uses + 1
+        return V2JoinResultDTO{joined: !already, admitted: true, already_member: already, conversation_id: "" + cid, preview: V2JoinPreviewDTO{token: token, title: Conversation(cid).title, member_count: count(m in ConversationMember where m.conversation == cid), already_member: true, conversation_id: "" + cid, sealed: false, state: "open", faces: []}}

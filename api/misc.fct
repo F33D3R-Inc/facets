@@ -1,0 +1,106 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+
+app F33D3RMisc:
+    action wallet() -> V2WalletDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return V2WalletDTO{balance_uaet: sum(w.amount_uaet in WalletEntry where w.account == me), pending_uaet: 0, entries: list(V2WalletEntryDTO{id: "" + w.id, kind: w.kind, amount_uaet: w.amount_uaet, created_at: "" + w.created, counterparty_handle: Account(w.counterparty).handle} in WalletEntry where w.account == me by id desc limit 50)}
+    action walletSend(target_handle: text, amount: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(a in Account where a.handle == target_handle) "no such account" status 404
+        let target = max(a.id in Account where a.handle == target_handle)
+        let amt = toInt(amount)
+        check sum(w.amount_uaet in WalletEntry where w.account == me) >= amt "insufficient balance" status 400
+        add WalletEntry { account: me, kind: "send", amount_uaet: 0 - amt, counterparty: target, created: now() }
+        add WalletEntry { account: target, kind: "receive", amount_uaet: amt, counterparty: me, created: now() }
+    action tip(target_handle: text, amount_aet: text?, work_id: text?, stream_id: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(a in Account where a.handle == target_handle) "no such account" status 404
+        let target = max(a.id in Account where a.handle == target_handle)
+        let _h301 = do orTextM(amount_aet, "0")
+        let amt = toInt(_h301)
+        add WalletEntry { account: me, kind: "tip_sent", amount_uaet: 0 - amt, counterparty: target, created: now() }
+        add WalletEntry { account: target, kind: "tip_received", amount_uaet: amt, counterparty: me, created: now() }
+        let wid = toInt(work_id)
+        if wid > 0:
+            add Notification { account: target, actor: me, kind: "tip", target_type: "work", target_id: wid, preview: "", amount_uaet: amt, is_read: false, created: now() }
+
+    proc orTextM(v: text, fallback: text) -> text:
+        if v == "":
+            return fallback
+        return v
+
+    action achievements() -> V2AchievementsDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return V2AchievementsDTO{total_count: count(a in Achievement where a.account == me), earned_count: count(a in Achievement where a.account == me && a.earned > 0), groups: [], xp_total: Account(me).xp, xp_percent: 0, xp_to_next: 100, current_tier: "bronze", next_tier: "silver", in_top10: false, my_rank: 0, my_xp_today: 0, country_name: "", daily_global_board: [], all_time_global_board: []}
+    action analytics(period: text?, sort: text?) -> V2AnalyticsDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let days = do periodDays(period)
+        let _h302 = do orTextM(sort, "top")
+        return V2AnalyticsDTO{period_days: days, astraon_online: false, posts: [], sort_by: _h302}
+    proc periodDays(v: text) -> int:
+        if v == "7":
+            return 7
+        if v == "90":
+            return 90
+        if v == "all":
+            return 3650
+        return 30
+
+    action contactRequests() -> V2ContactRequestsDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return V2ContactRequestsDTO{requests: list(V2ContactRequestDTO{id: "" + r.id, note: r.note, created_at: "" + r.created, handle: Account(r.requester).handle, display: Account(r.requester).display_name, avatar: Account(r.requester).avatar_url} in ContactRequest where r.account == me by id desc)}
+    action decideContactRequest(id: int, decision: text):
+        requires member
+        check decision == "accept" || decision == "decline" "unknown decision"
+        let me = max(a.id in Account where a.handle == actor)
+        check ContactRequest(id).account == me "not your request" status 403
+        if decision == "accept":
+            add Follow { follower: me, followee: ContactRequest(id).requester, created: now() }
+        remove ContactRequest(id)
+
+    action creatorFans() -> V2CreatorFansDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).is_creator "only a creator has fans" status 403
+        return V2CreatorFansDTO{count: count(f in Follow where f.followee == me), fans: [], attendance_available: false, commerce_available: false}
+
+    action listWorkLists() -> [V2ListDTO]:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return list(V2ListDTO{id: "" + l.id, name: l.name, description: l.description, is_public: l.is_public, created_at: "" + l.created, owner_handle: actor, member_count: count(m in ListMember where m.list == l.id)} in WorkList where l.owner == me by id desc)
+    action getWorkList(id: int, cursor: text?, limit: int?) -> V2ListDetailDTO:
+        requires member
+        check exists(l in WorkList where l.id == id) "no such list" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        return V2ListDetailDTO{list: V2ListDTO{id: "" + id, name: WorkList(id).name, description: WorkList(id).description, is_public: WorkList(id).is_public, created_at: "" + WorkList(id).created, owner_handle: Account(WorkList(id).owner).handle, member_count: count(m in ListMember where m.list == id)}, members: list(V2AccountDTO{handle: Account(m.account).handle, display_name: Account(m.account).display_name, avatar_url: Account(m.account).avatar_url, realm: Account(m.account).realm, realm_name: "aethyr", role: Account(m.account).role_type, xp: Account(m.account).xp, online: false, active_recently: true, is_creator: Account(m.account).is_creator, is_verified: Account(m.account).is_verified, is_private: Account(m.account).is_private, post_count: 0, follower_count: 0, following_count: 0} in ListMember where m.list == id), works: []}
+
+    action listPacks() -> [StarterPackDTO]:
+        return list(StarterPackDTO{id: "" + p.id, slug: p.slug, title: p.title, description: p.description, member_count: count(m in StarterPackMember where m.pack == p.id), viewer_follows_all: false, members: []} in StarterPack where p.id > 0 by id)
+    action getPack(slug: text) -> StarterPackDTO:
+        check exists(p in StarterPack where p.slug == slug) "no such pack" status 404
+        let id = max(p.id in StarterPack where p.slug == slug)
+        return StarterPackDTO{id: "" + id, slug: slug, title: StarterPack(id).title, description: StarterPack(id).description, member_count: count(m in StarterPackMember where m.pack == id), viewer_follows_all: false, members: []}
+    action packFollowAll(slug: text):
+        requires member
+        check exists(p in StarterPack where p.slug == slug) "no such pack" status 404
+        let id = max(p.id in StarterPack where p.slug == slug)
+        let me = max(a.id in Account where a.handle == actor)
+        for m in StarterPackMember where m.pack == id:
+            if !exists(f in Follow where f.follower == me && f.followee == m.account):
+                add Follow { follower: me, followee: m.account, created: now() }
+
+    action transparencyMethodology() -> V2TransparencyMethodologyDTO:
+        return V2TransparencyMethodologyDTO{model: "als", formula: "r = mu + b_u + b_i", als_iterations: 15, lambda_l2_regularization: 0, min_ratings: 5, helpful_threshold: 0, not_helpful_threshold: 0, rating_encoding: "binary", notes: "community-rated context notes, scored by an ALS collaborative filter"}
+    action upstreamSources() -> V2UpstreamListDTO:
+        requires member
+        return V2UpstreamListDTO{server_time: "" + now(), sources: []}
+    action sanctumFacetsCatalog() -> FacetCatalogDTO:
+        return FacetCatalogDTO{catalog_version: "1", contract_version: "1", count: 0, facets: [], server_time: "" + now()}

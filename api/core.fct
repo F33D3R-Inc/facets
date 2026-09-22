@@ -1,0 +1,440 @@
+import "entities.fct"
+import "types.fct"
+# Accounts, sessions, identity, settings — the account-scoped half of the
+# golden contract, over Account rows keyed by handle.
+app F33D3RCore:
+    entity Account:
+        id: int
+        handle: text @unique
+        display_name: text
+        bio: text
+        avatar_url: text
+        header_url: text
+        location: text
+        website: text
+        pronouns: text
+        accent_hex: text
+        theme_id: text
+        country_code: text
+        official_type: text
+        account_label: text
+        is_private: bool
+        is_creator: bool
+        is_adult_creator: bool
+        is_verified: bool
+        is_adult: bool
+        is_age_verified: bool
+        is_minor: bool
+        content_setting: text
+        content_mode: text
+        creator_type: text
+        role_type: text
+        date_of_birth: text
+        celebrations_enabled: bool
+        birthday_md_visibility: text
+        birthday_year_visibility: text
+        contact_policy: text
+        streamer_mode: bool
+        feed_density: text
+        feed_rank_mode: text
+        mute_ai_works: bool
+        discovery_pct: int
+        show_sensitive: bool
+        xp: int
+        realm: int
+        password: text @secret
+        has_password: bool
+        two_factor_enabled: bool
+        two_factor_secret: text @secret
+        two_factor_pending: text @secret
+        kyc_status: text
+        kyc_submitted_at: int
+        age_band: text
+        identity_tier: int
+        has_2257: bool
+        nsfw_access: bool
+        payout_enabled: bool
+        creator_statement_accepted: bool
+        deactivated: bool
+        last_seen: int
+        created: int
+    entity Session:
+        id: int
+        account: Account
+        sid: text
+        device_name: text
+        ip_address: text
+        created: int
+        last_seen: int
+    entity BackupCode:
+        id: int
+        account: Account
+        code: text
+        used: bool
+    entity PasswordReset:
+        id: int
+        account: Account
+        token: text
+        expires: int
+        used: bool
+    entity LivenessChallenge:
+        id: int
+        account: Account
+        session_id: text
+        challenges: text
+        expires: int
+    entity Number:
+        id: int
+        account: Account
+        number: text
+        policy: text
+        revoked: bool
+        created: int
+    entity NotificationPrefs:
+        id: int
+        account: Account
+        push_enabled: bool
+        messages_enabled: bool
+        likes_enabled: bool
+        reposts_enabled: bool
+        replies_enabled: bool
+        follows_enabled: bool
+        achievements_enabled: bool
+        mentions_enabled: bool
+        frequencies_enabled: bool
+        quiet_hours_enabled: bool
+        quiet_hours_start: text
+        quiet_hours_end: text
+        timezone: text
+    entity SanctumState:
+        id: int
+        account: Account
+        is_open: bool
+        paused: bool
+        intro: text
+        retention_days: int
+        deadman_action: text
+        deadman_interval_days: int
+        deadman_grace_days: int
+        deadman_warned: bool
+        deadman_fired: bool
+        last_checkin_at: int
+    entity SanctumEscrow:
+        id: int
+        account: Account
+        label: text
+        email: text
+        x_pub_b64: text
+    entity DevApp:
+        id: int
+        owner: Account
+        client_id: text @unique
+        client_secret: text @secret
+        scope: text
+    entity DevToken:
+        id: int
+        app: DevApp
+        account: Account
+        access_token: text
+        expires: int
+    entity AiConsent:
+        id: int
+        account: Account
+        ai_indexing: bool
+        ai_training: bool
+        ai_transformation: bool
+        commercial_ai_use: bool
+        voice_likeness_transform: bool
+
+    policy member:
+        actor != "guest"
+    policy creator:
+        exists(a in Account where a.handle == actor && a.is_creator)
+    policy ownsSession(id: int):
+        Session(id).account == max(a.id in Account where a.handle == actor)
+    policy ownsNumber(id: int):
+        Number(id).account == max(a.id in Account where a.handle == actor)
+
+    # Cursor pages: a cursor is the id of the last row the client saw, "" for the
+    # first page; the next cursor is the last id of a full page, "" on the last.
+    proc cursorStart(cursor: text) -> int:
+        if cursor == "":
+            return 2147483647
+        return toInt(cursor)
+    proc pageSize(limit: int, fallback: int, cap: int) -> int:
+        if limit <= 0:
+            return fallback
+        if limit > cap:
+            return cap
+        return limit
+    proc nextCursor(ids: [int], n: int) -> text:
+        if len(ids) < n || len(ids) == 0:
+            return ""
+        return "" + ids[len(ids) - 1]
+    proc offsetOr(v: int) -> int:
+        if v < 0:
+            return 0
+        return v
+    proc code6() -> text:
+        return "" + (100000 + rand(900000))
+    proc tokenText(n: int) -> text:
+        let mut out = ""
+        let mut i = 0
+        loop i < n:
+            out = out + charAt("abcdefghijklmnopqrstuvwxyz0123456789", rand(36))
+            i = i + 1
+        return out
+    proc orText(v: text, fallback: text) -> text:
+        if v == "":
+            return fallback
+        return v
+    proc firstText(a: text, b: text) -> text:
+        if a != "":
+            return a
+        return b
+    proc isoTime(t: int) -> text:
+        return "" + t
+
+    action signup(handle: text, password: text, display_name: text?, date_of_birth: text?, content_setting: text?, creator_type: text?, role_type: text?, device_name: text?, terms_accepted: bool?) -> V2SessionDTO:
+        check handle != "" "handle is required"
+        check len(password) >= 8 "password must be at least 8 characters"
+        check terms_accepted "the terms must be accepted"
+        check !exists(a in Account where a.handle == lower(handle)) "handle is taken" status 409
+        let h = lower(handle)
+        let id = add Account { handle: h, display_name: display_name, bio: "", avatar_url: "", header_url: "", location: "", website: "", pronouns: "", accent_hex: "", theme_id: "", country_code: "", official_type: "", account_label: "", is_private: false, is_creator: creator_type != "", is_adult_creator: false, is_verified: false, is_adult: false, is_age_verified: false, is_minor: false, content_setting: content_setting, content_mode: "standard", creator_type: creator_type, role_type: role_type, date_of_birth: date_of_birth, celebrations_enabled: true, birthday_md_visibility: "private", birthday_year_visibility: "private", contact_policy: "everyone", streamer_mode: false, feed_density: "comfortable", feed_rank_mode: "algo", mute_ai_works: false, discovery_pct: 50, show_sensitive: false, xp: 0, realm: 1, password: password, has_password: true, two_factor_enabled: false, two_factor_secret: "", two_factor_pending: "", kyc_status: "", kyc_submitted_at: 0, age_band: "", identity_tier: 0, has_2257: false, nsfw_access: false, payout_enabled: false, creator_statement_accepted: false, deactivated: false, last_seen: now(), created: now() }
+        add NotificationPrefs { account: id, push_enabled: true, messages_enabled: true, likes_enabled: true, reposts_enabled: true, replies_enabled: true, follows_enabled: true, achievements_enabled: true, mentions_enabled: true, frequencies_enabled: true, quiet_hours_enabled: false, quiet_hours_start: "", quiet_hours_end: "", timezone: "" }
+        add SanctumState { account: id, is_open: false, paused: false, intro: "", retention_days: 30, deadman_action: "", deadman_interval_days: 0, deadman_grace_days: 0, deadman_warned: false, deadman_fired: false, last_checkin_at: 0 }
+        add AiConsent { account: id, ai_indexing: false, ai_training: false, ai_transformation: false, commercial_ai_use: false, voice_likeness_transform: false }
+        establish actor h
+        add Session { account: id, sid: session, device_name: device_name, ip_address: "", created: now(), last_seen: now() }
+        return V2SessionDTO{account: V2SelfDTO{account_id: "" + id, handle: h, display_name: display_name, has_password: true, is_creator: creator_type != "", content_setting: content_setting, realm: 1, realm_name: "aethyr", post_count: 0, follower_count: 0, following_count: 0, xp: 0, online: true, active_recently: true}, expires_at: "" + (now() + 2592000), needs_backup_codes: false, token: session}
+
+    action createSession(handle: text, password: text, device_name: text?, code: text?) -> V2SessionDTO:
+        let h = lower(handle)
+        check exists(a in Account where a.handle == h) "no such account" status 401
+        let id = max(a.id in Account where a.handle == h)
+        check Account(id).password == password "wrong password" status 401
+        check !Account(id).deactivated "account is deactivated" status 403
+        if Account(id).two_factor_enabled:
+            check code != "" "a two-factor code is required" status 401
+        establish actor h
+        set Account(id).last_seen = now()
+        add Session { account: id, sid: session, device_name: device_name, ip_address: "", created: now(), last_seen: now() }
+        return V2SessionDTO{account: V2SelfDTO{account_id: "" + id, handle: h, display_name: Account(id).display_name, has_password: Account(id).has_password, is_creator: Account(id).is_creator, content_setting: Account(id).content_setting, realm: Account(id).realm, realm_name: "aethyr", xp: Account(id).xp, online: true, active_recently: true, post_count: 0, follower_count: 0, following_count: 0}, expires_at: "" + (now() + 2592000), needs_backup_codes: Account(id).two_factor_enabled && !exists(b in BackupCode where b.account == id), token: session}
+
+    action listSessions() -> V2SessionsDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return V2SessionsDTO{items: list(V2SessionInfoDTO{id: "" + s.id, device_name: s.device_name, ip_address: s.ip_address, created_at: "" + s.created, last_seen_at: "" + s.last_seen, is_current: s.sid == session} in Session where s.account == me by id desc)}
+    action revokeOtherSessions():
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        remove s in Session where s.account == me && s.sid != session
+    action revokeCurrentSession():
+        requires member
+        remove s in Session where s.sid == session
+        establish actor "guest"
+    action revokeSession(id: int):
+        requires member
+        check exists(s in Session where s.id == id) "no such session" status 404
+        requires ownsSession(id)
+        remove Session(id)
+
+    action me() -> V2SelfDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        return V2SelfDTO{account_id: "" + id, handle: actor, display_name: Account(id).display_name, bio: Account(id).bio, avatar_url: Account(id).avatar_url, header_url: Account(id).header_url, location: Account(id).location, website: Account(id).website, pronouns: Account(id).pronouns, accent_hex: Account(id).accent_hex, theme_id: Account(id).theme_id, country_code: Account(id).country_code, official_type: Account(id).official_type, account_label: Account(id).account_label, is_private: Account(id).is_private, is_creator: Account(id).is_creator, is_adult_creator: Account(id).is_adult_creator, is_verified: Account(id).is_verified, is_adult: Account(id).is_adult, is_age_verified: Account(id).is_age_verified, is_minor: Account(id).is_minor, content_setting: Account(id).content_setting, content_mode: Account(id).content_mode, celebrations_enabled: Account(id).celebrations_enabled, birthday_month_day_visibility: Account(id).birthday_md_visibility, birthday_year_visibility: Account(id).birthday_year_visibility, has_password: Account(id).has_password, kyc_status: Account(id).kyc_status, kyc_submitted_at: "" + Account(id).kyc_submitted_at, payout_enabled: Account(id).payout_enabled, xp: Account(id).xp, realm: Account(id).realm, realm_name: "aethyr", online: true, active_recently: true, post_count: count(w in Work where w.author == id && !w.deleted), follower_count: count(f in Follow where f.followee == id), following_count: count(f in Follow where f.follower == id), pial_id: "" + id}
+    action deleteMe():
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        set Account(id).deactivated = true
+        remove s in Session where s.account == id
+        establish actor "guest"
+    action exportMe() -> AccountExportDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        return AccountExportDTO{handle: actor, display_name: Account(id).display_name, bio: Account(id).bio, location: Account(id).location, website: Account(id).website, pronouns: Account(id).pronouns, note: "", pial_id: "" + id, realm: Account(id).realm, tier: "" + Account(id).identity_tier, xp: Account(id).xp, exported_at: "" + now(), post_count: count(w in Work where w.author == id), follower_count: count(f in Follow where f.followee == id), following_count: count(f in Follow where f.follower == id)}
+
+    action identity() -> V2IdentityDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        return V2IdentityDTO{age_band: Account(id).age_band, tier: Account(id).identity_tier, has_2257: Account(id).has_2257, nsfw_access: Account(id).nsfw_access, payout_enabled: Account(id).payout_enabled}
+    action enableAdultContent() -> V2AdultContentEnableResultDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        check Account(id).is_age_verified "verify your age first" status 403
+        set Account(id).nsfw_access = true
+        set Account(id).is_adult = true
+        return V2AdultContentEnableResultDTO{ok: true}
+    action verifyAge(document_image: text) -> V2AgeVerificationResultDTO:
+        requires member
+        check document_image != "" "a document image is required"
+        let id = max(a.id in Account where a.handle == actor)
+        set Account(id).is_age_verified = true
+        set Account(id).age_band = "adult"
+        set Account(id).is_minor = false
+        return V2AgeVerificationResultDTO{verified: true, age_band: "adult"}
+    action creatorStatement() -> V2CreatorStatementDTO:
+        requires member
+        return V2CreatorStatementDTO{statement: "I confirm that every person depicted in content I publish is an adult who consented to its distribution."}
+    action acceptCreatorStatement() -> V2CreatorStatementAcceptanceResultDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        check Account(id).is_creator "only a creator accepts the statement" status 403
+        set Account(id).creator_statement_accepted = true
+        set Account(id).has_2257 = true
+        return V2CreatorStatementAcceptanceResultDTO{ok: true, lift_failed: false}
+    action livenessChallenge() -> V2LivenessChallengeDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        let sid = do tokenText(24)
+        add LivenessChallenge { account: id, session_id: sid, challenges: "turn_left,turn_right,blink", expires: now() + 300 }
+        return V2LivenessChallengeDTO{session_id: sid, challenges: ["turn_left", "turn_right", "blink"], ttl: 300}
+    action submitIdentity(age_band: text, document_hash: text, document_image: text, face_image: text, liveness_session_id: text) -> V2IdentitySubmissionResultDTO:
+        requires member
+        check document_image != "" && face_image != "" "document and face images are required"
+        let id = max(a.id in Account where a.handle == actor)
+        let t = now()
+        check exists(c in LivenessChallenge where c.account == id && c.session_id == liveness_session_id && c.expires > t) "liveness challenge expired" status 422
+        set Account(id).kyc_status = "pending"
+        set Account(id).kyc_submitted_at = now()
+        set Account(id).age_band = age_band
+        remove c in LivenessChallenge where c.account == id
+        return V2IdentitySubmissionResultDTO{ok: true, pending_review: true, age_band: age_band}
+
+    action notificationPreferences() -> V2NotificationPreferencesDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        let p = max(n.id in NotificationPrefs where n.account == id)
+        return V2NotificationPreferencesDTO{push_enabled: NotificationPrefs(p).push_enabled, messages_enabled: NotificationPrefs(p).messages_enabled, likes_enabled: NotificationPrefs(p).likes_enabled, reposts_enabled: NotificationPrefs(p).reposts_enabled, replies_enabled: NotificationPrefs(p).replies_enabled, follows_enabled: NotificationPrefs(p).follows_enabled, achievements_enabled: NotificationPrefs(p).achievements_enabled, mentions_enabled: NotificationPrefs(p).mentions_enabled, frequencies_enabled: NotificationPrefs(p).frequencies_enabled, quiet_hours_enabled: NotificationPrefs(p).quiet_hours_enabled, quiet_hours_start: NotificationPrefs(p).quiet_hours_start, quiet_hours_end: NotificationPrefs(p).quiet_hours_end}
+    action patchNotificationPreferences(push_enabled: bool?, messages_enabled: bool?, likes_enabled: bool?, reposts_enabled: bool?, replies_enabled: bool?, follows_enabled: bool?, achievements_enabled: bool?, mentions_enabled: bool?, frequencies_enabled: bool?, quiet_hours_enabled: bool?, quiet_hours_start: text?, quiet_hours_end: text?, timezone: text?) -> V2NotificationPreferencesDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        let p = max(n.id in NotificationPrefs where n.account == id)
+        set NotificationPrefs(p).push_enabled = push_enabled
+        set NotificationPrefs(p).messages_enabled = messages_enabled
+        set NotificationPrefs(p).likes_enabled = likes_enabled
+        set NotificationPrefs(p).reposts_enabled = reposts_enabled
+        set NotificationPrefs(p).replies_enabled = replies_enabled
+        set NotificationPrefs(p).follows_enabled = follows_enabled
+        set NotificationPrefs(p).achievements_enabled = achievements_enabled
+        set NotificationPrefs(p).mentions_enabled = mentions_enabled
+        set NotificationPrefs(p).frequencies_enabled = frequencies_enabled
+        set NotificationPrefs(p).quiet_hours_enabled = quiet_hours_enabled
+        set NotificationPrefs(p).quiet_hours_start = quiet_hours_start
+        set NotificationPrefs(p).quiet_hours_end = quiet_hours_end
+        set NotificationPrefs(p).timezone = timezone
+        return V2NotificationPreferencesDTO{push_enabled: push_enabled, messages_enabled: messages_enabled, likes_enabled: likes_enabled, reposts_enabled: reposts_enabled, replies_enabled: replies_enabled, follows_enabled: follows_enabled, achievements_enabled: achievements_enabled, mentions_enabled: mentions_enabled, frequencies_enabled: frequencies_enabled, quiet_hours_enabled: quiet_hours_enabled, quiet_hours_start: quiet_hours_start, quiet_hours_end: quiet_hours_end}
+
+    action enrollTwoFactor() -> V2TwoFactorEnrollmentDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        check !Account(id).two_factor_enabled "two-factor is already enabled" status 409
+        let raw = do tokenText(32)
+        let secret = upper(raw)
+        set Account(id).two_factor_pending = secret
+        return V2TwoFactorEnrollmentDTO{secret: secret, uri: "otpauth://totp/f33d3r:" + actor + "?secret=" + secret + "&issuer=f33d3r"}
+    action confirmTwoFactor(code: text) -> V2SelfDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        check Account(id).two_factor_pending != "" "start enrollment first" status 409
+        check len(code) == 6 "a six-digit code is required"
+        set Account(id).two_factor_secret = Account(id).two_factor_pending
+        set Account(id).two_factor_pending = ""
+        set Account(id).two_factor_enabled = true
+        return V2SelfDTO{account_id: "" + id, handle: actor, display_name: Account(id).display_name, has_password: true, realm: Account(id).realm, realm_name: "aethyr", xp: Account(id).xp, online: true, active_recently: true, post_count: 0, follower_count: 0, following_count: 0, is_creator: Account(id).is_creator}
+    action disableTwoFactor(code: text) -> V2SelfDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        check len(code) == 6 "a six-digit code is required"
+        set Account(id).two_factor_enabled = false
+        set Account(id).two_factor_secret = ""
+        remove b in BackupCode where b.account == id
+        return V2SelfDTO{account_id: "" + id, handle: actor, display_name: Account(id).display_name, has_password: true, realm: Account(id).realm, realm_name: "aethyr", xp: Account(id).xp, online: true, active_recently: true, post_count: 0, follower_count: 0, following_count: 0, is_creator: Account(id).is_creator}
+    action backupCodes() -> V2BackupCodesDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        remove b in BackupCode where b.account == id
+        let c1 = do tokenText(10)
+        let c2 = do tokenText(10)
+        let c3 = do tokenText(10)
+        let c4 = do tokenText(10)
+        let c5 = do tokenText(10)
+        add BackupCode { account: id, code: c1, used: false }
+        add BackupCode { account: id, code: c2, used: false }
+        add BackupCode { account: id, code: c3, used: false }
+        add BackupCode { account: id, code: c4, used: false }
+        add BackupCode { account: id, code: c5, used: false }
+        return V2BackupCodesDTO{codes: [c1, c2, c3, c4, c5]}
+
+    action requestPasswordReset(handle: text, code: text?) -> V2PasswordResetTokenDTO:
+        let h = lower(handle)
+        check exists(a in Account where a.handle == h) "no such account" status 401
+        let id = max(a.id in Account where a.handle == h)
+        let t = do tokenText(32)
+        add PasswordReset { account: id, token: t, expires: now() + 3600, used: false }
+        return V2PasswordResetTokenDTO{reset_token: t}
+    action redeemPasswordReset(token: text, new_password: text, device_name: text?) -> V2SessionDTO:
+        check len(new_password) >= 8 "password must be at least 8 characters"
+        let t0 = now()
+        check exists(r in PasswordReset where r.token == token && !r.used && r.expires > t0) "invalid or expired reset token" status 401
+        let rid = max(r.id in PasswordReset where r.token == token)
+        let id = PasswordReset(rid).account
+        set PasswordReset(rid).used = true
+        set Account(id).password = new_password
+        set Account(id).has_password = true
+        remove s in Session where s.account == id
+        establish actor Account(id).handle
+        add Session { account: id, sid: session, device_name: device_name, ip_address: "", created: now(), last_seen: now() }
+        return V2SessionDTO{account: V2SelfDTO{account_id: "" + id, handle: Account(id).handle, display_name: Account(id).display_name, has_password: true, realm: Account(id).realm, realm_name: "aethyr", xp: Account(id).xp, online: true, active_recently: true, post_count: 0, follower_count: 0, following_count: 0, is_creator: Account(id).is_creator}, expires_at: "" + (now() + 2592000), needs_backup_codes: false, token: session}
+
+    action numbers() -> V2NumbersDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        return V2NumbersDTO{contact_policy: Account(id).contact_policy, mail_address: actor + "@f33d3r.com", policies: ["open", "contacts", "closed"], numbers: list(V2NumberDTO{id: "" + n.id, number: n.number, policy: n.policy, revoked: n.revoked, created_at: "" + n.created} in Number where n.account == id by id desc)}
+    action mintNumber(policy: text?) -> V2NumberDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        check count(n in Number where n.account == id && !n.revoked) < 5 "number limit reached" status 429
+        let p = do orText(policy, "open")
+        check p == "open" || p == "contacts" || p == "closed" "unknown policy"
+        let num = "+1555" + (1000000 + rand(9000000))
+        check !exists(n in Number where n.number == num) "number collision, retry" status 409
+        let nid = add Number { account: id, number: num, policy: p, revoked: false, created: now() }
+        return V2NumberDTO{id: "" + nid, number: num, policy: p, revoked: false, created_at: "" + Number(nid).created}
+    action revokeNumber(id: int):
+        requires member
+        check exists(n in Number where n.id == id) "no such number" status 409
+        requires ownsNumber(id)
+        set Number(id).revoked = true
+    action setNumberPolicy(id: int, policy: text):
+        requires member
+        check exists(n in Number where n.id == id) "no such number" status 409
+        requires ownsNumber(id)
+        check policy == "open" || policy == "contacts" || policy == "closed" "unknown policy"
+        set Number(id).policy = policy
+    action setContactPolicy(policy: text):
+        requires member
+        check policy == "everyone" || policy == "contacts" || policy == "nobody" "unknown contact policy"
+        let id = max(a.id in Account where a.handle == actor)
+        set Account(id).contact_policy = policy
+
+    action sanctumStatus() -> V2SanctumStatusDTO:
+        requires member
+        let id = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == id)
+        return V2SanctumStatusDTO{handle: actor, is_open: SanctumState(s).is_open, has_inbox: SanctumState(s).is_open, retention_days: SanctumState(s).retention_days, deadman_action: SanctumState(s).deadman_action, deadman_interval_days: SanctumState(s).deadman_interval_days, deadman_grace_days: SanctumState(s).deadman_grace_days, deadman_warned: SanctumState(s).deadman_warned, deadman_fired: SanctumState(s).deadman_fired, last_checkin_at: "" + SanctumState(s).last_checkin_at, max_escrow_recipients: 3, escrow: list(V2SanctumEscrowRecipientDTO{id: "" + e.id, label: e.label, email: e.email} in SanctumEscrow where e.account == id by id)}
+
+    action devToken(client_id: text, client_secret: text) -> V2DevTokenDTO:
+        check exists(d in DevApp where d.client_id == client_id) "unknown client" status 401
+        let app = max(d.id in DevApp where d.client_id == client_id)
+        check DevApp(app).client_secret == client_secret "bad client secret" status 401
+        let t = do tokenText(40)
+        add DevToken { app: app, account: DevApp(app).owner, access_token: t, expires: now() + 3600 }
+        return V2DevTokenDTO{access_token: t, token_type: "bearer", expires_in: 3600, scope: DevApp(app).scope}
+    action devProfile(access_token: text) -> V2ProfileDTO:
+        let t1 = now()
+        check exists(t in DevToken where t.access_token == access_token && t.expires > t1) "invalid token" status 401
+        let tid = max(t.id in DevToken where t.access_token == access_token)
+        let id = DevToken(tid).account
+        return V2ProfileDTO{account: V2AccountDTO{handle: Account(id).handle, display_name: Account(id).display_name, avatar_url: Account(id).avatar_url, bio: Account(id).bio, is_creator: Account(id).is_creator, is_private: Account(id).is_private, is_verified: Account(id).is_verified, realm: Account(id).realm, realm_name: "aethyr", role: Account(id).role_type, xp: Account(id).xp, online: false, active_recently: false, post_count: count(w in Work where w.author == id), follower_count: count(f in Follow where f.followee == id), following_count: count(f in Follow where f.follower == id)}, viewer_follows: false, follows_viewer: false, viewer_is_blocked: false}

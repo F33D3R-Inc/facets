@@ -1,0 +1,44 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+
+# Real multipart uploads, now that `bytes`-typed action parameters exist:
+# a `bytes` parameter is bound to the uploaded file's stored URL by the
+# runtime's multipart binder (runtime/apidecl.go bindMultipartBody), so these
+# actions store that URL exactly as a `text` field, no different from an
+# author-supplied one.
+app F33D3RMedia:
+    action uploadMedia(file: bytes) -> V2MediaUploadDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        add MediaUpload { owner: me, url: file, bytes: 0, created: now() }
+        return V2MediaUploadDTO{url: file, bytes: 0}
+    action uploadVideo(file: bytes, captions: bytes?) -> V2VideoJobDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let jid = add VideoJob { owner: me, master_url: file, poster_url: "", captions_url: captions, status: "processing", width: 0, height: 0, duration_secs: 0, created: now() }
+        return V2VideoJobDTO{upload_id: "" + jid, status: "processing", master_url: file, captions_url: captions, poster_url: "", width: 0, height: 0, duration_secs: 0}
+    action getVideoJob(id: int) -> V2VideoJobDTO:
+        requires member
+        check exists(v in VideoJob where v.id == id) "no such upload" status 404
+        return V2VideoJobDTO{upload_id: "" + id, status: VideoJob(id).status, master_url: VideoJob(id).master_url, captions_url: VideoJob(id).captions_url, poster_url: VideoJob(id).poster_url, width: VideoJob(id).width, height: VideoJob(id).height, duration_secs: VideoJob(id).duration_secs}
+    action uploadVoice(audio: bytes) -> V2VoiceUploadDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        add VoiceUpload { owner: me, url: audio, duration_secs: 0, created: now() }
+        return V2VoiceUploadDTO{url: audio}
+
+    action setWorkCaptions(id: int, captions: bytes) -> VideoDTO:
+        requires member
+        check Work(id).author == max(a.id in Account where a.handle == actor) "not your work" status 403
+        check exists(v in VideoJob where v.owner == Work(id).author) "no video on this work" status 401
+        let jid = max(v.id in VideoJob where v.owner == Work(id).author)
+        set VideoJob(jid).captions_url = captions
+        return VideoDTO{master_url: VideoJob(jid).master_url, poster_url: VideoJob(jid).poster_url, captions_url: captions, width: VideoJob(jid).width, height: VideoJob(jid).height, duration_secs: VideoJob(jid).duration_secs}
+    action setWorkPoster(id: int, image: bytes?, seconds: float?) -> VideoDTO:
+        requires member
+        check Work(id).author == max(a.id in Account where a.handle == actor) "not your work" status 403
+        check exists(v in VideoJob where v.owner == Work(id).author) "no video on this work" status 401
+        let jid = max(v.id in VideoJob where v.owner == Work(id).author)
+        set VideoJob(jid).poster_url = image
+        return VideoDTO{master_url: VideoJob(jid).master_url, poster_url: image, captions_url: VideoJob(jid).captions_url, width: VideoJob(jid).width, height: VideoJob(jid).height, duration_secs: VideoJob(jid).duration_secs}

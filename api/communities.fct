@@ -1,0 +1,161 @@
+import "entities.fct"
+import "core.fct"
+
+app F33D3RCommunities:
+    policy administersCommunity(id: int):
+        exists(m in CommunityMember where m.community == id && m.account == max(a.id in Account where a.handle == actor) && (m.role == "owner" || m.role == "admin"))
+
+    action listCommunities(cursor: text?, limit: int?) -> [V2CommunityListItemDTO]:
+        requires member
+        let n = do pageSize(limit, 20, 50)
+        let start = do cursorStart(cursor)
+        return list(V2CommunityListItemDTO{id: "" + c.id, handle: c.handle, name: c.name, description: c.description, avatar_url: c.avatar_url, membership_policy: c.membership_policy, member_count: count(m in CommunityMember where m.community == c.id)} in Community where c.id < start by id desc limit n)
+    action createCommunity(handle: text, name: text?, description: text?, membership_policy: text?, avatar_url: text?, banner_url: text?) -> V2CommunityDTO:
+        requires member
+        check handle != "" "handle is required"
+        check !exists(c in Community where c.handle == handle) "handle is taken" status 409
+        let me = max(a.id in Account where a.handle == actor)
+        let _h1 = do orText(name, handle)
+        let _h2 = do orText(membership_policy, "open")
+        let cid = add Community { handle: handle, name: _h1, description: description, avatar_url: avatar_url, banner_url: banner_url, membership_policy: _h2, created: now() }
+        add CommunityMember { community: cid, account: me, role: "owner", joined: now() }
+        return V2CommunityDTO{id: "" + cid, handle: handle, name: Community(cid).name, description: description, avatar_url: avatar_url, banner_url: banner_url, membership_policy: Community(cid).membership_policy, member_count: 1, viewer: V2CommunityViewerDTO{can_administer: true, can_moderate: true, has_pending_invite: false, has_pending_join_request: false, role: "owner"}}
+    action getCommunity(id: int) -> V2CommunityDTO:
+        requires member
+        check exists(c in Community where c.id == id) "no such community" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let myRole = max(m.role in CommunityMember where m.community == id && m.account == me)
+        return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: Community(id).membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: myRole == "owner" || myRole == "admin", can_moderate: myRole == "owner" || myRole == "admin" || myRole == "mod", has_pending_invite: exists(i in CommunityInvite where i.community == id && i.invitee == me), has_pending_join_request: exists(j in CommunityJoinRequest where j.community == id && j.account == me), role: myRole}}
+    action joinCommunity(id: int) -> V2CommunityDTO:
+        requires member
+        check exists(c in Community where c.id == id) "no such community" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        check !exists(m in CommunityMember where m.community == id && m.account == me) "already a member" status 409
+        if Community(id).membership_policy == "open":
+            add CommunityMember { community: id, account: me, role: "member", joined: now() }
+        else:
+            if !exists(j in CommunityJoinRequest where j.community == id && j.account == me):
+                add CommunityJoinRequest { community: id, account: me, created: now() }
+        return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: Community(id).membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: false, can_moderate: false, has_pending_invite: false, has_pending_join_request: Community(id).membership_policy != "open", role: "member"}}
+    action leaveCommunity(id: int):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        remove m in CommunityMember where m.community == id && m.account == me
+    action setMembershipGate(id: int, membership_policy: text, required_plan_id: text?) -> V2CommunityDTO:
+        requires member
+        requires administersCommunity(id)
+        set Community(id).membership_policy = membership_policy
+        return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: true, can_moderate: true, has_pending_invite: false, has_pending_join_request: false, role: "owner"}}
+    action updateCommunitySettings(id: int, name: text?, description: text?, membership_policy: text?, avatar_url: text?, banner_url: text?):
+        requires member
+        requires administersCommunity(id)
+        set Community(id).name = name
+        set Community(id).description = description
+        set Community(id).avatar_url = avatar_url
+        set Community(id).banner_url = banner_url
+    action inviteToCommunity(id: int, invitee_handle: text):
+        requires member
+        requires administersCommunity(id)
+        check exists(a in Account where a.handle == invitee_handle) "no such user" status 404
+        let target = max(a.id in Account where a.handle == invitee_handle)
+        if !exists(i in CommunityInvite where i.community == id && i.invitee == target):
+            add CommunityInvite { community: id, invitee: target, created: now() }
+    action acceptCommunityInvite(id: int, invite_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        remove i in CommunityInvite where i.id == toInt(invite_id)
+        if !exists(m in CommunityMember where m.community == id && m.account == me):
+            add CommunityMember { community: id, account: me, role: "member", joined: now() }
+    action declineCommunityInvite(id: int, invite_id: text):
+        requires member
+        remove CommunityInvite(toInt(invite_id))
+    action approveJoinRequest(id: int, request_id: text):
+        requires member
+        requires administersCommunity(id)
+        let target = CommunityJoinRequest(toInt(request_id)).account
+        if !exists(m in CommunityMember where m.community == id && m.account == target):
+            add CommunityMember { community: id, account: target, role: "member", joined: now() }
+        remove CommunityJoinRequest(toInt(request_id))
+    action declineJoinRequest(id: int, request_id: text):
+        requires member
+        requires administersCommunity(id)
+        remove CommunityJoinRequest(toInt(request_id))
+    action setMemberRole(id: int, role: text, target_pial: text?, target_handle: text?):
+        requires member
+        requires administersCommunity(id)
+        let _h3 = do orTextC(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h3)
+        for m in CommunityMember where m.community == id && m.account == target:
+            set CommunityMember(m.id).role = role
+    action removeMember(id: int, target_pial: text?, target_handle: text?):
+        requires member
+        requires administersCommunity(id)
+        let _h4 = do orTextC(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h4)
+        remove m in CommunityMember where m.community == id && m.account == target
+    action banMember(id: int, reason: text?, target_pial: text?, target_handle: text?):
+        requires member
+        requires administersCommunity(id)
+        let _h5 = do orTextC(target_handle, "")
+        let target = max(a.id in Account where a.handle == _h5)
+        remove m in CommunityMember where m.community == id && m.account == target
+    action unbanMember(id: int, target_pial: text?, target_handle: text?):
+        requires member
+        requires administersCommunity(id)
+        let target = max(a.id in Account where a.handle == target_handle)
+        if !exists(m in CommunityMember where m.community == id && m.account == target):
+            add CommunityMember { community: id, account: target, role: "member", joined: now() }
+    action updateRules(id: int, rules: text):
+        requires member
+        requires administersCommunity(id)
+        set Community(id).description = rules
+    action reportCommunityPost(id: int, work_id: text, reason: text, rule_id: text?, detail: text?):
+        requires member
+        check reason != "" "reason required"
+        let me = max(a.id in Account where a.handle == actor)
+        add Report { reporter: me, reason: reason, work: toInt(work_id), target: 0, detail: detail, created: now() }
+    action moderatePost(id: int, report_id: text, action: text, reason: text?):
+        requires member
+        requires administersCommunity(id)
+        check action != "" "action is required"
+        let me = max(a.id in Account where a.handle == actor)
+        add ModerationAction { community: id, report_id: toInt(report_id), action: action, reason: reason, moderator: me, created: now() }
+        remove Report(toInt(report_id))
+
+    proc orTextC(v: text, fallback: text) -> text:
+        if v == "":
+            return fallback
+        return v
+
+    action listPlaces(cursor: text?) -> [V2PlaceListingDTO]:
+        return list(V2PlaceListingDTO{id: "" + p.id, name: p.name, category: p.category, description: p.description, address: p.address, website: p.website, lat: 0, lon: 0, status: p.status, owner_handle: Account(p.owner).handle, owner_name: Account(p.owner).display_name, owner_avatar: Account(p.owner).avatar_url} in Place where p.status == "active" by id desc)
+    action placesNearby(min_lat: text?, min_lon: text?, max_lat: text?, max_lon: text?) -> [V2PlaceListingDTO]:
+        let _h6 = do orTextC(min_lat, "")
+        return list(V2PlaceListingDTO{id: "" + p.id, name: p.name, category: p.category, description: p.description, address: p.address, website: p.website, lat: 0, lon: 0, status: p.status, owner_handle: Account(p.owner).handle, owner_name: Account(p.owner).display_name, owner_avatar: Account(p.owner).avatar_url} in Place where p.status == "active" && p.lat >= _h6 by id)
+    action placesSearch(q: text?) -> [V2PlaceListingDTO]:
+        let _h201 = do orTextC(q, "")
+        return list(V2PlaceListingDTO{id: "" + p.id, name: p.name, category: p.category, description: p.description, address: p.address, website: p.website, lat: 0, lon: 0, status: p.status, owner_handle: Account(p.owner).handle, owner_name: Account(p.owner).display_name, owner_avatar: Account(p.owner).avatar_url} in Place where contains(lower(p.name), lower(_h201)) by id)
+    action getPlace(id: int) -> V2PlaceListingDTO:
+        check exists(p in Place where p.id == id) "no such place" status 404
+        return V2PlaceListingDTO{id: "" + id, name: Place(id).name, category: Place(id).category, description: Place(id).description, address: Place(id).address, website: Place(id).website, lat: 0, lon: 0, status: Place(id).status, owner_handle: Account(Place(id).owner).handle, owner_name: Account(Place(id).owner).display_name, owner_avatar: Account(Place(id).owner).avatar_url}
+    action createPlace(name: text, category: text?, description: text?, address: text?, website: text?, lat: text?, lon: text?) -> V2PlaceListingDTO:
+        requires member
+        check name != "" "a name is required"
+        let me = max(a.id in Account where a.handle == actor)
+        let _h7 = do orTextC(lat, "0")
+        let _h8 = do orTextC(lon, "0")
+        let pid = add Place { owner: me, name: name, category: category, description: description, address: address, website: website, lat: _h7, lon: _h8, status: "active", created: now() }
+        return V2PlaceListingDTO{id: "" + pid, name: name, category: category, description: description, address: address, website: website, lat: 0, lon: 0, status: "active", owner_handle: actor, owner_name: Account(me).display_name, owner_avatar: Account(me).avatar_url}
+    action updatePlace(id: int, name: text?, category: text?, description: text?, address: text?, website: text?, lat: text?, lon: text?) -> V2PlaceListingDTO:
+        requires member
+        check Place(id).owner == max(a.id in Account where a.handle == actor) "not your listing" status 403
+        set Place(id).name = name
+        set Place(id).category = category
+        set Place(id).description = description
+        set Place(id).address = address
+        set Place(id).website = website
+        return V2PlaceListingDTO{id: "" + id, name: Place(id).name, category: Place(id).category, description: Place(id).description, address: Place(id).address, website: Place(id).website, lat: 0, lon: 0, status: Place(id).status, owner_handle: actor, owner_name: Account(Place(id).owner).display_name, owner_avatar: Account(Place(id).owner).avatar_url}
+    action deletePlace(id: int):
+        requires member
+        check Place(id).owner == max(a.id in Account where a.handle == actor) "not your listing" status 403
+        set Place(id).status = "removed"
