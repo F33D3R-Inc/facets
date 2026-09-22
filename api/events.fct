@@ -9,9 +9,17 @@ import "social.fct"
 # highest-traffic event types; anything else answers 400 "unknown event_type"
 # rather than pretending to handle it.
 app F33D3REvents:
-    action postEvent(event_type: text, target_handle: text?, work_id: text?, folder_id: text?, name: text?, reason: text?, notif_id: text?, keyword: text?, tag: text?) -> EventOKDTO:
+    action postEvent(event_type: text, target_handle: text?, work_id: text?, folder_id: text?, name: text?, reason: text?, notif_id: text?, keyword: text?, tag: text?, body: text?, is_nsfw: bool?, content_class: text?, made_with_ai: bool?, paid_partnership: bool?, comment_gating: text?, parent_cid: text?, quoted_work_id: text?) -> EventOKDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
+        if event_type == "post":
+            check body != "" "say something"
+            let parent = toInt(parent_cid)
+            let quoted = toInt(quoted_work_id)
+            let wid = add Work { author: me, body: body, kind: "text", content_class: content_class, media_urls: "", is_nsfw: is_nsfw, is_gore: false, is_sensitive: false, is_pinned: false, made_with_ai: made_with_ai, paid_partnership: paid_partnership, parent_cid: parent, quoted: quoted, price_uaet: 0, comment_gating: comment_gating, deleted: false, edited: false, created: now(), edited_at: 0 }
+            if parent > 0:
+                add Notification { account: Work(parent).author, actor: me, kind: "reply", target_type: "work", target_id: wid, preview: body, amount_uaet: 0, is_read: false, created: now() }
+            return EventOKDTO{ok: true}
         if event_type == "follow":
             check target_handle != "" "target_handle required"
             check exists(a in Account where a.handle == target_handle) "no such account" status 404

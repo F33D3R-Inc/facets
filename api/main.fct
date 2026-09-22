@@ -59,7 +59,6 @@ app F33D3RApi:
     api GET "/api/v2/works" -> getWorks rate read since "2026-09-18"
     api GET "/api/v2/works/{id}/replies" -> getWorkReplies rate read since "2026-09-18"
     api GET "/api/v2/works/{id}/quotes" -> getWorkQuotes rate read since "2026-09-18"
-    api POST "/events" -> post status 201 rate write since "2026-09-06"
 
     api GET "/api/v2/feed" -> feed rate read since "2026-09-18"
     api GET "/api/v2/feed/changes" -> feedChanges rate read since "2026-09-18"
@@ -88,7 +87,7 @@ app F33D3RApi:
     api GET "/api/v2/bookmarks" -> bookmarksPage rate read since "2026-09-18"
     api GET "/api/v2/bookmarks/folders" -> bookmarkFolders rate read since "2026-09-18"
 
-    api POST "/api/v2/events" -> postEvent rate write since "2026-09-06"
+    api POST "/events" -> postEvent rate write since "2026-09-06"
 
     api GET "/api/v2/messages" -> listConversations rate read since "2026-09-18"
     api POST "/api/v2/messages" -> startConversation rate write since "2026-09-18"
