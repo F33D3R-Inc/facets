@@ -56,5 +56,14 @@ app F33D3RPlatform:
         return V2PageOfV2WorkDTO{items: list(workDTO(w, id) in Work where w.id in own by id desc), next_cursor: next, server_time: iso(now())}
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/dev/works" -> devWorks auth dev_token bearer access_token rate read since "2026-09-21"
-    api GET "/api/v2/works/{id}/story-card" -> storyCard rate read since "2026-09-18"
+    api GET "/api/v2/dev/works" -> devWorks auth dev_token bearer access_token rate read since "2026-09-21":
+        summary "The authorizing account's own public works, for a third-party app holding a read:public_works access token."
+        description "The works tab only — never replies, media, likes or saves. Paging is the same cursor as GET /api/v2/users/{handle}/works."
+        errors 403
+        limit: int "Page size, 1–50; default 20."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+    api GET "/api/v2/works/{id}/story-card" -> storyCard rate read since "2026-09-18":
+        errors 401
+        summary "The work's share card"
+        description "Binary answer: `image/webp`, `Content-Disposition: attachment`. Behind the same media wall as the work's own objects; 403 when the viewer may not see the work, 502 when the renderer is unavailable."
+        id: text "Work id."

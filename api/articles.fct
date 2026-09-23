@@ -7,9 +7,9 @@ app F33D3RArticles:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         return V2PageOfV2ArticleSummaryDTO{items: list(V2ArticleSummaryDTO{id: "" + a.id, slug: a.slug, title: a.title, excerpt: a.subtitle, status: a.status, view_count: a.view_count, created_at: iso(a.created), updated_at: iso(a.updated), published_at: iso(a.published_at)} in Article where a.author == me by updated desc), next_cursor: "", server_time: iso(now())}
-    action createArticle(title: text, subtitle: text?, body: text, status: text?, cover_url: text?, subscriber_only: bool?, tags: text?, community_id: text?) -> V2ArticleDTO:
+    action createArticle(title: text, subtitle: text?, body: text, status: text?, cover_url: text?, subscriber_only: bool?, tags: [text]?, community_id: text?) -> V2ArticleDTO:
         requires member
-        check title != "" "a title is required"
+        check title != "" "a title is required" status 400
         let me = max(a.id in Account where a.handle == actor)
         let suffix = do tokenText(6)
         let articleSlug = slug(title) + "-" + suffix
@@ -23,7 +23,7 @@ app F33D3RArticles:
         let me = max(a.id in Account where a.handle == actor)
         set Article(id).view_count = Article(id).view_count + 1
         return V2ArticleDTO{id: "" + id, slug: slug, title: Article(id).title, subtitle: Article(id).subtitle, body: Article(id).body, body_html: Article(id).body, cover_url: Article(id).cover_url, status: Article(id).status, subscriber_only: Article(id).subscriber_only, author_handle: Account(Article(id).author).handle, author_display_name: Account(Article(id).author).display_name, author_avatar_url: Account(Article(id).author).avatar_url, view_count: Article(id).view_count, like_count: count(l in ArticleLike where l.article == id), liked_by_user: exists(l in ArticleLike where l.article == id && l.account == me), bookmark_count: count(b in ArticleBookmark where b.article == id), bookmarked_by_user: exists(b in ArticleBookmark where b.article == id && b.account == me), created_at: iso(Article(id).created), updated_at: iso(Article(id).updated)}
-    action updateArticle(id: int, title: text?, subtitle: text?, body: text?, status: text?, cover_url: text?, subscriber_only: bool?, tags: text?, community_id: text?) -> V2ArticleDTO:
+    action updateArticle(id: int, title: text?, subtitle: text?, body: text?, status: text?, cover_url: text?, subscriber_only: bool?, tags: [text]?, community_id: text?) -> V2ArticleDTO:
         requires member
         check Article(id).author == max(a.id in Account where a.handle == actor) "not your article" status 403
         set Article(id).title = title
@@ -57,10 +57,31 @@ app F33D3RArticles:
         return v
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/articles" -> listArticles rate read since "2026-09-18"
-    api POST "/api/v2/articles" -> createArticle status 201 rate write since "2026-09-18"
-    api GET "/api/v2/articles/{slug}" -> getArticle rate read since "2026-09-18"
-    api PATCH "/api/v2/articles/{id}" -> updateArticle rate write since "2026-09-18"
-    api DELETE "/api/v2/articles/{id}" -> deleteArticle status 204 rate write since "2026-09-18"
-    api POST "/api/v2/articles/{id}/like" -> likeArticle rate write since "2026-09-18"
-    api POST "/api/v2/articles/{id}/bookmark" -> bookmarkArticle rate write since "2026-09-18"
+    api GET "/api/v2/articles" -> listArticles rate read since "2026-09-18":
+        errors 401
+        summary "The caller's own articles."
+    api POST "/api/v2/articles" -> createArticle status 201 rate write since "2026-09-18":
+        summary "Write an article."
+        body V2ArticleWriteRequest
+        errors 400, 403, 503
+    api GET "/api/v2/articles/{slug}" -> getArticle rate read since "2026-09-18":
+        summary "One article by slug."
+        errors 403, 404
+        slug: text "Article slug."
+    api PATCH "/api/v2/articles/{id}" -> updateArticle rate write since "2026-09-18":
+        summary "Edit an article."
+        body V2ArticleWriteRequest
+        errors 400, 403, 404
+        id: text "Article id."
+    api DELETE "/api/v2/articles/{id}" -> deleteArticle status 204 rate write since "2026-09-18":
+        summary "Archive an article."
+        errors 403, 404
+        id: text "Article id."
+    api POST "/api/v2/articles/{id}/like" -> likeArticle rate write since "2026-09-18":
+        summary "Toggle the caller's like on an article."
+        errors 404
+        id: text "Article id."
+    api POST "/api/v2/articles/{id}/bookmark" -> bookmarkArticle rate write since "2026-09-18":
+        summary "Toggle the caller's bookmark on an article."
+        errors 404
+        id: text "Article id."

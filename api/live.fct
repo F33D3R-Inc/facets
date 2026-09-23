@@ -325,7 +325,7 @@ app F33D3RLive:
         return V2LiveListDTO{count: len(streams), streams: streams, scheduled: scheduled, upcoming: []}
     action goLive(title: text, description: text?, audience: text?, lane: text?, is_nsfw: bool?, tip_goal_aet: int?, stream_id: text?, notify_followers: bool?, save_replay: bool?) -> V2LiveStreamDTO:
         requires member
-        check title != "" "a title is required"
+        check title != "" "a title is required" status 400
         let me = max(a.id in Account where a.handle == actor)
         check !exists(s in LiveStream where s.author == me && s.status == "live") "already live" status 409 code "already_live"
         let _h1 = do orText(audience, "public")
@@ -507,7 +507,7 @@ app F33D3RLive:
         return V2FrequencyListDTO{count: count(f in Frequency where f.state == l), lane: l, frequencies: list(frequencyDTO(f, me) in Frequency where f.state == l by id desc)}
     action createFrequency(title: text, description: text?, visibility: text?, language: text?, adult_content: bool?, max_speakers: int?, max_listeners: int?, speaker_verity_min_tier: int?, scheduled_at: text?, community_id: text?, idempotency_key: text?) -> V2FrequencyRoomDTO:
         requires member
-        check title != "" "a title is required"
+        check title != "" "a title is required" status 400
         let me = max(a.id in Account where a.handle == actor)
         let _h3 = do orText(visibility, "public")
         let _h4 = do orText(language, "en")
@@ -1024,18 +1024,49 @@ app F33D3RLive:
         add FrequencyReport { frequency: toInt(frequency_id), reporter: me, reason: reason, detail: detail, target_handle: target_handle, created: now() }
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/live" -> listLive rate read since "2026-09-18"
-    api POST "/api/v2/live" -> goLive status 201 rate write since "2026-09-18"
-    api GET "/api/v2/live/{id}" -> getStream rate read since "2026-09-18"
-    api DELETE "/api/v2/live/{id}" -> endStream rate write since "2026-09-18"
-    api PATCH "/api/v2/live/{id}/pin" -> pinLiveMessage status 204 rate write since "2026-09-18"
-    api POST "/api/v2/live/{id}/chat" -> sendLiveChat status 201 rate write since "2026-09-18"
-    api POST "/api/v2/live/{id}/hearts" -> sendHearts status 204 rate write since "2026-09-18"
-    api GET "/api/v2/frequencies" -> listFrequencies rate read since "2026-09-18"
-    api GET "/api/v2/frequencies/{id}" -> getFrequency rate read since "2026-09-18"
+    api GET "/api/v2/live" -> listLive rate read since "2026-09-18":
+        errors 401
+        summary "Live streams now, upcoming, and the caller's own."
+    api POST "/api/v2/live" -> goLive status 201 rate write since "2026-09-18":
+        summary "Go live, or start a scheduled stream."
+        body V2LiveStartRequest
+        errors 400, 403, 409
+    api GET "/api/v2/live/{id}" -> getStream rate read since "2026-09-18":
+        summary "One live room: the stream and its chat backlog."
+        errors 403, 404
+        id: text "Stream id."
+    api DELETE "/api/v2/live/{id}" -> endStream rate write since "2026-09-18":
+        summary "End the caller's live stream."
+        errors 403, 404
+        id: text "Stream id."
+    api PATCH "/api/v2/live/{id}/pin" -> pinLiveMessage status 204 rate write since "2026-09-18":
+        summary "Pin a message in the caller's room; empty body unpins."
+        body V2LivePinRequest
+        errors 400, 403, 404, 409
+        id: text "Stream id."
+    api POST "/api/v2/live/{id}/chat" -> sendLiveChat status 201 rate write since "2026-09-18":
+        summary "Post to a room's chat."
+        body V2LiveChatRequest
+        errors 400, 403, 404, 409
+        id: text "Stream id."
+    api POST "/api/v2/live/{id}/hearts" -> sendHearts status 204 rate write since "2026-09-18":
+        summary "Send a heart."
+        errors 400, 404, 409
+        id: text "Stream id."
+    api GET "/api/v2/frequencies" -> listFrequencies rate read since "2026-09-18":
+        summary "Frequencies by lane."
+        errors 400, 503
+        lane: text "Which lane; default live." one of "live", "scheduled", "ended"
+    api GET "/api/v2/frequencies/{id}" -> getFrequency rate read since "2026-09-18":
+        summary "One Frequency room as the caller sees it."
+        errors 403, 404, 503
+        id: text "Frequency id."
 
     # One live room as an event stream; holding it is being in the room.
     stream "/api/v2/live/{id}/events" requires member rate read since "2026-09-18":
+        errors 403, 404
+        summary "One live room as an event stream; holding it is being in the room."
+        id: text "Stream id."
         connect -> joinLiveRoom as viewers
         disconnect -> leaveLiveRoom
         chat: LiveChatDTO since "2026-09-06" "A chat message was posted."
@@ -1048,6 +1079,9 @@ app F33D3RLive:
         viewers: LiveViewersEventDTO since "2026-09-06" "The viewer count; also sent once on connect."
     # One Frequency room as an event stream; holding it is presence.
     stream "/api/v2/frequencies/{id}/events" requires member rate read since "2026-09-18":
+        errors 403, 404, 503
+        summary "One Frequency room as an event stream; holding it is presence."
+        id: text "Frequency id."
         connect -> joinFrequencyRoom as frequency_json
         disconnect -> leaveFrequencyRoom
         frequency_ended: FrequencyEndedDTO since "2026-09-06" "The Frequency is over; the stream closes after it."

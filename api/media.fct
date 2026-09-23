@@ -40,22 +40,40 @@ app F33D3RMedia:
     action setWorkCaptions(id: int, captions: bytes) -> VideoDTO:
         requires member
         check Work(id).author == max(a.id in Account where a.handle == actor) "not your work" status 403
-        check exists(v in VideoJob where v.owner == Work(id).author) "no video on this work" status 401
+        check exists(v in VideoJob where v.owner == Work(id).author) "This post has no video." status 409 code "no_video"
         let jid = max(v.id in VideoJob where v.owner == Work(id).author)
         set VideoJob(jid).captions_url = captions
         return VideoDTO{master_url: VideoJob(jid).master_url, poster_url: VideoJob(jid).poster_url, captions_url: captions, width: VideoJob(jid).width, height: VideoJob(jid).height, duration_secs: VideoJob(jid).duration_secs}
     action setWorkPoster(id: int, image: bytes?, seconds: float?) -> VideoDTO:
         requires member
         check Work(id).author == max(a.id in Account where a.handle == actor) "not your work" status 403
-        check exists(v in VideoJob where v.owner == Work(id).author) "no video on this work" status 401
+        check exists(v in VideoJob where v.owner == Work(id).author) "This post has no video." status 409 code "no_video"
         let jid = max(v.id in VideoJob where v.owner == Work(id).author)
         set VideoJob(jid).poster_url = image
         return VideoDTO{master_url: VideoJob(jid).master_url, poster_url: image, captions_url: VideoJob(jid).captions_url, width: VideoJob(jid).width, height: VideoJob(jid).height, duration_secs: VideoJob(jid).duration_secs}
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api POST "/api/v2/media" -> uploadMedia status 201 rate write since "2026-09-18"
-    api POST "/api/v2/media/videos" -> uploadVideo status 202 rate write since "2026-09-18"
-    api GET "/api/v2/media/videos/{id}" -> getVideoJob rate read since "2026-09-18"
-    api POST "/api/v2/media/voice" -> uploadVoice status 201 rate write since "2026-09-18"
-    api POST "/api/v2/works/{id}/captions" -> setWorkCaptions rate write since "2026-09-18"
-    api POST "/api/v2/works/{id}/poster" -> setWorkPoster rate write since "2026-09-18"
+    api POST "/api/v2/media" -> uploadMedia status 201 rate write since "2026-09-18":
+        summary "Upload one image (JPEG, PNG, GIF, WebP)."
+        errors 400, 415, 422
+    api POST "/api/v2/media/videos" -> uploadVideo status 202 rate write since "2026-09-18":
+        summary "Upload one video; answered with a transcode job."
+        description "200 carries status duplicate when the bytes are already on F33D3R and nothing was queued."
+        errors 400, 415, 422
+    api GET "/api/v2/media/videos/{id}" -> getVideoJob rate read since "2026-09-18":
+        summary "Poll a video transcode job."
+        errors 404
+        id: text "upload_id from the video upload."
+    api POST "/api/v2/media/voice" -> uploadVoice status 201 rate write since "2026-09-18":
+        summary "Upload one voice note."
+        errors 400, 415, 422
+    api POST "/api/v2/works/{id}/captions" -> setWorkCaptions rate write since "2026-09-18":
+        errors 401
+        summary "Add or replace a video's captions"
+        description "Multipart: `captions` (or `file`), a WebVTT file. Owner-only; only the original uploader's work may carry captions. Answers the work's video as it now stands."
+        id: text "Work id."
+    api POST "/api/v2/works/{id}/poster" -> setWorkPoster rate write since "2026-09-18":
+        errors 401
+        summary "Choose a video's thumbnail"
+        description "Either multipart `image` (or `file`), an image processed by Caeor, or form `seconds`, a moment of the video the transcoder extracts a frame at. Owner-only. Answers the work's video as it now stands."
+        id: text "Work id."

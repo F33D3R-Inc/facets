@@ -35,7 +35,7 @@ app F33D3RMusic:
         return V2MyTracksDTO{artist_stats: V2ArtistStatsDTO{total_tracks: count(t in Track where t.author == me), total_plays: sum(t.play_count in Track where t.author == me), total_likes: count(l in TrackLike where exists(t in Track where t.id == l.track && t.author == me))}, tracks: list(trackDTO(t, me) in Track where t.author == me by id desc)}
     action createTrack(title: text, description: text?, genre: text?, audio_url: text?, cover_url: text?, duration_secs: int?, price_cents: int?, is_free: bool?) -> TrackDTO:
         requires member
-        check title != "" "a title is required"
+        check title != "" "a title is required" status 400
         let me = max(a.id in Account where a.handle == actor)
         let tid = add Track { author: me, title: title, description: description, genre: genre, audio_url: audio_url, cover_url: cover_url, duration_secs: duration_secs, price_cents: price_cents, is_free: is_free, play_count: 0, created: now() }
         return trackDTO(Track(tid), me)
@@ -53,7 +53,7 @@ app F33D3RMusic:
         else:
             add TrackLike { track: id, account: me }
         return V2TrackLikeDTO{liked: exists(l in TrackLike where l.track == id && l.account == me), like_count: count(l in TrackLike where l.track == id)}
-    action playTrack(id: int, event_type: text?, position_secs: text?, duration_secs: text?, session_id: text?):
+    action playTrack(id: int, event_type: text?, position_secs: float?, duration_secs: float?, session_id: text?):
         requires member
         check exists(t in Track where t.id == id) "no such track" status 404
         set Track(id).play_count = Track(id).play_count + 1
@@ -62,9 +62,9 @@ app F33D3RMusic:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         return V2VisionTrayDTO{own: V2VisionRingDTO{count: 0, is_live: false, latest_at: iso(now()), state: "none", unseen_count: 0, visions: [], author: accountDTO(Account(me), me)}, rings: []}
-    action createVision(body: text, content_type: text?, media_url: text?, audience: text?, is_nsfw: bool?, allow_replies: bool?, shared_work_id: text?, ttl_hours: int?, source: text?, poll_options: text?, artboard_align: text?, artboard_background: text?, artboard_type_scale: text?, artboard_typeface: text?) -> V2VisionCreatedDTO:
+    action createVision(body: text, content_type: text?, media_url: text?, audience: text?, is_nsfw: bool?, allow_replies: bool?, shared_work_id: text?, ttl_hours: int?, source: text?, poll_options: [text]?, artboard_align: text?, artboard_background: text?, artboard_type_scale: text?, artboard_typeface: text?) -> V2VisionCreatedDTO:
         requires member
-        check body != "" || media_url != "" "say something"
+        check body != "" || media_url != "" "Write something to post." status 400 code "body_required"
         let me = max(a.id in Account where a.handle == actor)
         let hrs = do ttlOr(ttl_hours)
         let _h401 = do orTextV(audience, "public")
@@ -85,7 +85,7 @@ app F33D3RMusic:
     action replyToVision(id: int, body: text):
         requires member
         check exists(v in Vision where v.id == id) "no such vision" status 404
-        check body != "" "say something"
+        check body != "" "Write something to send." status 400 code "body_required"
         let me = max(a.id in Account where a.handle == actor)
         add VisionReply { vision: id, account: me, body: body, created: now() }
     action viewVision(id: int):
@@ -118,18 +118,68 @@ app F33D3RMusic:
         remove m in VisionMute where m.account == me && m.target == target
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/music/feed" -> musicFeed rate read since "2026-09-18"
-    api GET "/api/v2/music/mine" -> myTracks rate read since "2026-09-18"
-    api POST "/api/v2/music/tracks" -> createTrack status 201 rate write since "2026-09-18"
-    api GET "/api/v2/music/tracks/{id}" -> getTrack rate read since "2026-09-18"
-    api POST "/api/v2/music/tracks/{id}/like" -> likeTrack rate write since "2026-09-18"
-    api POST "/api/v2/music/tracks/{id}/play" -> playTrack status 204 rate write since "2026-09-18"
-    api GET "/api/v2/visions" -> visionTray rate read since "2026-09-18"
-    api POST "/api/v2/visions" -> createVision status 201 rate write since "2026-09-18"
-    api DELETE "/api/v2/visions/{id}" -> deleteVision status 204 rate write since "2026-09-18"
-    api POST "/api/v2/visions/{id}/replies" -> replyToVision status 204 rate write since "2026-09-18"
-    api GET "/api/v2/visions/{id}/viewers" -> visionViewers rate read since "2026-09-18"
-    api POST "/api/v2/visions/{id}/views" -> viewVision status 204 rate write since "2026-09-18"
-    api POST "/api/v2/visions/{id}/votes" -> voteVision status 204 rate write since "2026-09-18"
-    api PUT "/api/v2/visions/mutes/{handle}" -> muteVisions status 204 rate write since "2026-09-18"
-    api DELETE "/api/v2/visions/mutes/{handle}" -> unmuteVisions status 204 rate write since "2026-09-18"
+    api GET "/api/v2/music/feed" -> musicFeed rate read since "2026-09-18":
+        summary "Tracks, ranked — the music page's own feed."
+        description "Same ranking (AethyrRank + Zior's psych vectors) tracksPartial draws for the web music page, as JSON. cursor is opaque; pass the previous page's next_cursor to page further back."
+        errors 400
+        genre: text "Restrict to one genre."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+        limit: int "Page size, 1–50; default 20."
+    api GET "/api/v2/music/mine" -> myTracks rate read since "2026-09-18":
+        errors 401
+        summary "The caller's own uploaded tracks, and their totals."
+    api POST "/api/v2/music/tracks" -> createTrack status 201 rate write since "2026-09-18":
+        summary "Upload a track."
+        description "multipart/form-data: `audio` (required — mp3/wav/flac/ogg/aac/opus/m4a/mp4/webm/mov), `cover` (optional image), `title`, `description`, `genre`. Same banned-content gate and Zior analysis as the web upload form."
+        errors 400
+    api GET "/api/v2/music/tracks/{id}" -> getTrack rate read since "2026-09-18":
+        summary "One track."
+        errors 404
+        id: text "Track id."
+    api POST "/api/v2/music/tracks/{id}/like" -> likeTrack rate write since "2026-09-18":
+        summary "Toggle liking a track."
+        errors 404
+        id: text "Track id."
+    api POST "/api/v2/music/tracks/{id}/play" -> playTrack status 204 rate write since "2026-09-18":
+        summary "Report a listener event (play, skip, complete, replay, share, save)."
+        description "The same beacon the web player posts on every state change. A play still counts on the track's row; every event forwards to Zior, detached — the caller never waits on it."
+        body V2TrackPlayEventRequest
+        errors 400
+        id: text "Track id."
+    api GET "/api/v2/visions" -> visionTray rate read since "2026-09-18":
+        errors 401
+        summary "The Visions tray: rings of the people the caller follows."
+    api POST "/api/v2/visions" -> createVision status 201 rate write since "2026-09-18":
+        summary "Publish a Vision."
+        body V2VisionCreateRequest
+        errors 400, 403
+    api DELETE "/api/v2/visions/{id}" -> deleteVision status 204 rate write since "2026-09-18":
+        summary "Delete one of the caller's Visions."
+        errors 400, 403
+        id: text "Vision reference."
+    api POST "/api/v2/visions/{id}/replies" -> replyToVision status 204 rate write since "2026-09-18":
+        summary "Reply to a Vision by message."
+        body V2VisionReplyRequest
+        errors 400, 403, 404
+        id: text "Vision reference."
+    api GET "/api/v2/visions/{id}/viewers" -> visionViewers rate read since "2026-09-18":
+        summary "Who has seen one of the caller's Visions."
+        errors 403, 404
+        id: text "Vision reference."
+    api POST "/api/v2/visions/{id}/views" -> viewVision status 204 rate write since "2026-09-18":
+        summary "Mark a Vision seen."
+        errors 400, 404
+        id: text "Vision reference."
+    api POST "/api/v2/visions/{id}/votes" -> voteVision status 204 rate write since "2026-09-18":
+        summary "Vote on a Vision poll."
+        body V2VisionVoteRequest
+        errors 400, 404
+        id: text "Vision reference."
+    api PUT "/api/v2/visions/mutes/{handle}" -> muteVisions status 204 rate write since "2026-09-18":
+        summary "Hide a person's Visions from the tray."
+        errors 400, 404
+        handle: text "Whose Visions."
+    api DELETE "/api/v2/visions/mutes/{handle}" -> unmuteVisions status 204 rate write since "2026-09-18":
+        summary "Show a person's Visions again."
+        errors 400, 404
+        handle: text "Whose Visions."

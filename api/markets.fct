@@ -884,11 +884,27 @@ app F33D3RMarkets:
     # mergeInto drops them), so they must live in the root file.
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/cashtag/search" -> cashtagSearch rate read since "2026-09-18"
-    api GET "/api/v2/cashtag/{ticker}" -> cashtagQuote rate read since "2026-09-18"
-    api GET "/api/v2/gif/search" -> gifSearch rate read since "2026-09-18"
-    api GET "/api/v2/sports" -> sportsBoard rate read since "2026-09-18"
-    api GET "/api/v2/sports/{league}/{game}" -> getSportsGame rate read since "2026-09-18"
+    api GET "/api/v2/cashtag/search" -> cashtagSearch rate read since "2026-09-18":
+        summary "Ticker suggestions for the composer."
+        errors 503
+        q: text "Ticker prefix; a leading $ is ignored."
+    api GET "/api/v2/cashtag/{ticker}" -> cashtagQuote rate read since "2026-09-18":
+        summary "One stock quote."
+        errors 400, 404, 503
+        ticker: text "Ticker symbol."
+    api GET "/api/v2/gif/search" -> gifSearch rate read since "2026-09-18":
+        summary "Search the GIF picker."
+        errors 503
+        q: text "The query."
+    api GET "/api/v2/sports" -> sportsBoard rate read since "2026-09-18":
+        summary "The scoreboard, every league or one."
+        errors 503
+        league: text "Restrict to one league slug."
+    api GET "/api/v2/sports/{league}/{game}" -> getSportsGame rate read since "2026-09-18":
+        summary "One game: plays, box score, odds."
+        errors 404, 503
+        league: text "League slug."
+        game: text "Game id."
     # Market-data ingest: each delivery is HMAC-signed with MARKETS_INGEST_KEY
     # (the master-derived key when unset) and runs with system authority, the
     # only caller the marketsOperator policy admits.

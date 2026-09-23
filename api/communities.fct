@@ -501,10 +501,10 @@ app F33D3RCommunities:
 
     # One edge of a map viewport: an absent or unparsable edge is the world's,
     # and every edge is clamped to the Web-Mercator range the map can show.
-    proc bboxEdge(v: text, fallback: float, lo: float, hi: float) -> float:
+    proc bboxEdge(sent: bool, v: float, fallback: float, lo: float, hi: float) -> float:
         let mut x = fallback
-        if v != "":
-            x = toFloat(v)
+        if sent:
+            x = v
         if x < lo:
             return lo
         if x > hi:
@@ -517,11 +517,11 @@ app F33D3RCommunities:
         let me = max(a.id in Account where a.handle == actor)
         return V2PageOfV2PlaceListingDTO{items: list(placeDTO(p) in Place where p.owner == me by id desc), next_cursor: "", server_time: iso(now())}
     # Listed places inside a viewport (at most 300).
-    action placesNearby(min_lat: text?, min_lon: text?, max_lat: text?, max_lon: text?) -> V2PageOfV2PlaceListingDTO:
-        let s = do bboxEdge(min_lat, -85.0, -85.0, 85.0)
-        let nn = do bboxEdge(max_lat, 85.0, -85.0, 85.0)
-        let w = do bboxEdge(min_lon, -180.0, -180.0, 180.0)
-        let e = do bboxEdge(max_lon, 180.0, -180.0, 180.0)
+    action placesNearby(min_lat: float?, min_lon: float?, max_lat: float?, max_lon: float?) -> V2PageOfV2PlaceListingDTO:
+        let s = do bboxEdge(given(min_lat), min_lat, -85.0, -85.0, 85.0)
+        let nn = do bboxEdge(given(max_lat), max_lat, 85.0, -85.0, 85.0)
+        let w = do bboxEdge(given(min_lon), min_lon, -180.0, -180.0, 180.0)
+        let e = do bboxEdge(given(max_lon), max_lon, 180.0, -180.0, 180.0)
         return V2PageOfV2PlaceListingDTO{items: list(placeDTO(p) in Place where p.status == "active" && p.lat >= min(s, nn) && p.lat <= max(s, nn) && p.lon >= min(w, e) && p.lon <= max(w, e) by id limit 300), next_cursor: "", server_time: iso(now())}
     # Listed places whose name, category or address holds the query (2+ chars).
     action placesSearch(q: text?) -> V2PageOfV2PlaceListingDTO:
@@ -532,7 +532,7 @@ app F33D3RCommunities:
         return placeDTO(Place(id))
     action createPlace(name: text, category: text?, description: text?, address: text?, website: text?, lat: float?, lon: float?) -> V2PlaceListingDTO:
         requires member
-        check name != "" "a name is required"
+        check name != "" "Name, category and a valid location are required." status 400 code "invalid_listing"
         check lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0 "lat/lon out of range" status 400
         let me = max(a.id in Account where a.handle == actor)
         let pid = add Place { owner: me, name: name, category: category, description: description, address: address, website: website, lat: lat, lon: lon, status: "active", created: now() }
@@ -554,15 +554,56 @@ app F33D3RCommunities:
         set Place(id).status = "removed"
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/communities" -> listCommunities rate read since "2026-09-18"
-    api GET "/api/v2/communities/{id}" -> getCommunity rate read since "2026-09-18"
-    api POST "/api/v2/communities/{id}/membership" -> joinCommunity rate write since "2026-09-18"
-    api DELETE "/api/v2/communities/{id}/membership" -> leaveCommunity status 204 rate write since "2026-09-18"
-    api POST "/api/v2/communities/{id}/membership-gate" -> setMembershipGate rate write since "2026-09-18"
-    api GET "/api/v2/places" -> listPlaces rate read since "2026-09-18"
-    api POST "/api/v2/places" -> createPlace status 201 rate write since "2026-09-18"
-    api GET "/api/v2/places/nearby" -> placesNearby rate read since "2026-09-18"
-    api GET "/api/v2/places/search" -> placesSearch rate read since "2026-09-18"
-    api GET "/api/v2/places/{id}" -> getPlace rate read since "2026-09-18"
-    api PATCH "/api/v2/places/{id}" -> updatePlace rate write since "2026-09-18"
-    api DELETE "/api/v2/places/{id}" -> deletePlace status 204 rate write since "2026-09-18"
+    api GET "/api/v2/communities" -> listCommunities rate read since "2026-09-18":
+        summary "The caller's own communities."
+        errors 400, 503
+        cursor: text "Opaque page cursor from a previous next_cursor; absent means the first page."
+        limit: int "Page size, 1-50; default 20."
+    api GET "/api/v2/communities/{id}" -> getCommunity rate read since "2026-09-18":
+        summary "One community as the caller sees it: public info plus the caller's own standing."
+        errors 404, 503
+        id: text "Community id."
+    api POST "/api/v2/communities/{id}/membership" -> joinCommunity rate write since "2026-09-18":
+        summary "Join a community."
+        description "Open communities admit immediately. subscriber_only/vip_only communities check the caller's Themis subscription fresh, at the moment of joining, and answer 402 when it does not cover this community (see ecclesia/src/handlers.rs's require_themis_access). request_to_join/invite_only communities answer 409 membership_policy_not_open — request-to-join and invites are not part of this surface; use the web app for those."
+        errors 402, 403, 404, 409, 503
+        id: text "Community id."
+    api DELETE "/api/v2/communities/{id}/membership" -> leaveCommunity status 204 rate write since "2026-09-18":
+        summary "Leave a community."
+        errors 403, 404, 409, 503
+        id: text "Community id."
+    api POST "/api/v2/communities/{id}/membership-gate" -> setMembershipGate rate write since "2026-09-18":
+        summary "Gate a community behind a subscriber/VIP Themis plan, or lift the gate. Host/admin only."
+        description "vip_only requires required_plan_id: one of this community's own active Themis subscription plans, verified fresh against Themis on every call (see ecclesia/src/handlers.rs's set_membership_gate). subscriber_only takes no required_plan_id — it admits any active subscription to the community's creator."
+        body V2SetCommunityMembershipGateRequest
+        errors 400, 403, 404, 503
+        id: text "Community id."
+    api GET "/api/v2/places" -> listPlaces rate read since "2026-09-18":
+        errors 401
+        summary "The caller's own location listings, any status."
+    api POST "/api/v2/places" -> createPlace status 201 rate write since "2026-09-18":
+        summary "List a location. Business accounts only."
+        body V2PlaceWriteRequest
+        errors 400, 403
+    api GET "/api/v2/places/nearby" -> placesNearby rate read since "2026-09-18":
+        summary "Approved location listings (studios, stores, venues) within a bounding box."
+        min_lat: number "Southern edge of the viewport."
+        min_lon: number "Western edge of the viewport."
+        max_lat: number "Northern edge of the viewport."
+        max_lon: number "Eastern edge of the viewport."
+    api GET "/api/v2/places/search" -> placesSearch rate read since "2026-09-18":
+        summary "Search location listings by name, category or address."
+        q: text "Search text; at least 2 characters."
+    api GET "/api/v2/places/{id}" -> getPlace rate read since "2026-09-18":
+        summary "One approved location listing."
+        errors 404
+        id: text "Listing id."
+    api PATCH "/api/v2/places/{id}" -> updatePlace rate write since "2026-09-18":
+        summary "Update a listing. Resets it to pending review."
+        body V2PlaceWriteRequest
+        errors 400, 403, 404
+        id: text "Listing id."
+    api DELETE "/api/v2/places/{id}" -> deletePlace status 204 rate write since "2026-09-18":
+        errors 401
+        summary "Remove one of the caller's own listings."
+        id: text "Listing id."

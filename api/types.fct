@@ -3,13 +3,13 @@ app F33D3RTypes:
         bio: text
         display_name: text
         exported_at: text
-        follower_count: int?
-        following_count: int?
+        follower_count: int? or null
+        following_count: int? or null
         handle: text
         location: text
         note: text
         pial_id: text
-        post_count: int?
+        post_count: int? or null
         pronouns: text
         realm: int
         tier: text
@@ -19,7 +19,7 @@ app F33D3RTypes:
         created_at: datetime
         excerpt: text
         id: text
-        published_at: datetime?
+        published_at: datetime? or null
         slug: text
         status: text
         title: text
@@ -141,7 +141,7 @@ app F33D3RTypes:
         updated_at: datetime
         version: int
     type CommunityResultDTO:
-        avatar_url: text?
+        avatar_url: text? or null
         description: text
         handle: text
         id: text
@@ -154,14 +154,14 @@ app F33D3RTypes:
         last_at: datetime
         message_ttl_seconds: int
         mode: text
-        other_avatar: text?
+        other_avatar: text? or null
         other_display: text?
         other_handle: text?
         preview: text
         title: text?
         unread: int
     type ConversationStartDTO:
-        conversation: ConversationDTO?
+        conversation: ConversationDTO? or null
         pending_id: text?
         state: text
     type EventOKDTO:
@@ -262,14 +262,14 @@ app F33D3RTypes:
         request: FrequencyRequestDTO or null
         role: text or null
     type LinkPreviewDTO:
-        description: text?
-        image_url: text?
-        site_name: text?
+        description: text? or null
+        image_url: text? or null
+        site_name: text? or null
         title: text
         url: text
     type LiveChatDTO:
-        amount_uaet: int?
-        author: WorkAuthorDTO?
+        amount_uaet: int? or null
+        author: WorkAuthorDTO? or null
         body: text
         created_at: datetime
         id: text
@@ -289,24 +289,24 @@ app F33D3RTypes:
     type LiveStreamDTO:
         audience: text
         author: WorkAuthorDTO
-        description: text?
-        ended_at: datetime?
+        description: text? or null
+        ended_at: datetime? or null
         has_video: bool
         heart_count: int
         id: text
         is_nsfw: bool
-        lane: text?
-        pinned_body: text?
+        lane: text? or null
+        pinned_body: text? or null
         reminder_count: int
         reminder_set: bool
-        scheduled_at: datetime?
-        started_at: datetime?
+        scheduled_at: datetime? or null
+        started_at: datetime? or null
         status: text
         tip_goal_uaet: int
         tip_total_uaet: int
         title: text
         top_tippers: [TipperDTO]?
-        video_unavailable: text?
+        video_unavailable: text? or null
         viewer_count: int
     type LiveTipsEventDTO:
         goal_uaet: int
@@ -314,25 +314,25 @@ app F33D3RTypes:
     type LiveViewersEventDTO:
         count: int
     type MeDTO:
-        accent_hex: text?
+        accent_hex: text? or null
         account_id: text
         account_label: text
         active_recently: bool
-        avatar_url: text?
-        based_in: text?
-        bio: text?
+        avatar_url: text? or null
+        based_in: text? or null
+        bio: text? or null
         birthday_md_visibility: text
         birthday_year_visibility: text
         celebrations_enabled: bool
         content_setting: text
         country_code: text or null
         display_name: text
-        external_tip_links: json
+        external_tip_links: {text}
         follower_count: int
         following_count: int
         handle: text
         has_password: bool
-        header_url: text?
+        header_url: text? or null
         is_adult: bool
         is_adult_creator: bool
         is_age_verified: bool
@@ -342,24 +342,24 @@ app F33D3RTypes:
         is_verified: bool
         kyc_status: text or null
         kyc_submitted_at: datetime or null
-        live_frequency_id: text?
-        location: text?
-        official_type: text?
+        live_frequency_id: text? or null
+        location: text? or null
+        official_type: text? or null
         online: bool
         payout_enabled: bool
         pial_id: text?
         post_count: int
-        pronouns: text?
+        pronouns: text? or null
         realm: int
         realm_name: text
         role: text
         show_sensitive: bool
-        social_links: json
-        theme_id: text?
+        social_links: {text}
+        theme_id: text? or null
         tier: text
         two_fa_enabled: bool
         unread_count: int
-        website: text?
+        website: text? or null
         xp: int
     type MessageDTO:
         attachment_chunk_bytes: int?
@@ -380,9 +380,9 @@ app F33D3RTypes:
         conversation_id: text
         created_at: datetime
         deleted: bool
-        deleted_at: datetime?
-        edited_at: datetime?
-        expires_at: datetime?
+        deleted_at: datetime? or null
+        edited_at: datetime? or null
+        expires_at: datetime? or null
         id: text
         is_mine: bool
         kind: text
@@ -393,11 +393,11 @@ app F33D3RTypes:
         reply_to_id: text?
         sealed_keys: [SealedKeyDTO]?
         sender_account: text
-        sender_avatar: text?
+        sender_avatar: text? or null
         sender_display: text?
         sender_handle: text?
         sender_key_grants: [SealedKeyDTO]?
-        sk_counter: int?
+        sk_counter: int? or null
         sk_device: text?
         sk_epoch: int?
     type MessagePushDTO:
@@ -411,7 +411,7 @@ app F33D3RTypes:
         sender_account: text
         sender_handle: text?
         sender_key_grants: [SealedKeyDTO]?
-        sk_counter: int?
+        sk_counter: int? or null
         sk_device: text?
         sk_epoch: int?
     type MessageRemoveDTO:
@@ -419,20 +419,20 @@ app F33D3RTypes:
         message_id: text
     type NewPostEventDTO:
         author_handle: text
-        reposted_by: text?
+        reposted_by: text? or null
         work: WorkDTO
         work_id: text
     type NotificationDTO:
         actor_count: int
         actors: [WorkAuthorDTO]
-        amount_uaet: int?
+        amount_uaet: int? or null
         created_at: datetime
         id: text
         is_read: bool
         kind: text
-        preview: text?
-        subject: NotificationSubjectDTO?
-        target_id: text?
+        preview: text? or null
+        subject: NotificationSubjectDTO? or null
+        target_id: text? or null
         target_type: text
     type NotificationPrefsDTO:
         achievements_enabled: bool
@@ -449,8 +449,8 @@ app F33D3RTypes:
         reposts_enabled: bool
     type NotificationSubjectDTO:
         images: [text]?
-        league: text?
-        summary: text?
+        league: text? or null
+        summary: text? or null
         title: text
     type NotifyEventDTO:
         unread: int
@@ -462,14 +462,14 @@ app F33D3RTypes:
         revoked: bool
     type PollDTO:
         closed: bool
-        ends_at: datetime?
+        ends_at: datetime? or null
         results: [PollResultDTO]
         shuffle: bool
         time_left: text
         total_votes: int
         viewer_vote: int
     type PollResultDTO:
-        image_url: text?
+        image_url: text? or null
         index: int
         is_winner: bool
         label: text
@@ -484,7 +484,7 @@ app F33D3RTypes:
         online: bool
         user_id: text
     type ProvenanceDTO:
-        handle: text?
+        handle: text? or null
         kind: text
         text: text
     type PublicListingDTO:
@@ -506,8 +506,8 @@ app F33D3RTypes:
         is_gore: bool
         is_nsfw: bool
         media_urls: [text]?
-        nested: QuotedWorkDTO?
-        video: VideoDTO?
+        nested: QuotedWorkDTO? or null
+        video: VideoDTO? or null
     type ReactionDTO:
         count: int
         emoji: text
@@ -561,7 +561,7 @@ app F33D3RTypes:
         status: text
     type ThreadMemberDTO:
         account: text
-        avatar: text?
+        avatar: text? or null
         display: text
         handle: text
     type TipperDTO:
@@ -575,7 +575,7 @@ app F33D3RTypes:
     type TrackDTO:
         audio_url: text
         author: WorkAuthorDTO
-        cover_url: text?
+        cover_url: text? or null
         created_at: datetime
         description: text
         duration_secs: int
@@ -592,62 +592,62 @@ app F33D3RTypes:
         handle: text
         typing: bool
     type UserDTO:
-        accent_hex: text?
+        accent_hex: text? or null
         account_label: text
         active_recently: bool
-        avatar_url: text?
-        based_in: text?
-        bio: text?
+        avatar_url: text? or null
+        based_in: text? or null
+        bio: text? or null
         display_name: text
         follower_count: int
         following_count: int
         handle: text
-        header_url: text?
+        header_url: text? or null
         is_creator: bool
         is_private: bool
         is_verified: bool
-        live_frequency_id: text?
-        location: text?
-        official_type: text?
+        live_frequency_id: text? or null
+        location: text? or null
+        official_type: text? or null
         online: bool
         post_count: int
-        pronouns: text?
+        pronouns: text? or null
         realm: int
         realm_name: text
         role: text
-        theme_id: text?
-        website: text?
+        theme_id: text? or null
+        website: text? or null
         xp: int
     type V2AccountDTO:
-        accent_hex: text?
-        account_label: text?
+        accent_hex: text? or null
+        account_label: text? or null
         active_recently: bool
-        avatar_url: text?
-        bio: text?
+        avatar_url: text? or null
+        bio: text? or null
         display_name: text
         follower_count: int
         following_count: int
         handle: text
-        header_url: text?
+        header_url: text? or null
         is_creator: bool
         is_private: bool
         is_verified: bool
-        live_frequency_id: text?
-        location: text?
-        location_label: text?
-        official_type: text?
+        live_frequency_id: text? or null
+        location: text? or null
+        location_label: text? or null
+        official_type: text? or null
         online: bool
         post_count: int
-        pronouns: text?
+        pronouns: text? or null
         realm: int
         realm_name: text
         role: text
-        theme_id: text?
+        theme_id: text? or null
         viewer_follows: bool?
-        website: text?
+        website: text? or null
         xp: int
     type V2AccountDeletionRequest:
-        reason: text?
+        reason: text? or null
     type V2AccountsPageDTO:
         active_count: int
         active_only: bool
@@ -657,7 +657,7 @@ app F33D3RTypes:
     type V2AchievementDTO:
         category: text
         description: text
-        earned_at: datetime?
+        earned_at: datetime? or null
         icon: text
         id: text
         name: text
@@ -669,17 +669,17 @@ app F33D3RTypes:
         label: text
         slug: text
     type V2AchievementsDTO:
-        all_time_country_board: V2PageOfV2LeaderboardEntryDTO?
+        all_time_country_board: V2PageOfV2LeaderboardEntryDTO? or null
         all_time_global_board: V2PageOfV2LeaderboardEntryDTO
-        country_name: text?
+        country_name: text? or null
         current_tier: text
-        daily_country_board: V2PageOfV2LeaderboardEntryDTO?
+        daily_country_board: V2PageOfV2LeaderboardEntryDTO? or null
         daily_global_board: V2PageOfV2LeaderboardEntryDTO
         earned_count: int
         groups: [V2AchievementGroupDTO]
         in_top10: bool
-        my_rank: int?
-        my_xp_today: int?
+        my_rank: int? or null
+        my_xp_today: int? or null
         next_tier: text
         total_count: int
         xp_percent: int
@@ -690,52 +690,52 @@ app F33D3RTypes:
     type V2AgeVerificationRequest:
         document_image: text
     type V2AgeVerificationResultDTO:
-        age_band: text?
+        age_band: text? or null
         verified: bool
     type V2AnalyticsDTO:
         astraon_online: bool
-        audience: AstraonAudience?
-        breakdown: AstraonBreakdown?
+        audience: AstraonAudience? or null
+        breakdown: AstraonBreakdown? or null
         period_days: int
         posts: [AstraonPostRow]
         sort_by: text
-        summary: AstraonSummary?
-        timeline: AstraonTimeline?
+        summary: AstraonSummary? or null
+        timeline: AstraonTimeline? or null
     type V2ArticleDTO:
-        author_avatar_url: text?
+        author_avatar_url: text? or null
         author_display_name: text
         author_handle: text
         body: text
         body_html: text
         bookmark_count: int
         bookmarked_by_user: bool
-        community_id: text?
-        cover_url: text?
+        community_id: text? or null
+        cover_url: text? or null
         created_at: datetime
         embedded_works: [V2WorkDTO]?
         excerpt: text?
         id: text
         like_count: int
         liked_by_user: bool
-        published_at: datetime?
+        published_at: datetime? or null
         slug: text
         status: text
         subscriber_only: bool
-        subtitle: text?
+        subtitle: text? or null
         tags: [text]?
         title: text
         updated_at: datetime
         view_count: int
     type V2ArticleEngagementDTO:
         bookmark_count: int
-        bookmarked: bool?
+        bookmarked: bool? or null
         like_count: int
-        liked: bool?
+        liked: bool? or null
     type V2ArticleSummaryDTO:
         created_at: datetime
         excerpt: text?
         id: text
-        published_at: datetime?
+        published_at: datetime? or null
         slug: text
         status: text
         title: text
@@ -755,18 +755,18 @@ app F33D3RTypes:
         total_plays: int
         total_tracks: int
     type V2AttachmentDTO:
-        chunk_bytes: int?
-        chunk_count: int?
-        ck_sealed_b64: text?
-        ck_sealed_nonce_b64: text?
-        ct_b64: text?
-        mime: text?
-        name: text?
-        nonce_b64: text?
-        nonce_prefix_b64: text?
+        chunk_bytes: int? or null
+        chunk_count: int? or null
+        ck_sealed_b64: text? or null
+        ck_sealed_nonce_b64: text? or null
+        ct_b64: text? or null
+        mime: text? or null
+        name: text? or null
+        nonce_b64: text? or null
+        nonce_prefix_b64: text? or null
         object: bool?
-        size: int?
-        url: text?
+        size: int? or null
+        url: text? or null
     type V2BackupCodesDTO:
         codes: [text]
     type V2BookmarkFolderDTO:
@@ -780,7 +780,7 @@ app F33D3RTypes:
         folders: [V2BookmarkFolderDTO]
     type V2BookmarkPageDTO:
         all_count: int
-        folder: text?
+        folder: text? or null
         folders: [V2BookmarkFolderDTO]
         items: [V2WorkDTO]
         next_cursor: text?
@@ -791,7 +791,7 @@ app F33D3RTypes:
         change_pct: number
         company_name: text
         display: text
-        exchange: text?
+        exchange: text? or null
         is_positive: bool
         price: number
         price_label: text
@@ -802,21 +802,21 @@ app F33D3RTypes:
     type V2CashtagSuggestionDTO:
         company_name: text
         display: text
-        exchange: text?
+        exchange: text? or null
         ticker: text
     type V2CommunityDTO:
-        avatar_url: text?
-        banner_url: text?
+        avatar_url: text? or null
+        banner_url: text? or null
         description: text
         handle: text
         id: text
         member_count: int
         membership_policy: text
         name: text
-        required_plan_id: text?
-        viewer: V2CommunityViewerDTO?
+        required_plan_id: text? or null
+        viewer: V2CommunityViewerDTO? or null
     type V2CommunityListItemDTO:
-        avatar_url: text?
+        avatar_url: text? or null
         description: text
         handle: text
         id: text
@@ -831,13 +831,13 @@ app F33D3RTypes:
         can_moderate: bool
         has_pending_invite: bool
         has_pending_join_request: bool
-        role: text?
+        role: text? or null
     type V2ContactDecisionRequest:
         decision: text
     type V2ContactPolicyRequest:
         policy: text
     type V2ContactRequestDTO:
-        avatar: text?
+        avatar: text? or null
         created_at: text
         display: text
         handle: text
@@ -851,33 +851,33 @@ app F33D3RTypes:
         last_at: datetime
         message_ttl_seconds: int
         mode: text
-        other: V2AccountDTO?
+        other: V2AccountDTO? or null
         preview: text
-        title: text?
+        title: text? or null
         unread_count: int
     type V2ConversationStartDTO:
-        conversation: V2ConversationDTO?
-        pending_id: text?
+        conversation: V2ConversationDTO? or null
+        pending_id: text? or null
         state: text
     type V2CreatorFanDTO:
         attendance_available: bool
-        attendance_count: int?
-        avatar_url: text?
+        attendance_count: int? or null
+        avatar_url: text? or null
         commerce_available: bool
         display_name: text
         following_since: datetime
         handle: text
-        lifetime_tips_aet: number?
-        lifetime_tips_count: int?
-        ppv_count: int?
-        ppv_total_aet: number?
-        shop_purchase_count: int?
-        shop_purchase_total_sats: int?
-        subscription: V2CreatorFanSubscriptionDTO?
+        lifetime_tips_aet: number? or null
+        lifetime_tips_count: int? or null
+        ppv_count: int? or null
+        ppv_total_aet: number? or null
+        shop_purchase_count: int? or null
+        shop_purchase_total_sats: int? or null
+        subscription: V2CreatorFanSubscriptionDTO? or null
     type V2CreatorFanSubscriptionDTO:
         current_period_end: datetime
         is_active: bool
-        plan_name: text?
+        plan_name: text? or null
         since: datetime
         status: text
     type V2CreatorFansDTO:
@@ -902,14 +902,14 @@ app F33D3RTypes:
         token_type: text
     type V2FeedPageDTO:
         items: [V2WorkDTO]
-        live_count: int?
+        live_count: int? or null
         next_cursor: text?
         server_time: datetime
     type V2FrequencyListDTO:
         count: int
         frequencies: [V2FrequencySummaryDTO]
         lane: text
-        own: V2FrequencySummaryDTO?
+        own: V2FrequencySummaryDTO? or null
     type V2FrequencyParticipantDTO:
         author: V2AccountDTO
         joined_at: datetime
@@ -926,7 +926,7 @@ app F33D3RTypes:
         cohosts: [V2AccountDTO]
         frequency: V2FrequencySummaryDTO
         requests: [V2FrequencyRequestDTO]
-        session: V2FrequencySessionDTO?
+        session: V2FrequencySessionDTO? or null
         speakers: [V2FrequencyParticipantDTO]
         viewer: V2FrequencyViewerDTO
     type V2FrequencySessionDTO:
@@ -935,10 +935,10 @@ app F33D3RTypes:
         signal_path: text
         token: text
     type V2FrequencySummaryDTO:
-        audio_unavailable: text?
-        description: text?
-        end_reason: text?
-        ended_at: datetime?
+        audio_unavailable: text? or null
+        description: text? or null
+        end_reason: text? or null
+        ended_at: datetime? or null
         host: V2AccountDTO
         id: text
         is_nsfw: bool
@@ -952,11 +952,11 @@ app F33D3RTypes:
         requests_open: bool
         requires_payment: bool
         requires_vip_tier: bool
-        scheduled_at: datetime?
+        scheduled_at: datetime? or null
         speaker_count: int
-        started_at: datetime?
+        started_at: datetime? or null
         state: text
-        ticket_price_aet: int?
+        ticket_price_aet: int? or null
         title: text
         visibility: text
     type V2FrequencyTicketPurchaseDTO:
@@ -981,17 +981,17 @@ app F33D3RTypes:
         can_speak: bool
         muted: bool
         present: bool
-        request: V2FrequencyRequestDTO?
-        role: text?
+        request: V2FrequencyRequestDTO? or null
+        role: text? or null
     type V2FrequencyVipTierRequestDTO:
         required_plan_id: text or null
     type V2GifResultDTO:
-        height: int?
+        height: int? or null
         id: text
         preview_url: text
-        title: text?
+        title: text? or null
         url: text
-        width: int?
+        width: int? or null
     type V2GifSearchDTO:
         results: [V2GifResultDTO]
     type V2HistoryEntryDTO:
@@ -1008,10 +1008,10 @@ app F33D3RTypes:
         document_hash: text
         document_image: text
         face_image: text
-        liveness_challenge_frames: json
+        liveness_challenge_frames: [[text]]
         liveness_session_id: text
     type V2IdentitySubmissionResultDTO:
-        age_band: text?
+        age_band: text? or null
         ok: bool
         pending_review: bool?
     type V2InviteCreateRequest:
@@ -1019,7 +1019,7 @@ app F33D3RTypes:
         max_uses: int
     type V2InviteDTO:
         created_at: datetime
-        expires_at: datetime?
+        expires_at: datetime? or null
         max_uses: int
         state: text
         token: text
@@ -1030,9 +1030,9 @@ app F33D3RTypes:
         invites: [V2InviteDTO]
     type V2JoinPreviewDTO:
         already_member: bool
-        conversation_id: text?
+        conversation_id: text? or null
         faces: [ThreadMemberDTO]
-        gate: text?
+        gate: text? or null
         member_count: int
         sealed: bool
         state: text
@@ -1041,24 +1041,24 @@ app F33D3RTypes:
     type V2JoinResultDTO:
         admitted: bool
         already_member: bool
-        conversation_id: text?
+        conversation_id: text? or null
         joined: bool
-        preview: V2JoinPreviewDTO?
+        preview: V2JoinPreviewDTO? or null
     type V2LeaderboardEntryDTO:
-        avatar_url: text?
+        avatar_url: text? or null
         display_name: text
         handle: text
         rank: int
         xp_today: int
     type V2LinkPreviewDTO:
-        description: text?
-        image_url: text?
-        site_name: text?
+        description: text? or null
+        image_url: text? or null
+        site_name: text? or null
         title: text
         url: text
     type V2ListDTO:
         created_at: datetime
-        description: text?
+        description: text? or null
         id: text
         is_public: bool
         member_count: int
@@ -1069,8 +1069,8 @@ app F33D3RTypes:
         members: [V2AccountDTO]
         works: V2PageOfV2WorkDTO
     type V2LiveChatDTO:
-        amount_uaet: int?
-        author: V2AccountDTO?
+        amount_uaet: int? or null
+        author: V2AccountDTO? or null
         body: text
         created_at: datetime
         id: text
@@ -1079,7 +1079,7 @@ app F33D3RTypes:
         body: text
     type V2LiveListDTO:
         count: int
-        own: V2LiveStreamDTO?
+        own: V2LiveStreamDTO? or null
         scheduled: [V2LiveStreamDTO]
         streams: [V2LiveStreamDTO]
         upcoming: [V2LiveStreamDTO]
@@ -1093,32 +1093,32 @@ app F33D3RTypes:
         description: text
         is_nsfw: bool
         lane: text
-        notify_followers: bool?
-        save_replay: bool?
+        notify_followers: bool? or null
+        save_replay: bool? or null
         stream_id: text
         tip_goal_aet: int
         title: text
     type V2LiveStreamDTO:
         audience: text
         author: V2AccountDTO
-        description: text?
-        ended_at: datetime?
+        description: text? or null
+        ended_at: datetime? or null
         has_video: bool
         heart_count: int
         id: text
         is_nsfw: bool
-        lane: text?
-        pinned_body: text?
+        lane: text? or null
+        pinned_body: text? or null
         reminder_count: int
         reminder_set: bool
-        scheduled_at: datetime?
-        started_at: datetime?
+        scheduled_at: datetime? or null
+        started_at: datetime? or null
         status: text
         tip_goal_uaet: int
         tip_total_uaet: int
         title: text
         top_tippers: [V2TipperDTO]?
-        video_unavailable: text?
+        video_unavailable: text? or null
         viewer_count: int
     type V2LiveSummaryDTO:
         chat_lines: int
@@ -1143,28 +1143,28 @@ app F33D3RTypes:
     type V2MembershipSummaryDTO:
         active: bool
     type V2MessageDTO:
-        attachment: V2AttachmentDTO?
-        body: text?
-        body_ct_b64: text?
-        body_nonce_b64: text?
+        attachment: V2AttachmentDTO? or null
+        body: text? or null
+        body_ct_b64: text? or null
+        body_nonce_b64: text? or null
         conversation_id: text
         created_at: datetime
         deleted: bool
-        deleted_at: datetime?
-        edited_at: datetime?
-        expires_at: datetime?
+        deleted_at: datetime? or null
+        edited_at: datetime? or null
+        expires_at: datetime? or null
         id: text
         is_mine: bool
         kind: text
         mode: text
         reactions: [V2ReactionDTO]?
-        reply_preview: text?
-        reply_sender_handle: text?
-        reply_to_id: text?
+        reply_preview: text? or null
+        reply_sender_handle: text? or null
+        reply_to_id: text? or null
         sealed_keys: [SealedKeyDTO]?
         sender: V2AccountDTO
         sender_key_grants: [SealedKeyDTO]?
-        sk_counter: int?
+        sk_counter: int? or null
         sk_device: text?
         sk_epoch: int?
     type V2MessageTTLRequest:
@@ -1175,14 +1175,14 @@ app F33D3RTypes:
     type V2NotificationDTO:
         actor_count: int
         actors: [V2AccountDTO]
-        amount_uaet: int?
+        amount_uaet: int? or null
         created_at: datetime
         id: text
         is_read: bool
         kind: text
-        preview: text?
-        subject: V2NotificationSubjectDTO?
-        target_id: text?
+        preview: text? or null
+        subject: V2NotificationSubjectDTO? or null
+        target_id: text? or null
         target_type: text
     type V2NotificationPreferencesDTO:
         achievements_enabled: bool
@@ -1193,28 +1193,28 @@ app F33D3RTypes:
         messages_enabled: bool
         push_enabled: bool
         quiet_hours_enabled: bool
-        quiet_hours_end: text?
-        quiet_hours_start: text?
+        quiet_hours_end: text? or null
+        quiet_hours_start: text? or null
         replies_enabled: bool
         reposts_enabled: bool
     type V2NotificationPreferencesPatchRequest:
-        achievements_enabled: bool?
-        follows_enabled: bool?
-        frequencies_enabled: bool?
-        likes_enabled: bool?
-        mentions_enabled: bool?
-        messages_enabled: bool?
-        push_enabled: bool?
-        quiet_hours_enabled: bool?
-        quiet_hours_end: text?
-        quiet_hours_start: text?
-        replies_enabled: bool?
-        reposts_enabled: bool?
-        timezone: text?
+        achievements_enabled: bool? or null
+        follows_enabled: bool? or null
+        frequencies_enabled: bool? or null
+        likes_enabled: bool? or null
+        mentions_enabled: bool? or null
+        messages_enabled: bool? or null
+        push_enabled: bool? or null
+        quiet_hours_enabled: bool? or null
+        quiet_hours_end: text? or null
+        quiet_hours_start: text? or null
+        replies_enabled: bool? or null
+        reposts_enabled: bool? or null
+        timezone: text? or null
     type V2NotificationSubjectDTO:
         images: [text]?
-        league: text?
-        summary: text?
+        league: text? or null
+        summary: text? or null
         title: text
     type V2NotificationsPageDTO:
         items: [V2NotificationDTO]
@@ -1229,7 +1229,7 @@ app F33D3RTypes:
         policy: text
         revoked: bool
     type V2NumberMintRequest:
-        policy: text?
+        policy: text? or null
     type V2NumberPolicyRequest:
         policy: text
     type V2NumbersDTO:
@@ -1306,19 +1306,19 @@ app F33D3RTypes:
     type V2PasswordResetTokenDTO:
         reset_token: text
     type V2PlaceListingDTO:
-        address: text?
-        admin_notes: text?
+        address: text? or null
+        admin_notes: text? or null
         category: text
-        description: text?
+        description: text? or null
         id: text
         lat: number
         lon: number
         name: text
-        owner_avatar: text?
+        owner_avatar: text? or null
         owner_handle: text
         owner_name: text
-        status: text?
-        website: text?
+        status: text? or null
+        website: text? or null
     type V2PlaceWriteRequest:
         address: text
         category: text
@@ -1329,14 +1329,14 @@ app F33D3RTypes:
         website: text
     type V2PollDTO:
         closed: bool
-        ends_at: datetime?
+        ends_at: datetime? or null
         results: [V2PollResultDTO]
         shuffle: bool
         time_left: text
         total_votes: int
-        viewer_vote: int?
+        viewer_vote: int? or null
     type V2PollResultDTO:
-        image_url: text?
+        image_url: text? or null
         index: int
         is_winner: bool
         label: text
@@ -1345,12 +1345,12 @@ app F33D3RTypes:
         votes: int
     type V2ProfileDTO:
         account: V2AccountDTO
-        community: V2CommunitySummaryDTO?
+        community: V2CommunitySummaryDTO? or null
         follows_viewer: bool
-        live: V2ProfileLiveDTO?
-        membership: V2MembershipSummaryDTO?
-        pinned_work: V2WorkDTO?
-        shop: V2ShopSummaryDTO?
+        live: V2ProfileLiveDTO? or null
+        membership: V2MembershipSummaryDTO? or null
+        pinned_work: V2WorkDTO? or null
+        shop: V2ShopSummaryDTO? or null
         viewer_follows: bool
         viewer_is_blocked: bool
     type V2ProfileLiveDTO:
@@ -1358,7 +1358,7 @@ app F33D3RTypes:
         kind: text
         path: text
     type V2ProvenanceDTO:
-        handle: text?
+        handle: text? or null
         kind: text
         text: text
     type V2QuotedWorkDTO:
@@ -1371,8 +1371,8 @@ app F33D3RTypes:
         is_gore: bool
         is_nsfw: bool
         media_urls: [text]?
-        nested: V2QuotedWorkDTO?
-        video: V2VideoDTO?
+        nested: V2QuotedWorkDTO? or null
+        video: V2VideoDTO? or null
     type V2ReactionDTO:
         count: int
         emoji: text
@@ -1397,7 +1397,7 @@ app F33D3RTypes:
     type V2SearchDTO:
         articles: [ArticleSummaryDTO]
         communities: [CommunityResultDTO]
-        did_you_mean: text?
+        did_you_mean: text? or null
         live: [LiveStreamDTO]
         music: [TrackDTO]
         people: [V2AccountDTO]
@@ -1417,25 +1417,25 @@ app F33D3RTypes:
         query: text
         saved: bool
     type V2SelfDTO:
-        accent_hex: text?
+        accent_hex: text? or null
         account_id: text
-        account_label: text?
+        account_label: text? or null
         active_recently: bool
-        avatar_url: text?
-        bio: text?
+        avatar_url: text? or null
+        bio: text? or null
         birthday_month_day_visibility: text
         birthday_year_visibility: text
         celebrations_enabled: bool
         content_mode: text
         content_setting: text
-        country_code: text?
+        country_code: text? or null
         display_name: text
-        external_tip_links: json
+        external_tip_links: {text}
         follower_count: int
         following_count: int
         handle: text
         has_password: bool
-        header_url: text?
+        header_url: text? or null
         is_adult: bool
         is_adult_creator: bool
         is_age_verified: bool
@@ -1443,32 +1443,32 @@ app F33D3RTypes:
         is_minor: bool
         is_private: bool
         is_verified: bool
-        kyc_status: text?
-        kyc_submitted_at: datetime?
-        live_frequency_id: text?
-        location: text?
-        location_label: text?
-        official_type: text?
+        kyc_status: text? or null
+        kyc_submitted_at: datetime? or null
+        live_frequency_id: text? or null
+        location: text? or null
+        location_label: text? or null
+        official_type: text? or null
         online: bool
         payout_enabled: bool
         pial_id: text?
         post_count: int
-        pronouns: text?
+        pronouns: text? or null
         realm: int
         realm_name: text
         role: text
         show_sensitive: bool
-        social_links: json
-        theme_id: text?
+        social_links: {text}
+        theme_id: text? or null
         tier: text
         two_factor_enabled: bool
         unread_count: int
         viewer_follows: bool?
-        website: text?
+        website: text? or null
         xp: int
     type V2SendMessageRequest:
         body: text
-        reply_to: text?
+        reply_to: text? or null
     type V2SessionDTO:
         account: V2SelfDTO
         expires_at: datetime
@@ -1478,21 +1478,21 @@ app F33D3RTypes:
         created_at: datetime
         device_name: text
         id: text
-        ip_address: text?
+        ip_address: text? or null
         is_current: bool
         last_seen_at: datetime
     type V2SessionsDTO:
         items: [V2SessionInfoDTO]
     type V2SetCommunityMembershipGateRequest:
         membership_policy: text
-        required_plan_id: text?
+        required_plan_id: text? or null
     type V2SetDMSettingsRequest:
         access_level: text
         charge_mode: text
         price_aet: number
         vip_min_price_aet: number
     type V2ShopDTO:
-        earnings: V2ShopEarningsDTO?
+        earnings: V2ShopEarningsDTO? or null
         handle: text
         is_enabled: bool
         is_owner: bool
@@ -1504,16 +1504,16 @@ app F33D3RTypes:
         total_display: text
         tx_count: int
     type V2ShopPlanDTO:
-        description: text?
+        description: text? or null
         id: text
         name: text
         price_aet: int
         price_display: text
     type V2ShopStatusDTO:
-        btc_address: text?
+        btc_address: text? or null
         exists: bool
         is_active: bool
-        xrp_address: text?
+        xrp_address: text? or null
     type V2ShopSummaryDTO:
         active: bool
     type V2SignupRequest:
@@ -1535,39 +1535,39 @@ app F33D3RTypes:
         total: int
     type V2SportsFieldDTO:
         ball_on: number
-        driving_toward: text?
-        first_down_on: number?
-        possession_abbr: text?
+        driving_toward: text? or null
+        first_down_on: number? or null
+        possession_abbr: text? or null
     type V2SportsGameDTO:
         away: V2SportsTeamDTO
-        broadcast: text?
+        broadcast: text? or null
         clock: text?
-        down_distance: text?
-        field: V2SportsFieldDTO?
+        down_distance: text? or null
+        field: V2SportsFieldDTO? or null
         has_score: bool
         header_label: text?
         home: V2SportsTeamDTO
         id: text
         is_final: bool
         is_live: bool
-        last_play: text?
+        last_play: text? or null
         league: text
         league_label: text
         period_label: text?
-        possession_text: text?
+        possession_text: text? or null
         red_zone: bool
         series_summary: text?
         start: datetime
         start_label: text?
         state: text
         status_label: text
-        venue: text?
+        venue: text? or null
     type V2SportsGameDetailDTO:
         box: [V2SportsBoxScoreTeamDTO]
         current_inning_label: text?
         game: V2SportsGameDTO
         leaders: [V2SportsStatLeaderDTO]
-        odds: V2SportsOddsDTO?
+        odds: V2SportsOddsDTO? or null
         plays: [V2SportsPlayDTO]
         works: [V2WorkDTO]
     type V2SportsLeagueDTO:
@@ -1578,10 +1578,10 @@ app F33D3RTypes:
     type V2SportsOddsDTO:
         away_moneyline: int?
         home_moneyline: int?
-        opening_away_moneyline: int?
-        opening_home_moneyline: int?
-        opening_spread_line: number?
-        opening_total_line: number?
+        opening_away_moneyline: int? or null
+        opening_home_moneyline: int? or null
+        opening_spread_line: number? or null
+        opening_total_line: number? or null
         provider: text
         spread_line: number?
         spread_team_id: text?
@@ -1603,20 +1603,20 @@ app F33D3RTypes:
         team_id: text
     type V2SportsTeamDTO:
         abbr: text
-        alt_color: text?
-        color: text?
+        alt_color: text? or null
+        color: text? or null
         has_ball: bool
         id: text
-        logo_url: text?
+        logo_url: text? or null
         name: text
-        record: text?
+        record: text? or null
         score: int
         short_name: text
     type V2StartConversationRequest:
         body: text
-        handle: text?
-        number: text?
-        pending_id: text?
+        handle: text? or null
+        number: text? or null
+        pending_id: text? or null
     type V2ThreadDTO:
         conversation: V2ConversationDTO
         members: [V2AccountDTO]
@@ -1628,10 +1628,10 @@ app F33D3RTypes:
         like_count: int
         liked: bool
     type V2TrackPlayEventRequest:
-        duration_secs: number?
-        event_type: text?
-        position_secs: number?
-        session_id: text?
+        duration_secs: number? or null
+        event_type: text? or null
+        position_secs: number? or null
+        session_id: text? or null
     type V2TransparencyMethodologyDTO:
         als_iterations: int
         formula: text
@@ -1681,41 +1681,41 @@ app F33D3RTypes:
         down: bool
         failures: int
         known: bool
-        last_error: text?
-        last_failure: datetime?
-        last_success: datetime?
-        message: text?
+        last_error: text? or null
+        last_failure: datetime? or null
+        last_success: datetime? or null
+        message: text? or null
         name: text
         source: text
         successes: int
     type V2VideoDTO:
-        captions_url: text?
+        captions_url: text? or null
         duration_secs: number
         height: int
         master_url: text
-        poster_override_url: text?
-        poster_url: text?
+        poster_override_url: text? or null
+        poster_url: text? or null
         width: int
     type V2VideoJobDTO:
-        captions_url: text?
-        duplicate_of_handle: text?
-        duplicate_of_work_id: text?
-        duration_secs: number?
-        error: text?
-        height: int?
-        master_url: text?
-        poster_url: text?
+        captions_url: text? or null
+        duplicate_of_handle: text? or null
+        duplicate_of_work_id: text? or null
+        duration_secs: number? or null
+        error: text? or null
+        height: int? or null
+        master_url: text? or null
+        poster_url: text? or null
         status: text
-        upload_id: text?
-        watermarked_url: text?
-        width: int?
+        upload_id: text? or null
+        watermarked_url: text? or null
+        width: int? or null
     type V2VisionArtboardDTO:
         align: text
         background: text
         type_scale: text
         typeface: text
     type V2VisionCreateRequest:
-        allow_replies: bool?
+        allow_replies: bool? or null
         artboard_align: text
         artboard_background: text
         artboard_type_scale: text
@@ -1743,9 +1743,9 @@ app F33D3RTypes:
         id: text
         is_nsfw: bool
         media_urls: [text]?
-        poll: V2PollDTO?
+        poll: V2PollDTO? or null
         seen: bool
-        view_count: int?
+        view_count: int? or null
     type V2VisionReplyRequest:
         body: text
     type V2VisionRingDTO:
@@ -1753,12 +1753,12 @@ app F33D3RTypes:
         count: int
         is_live: bool
         latest_at: datetime
-        provenance: V2ProvenanceDTO?
+        provenance: V2ProvenanceDTO? or null
         state: text
         unseen_count: int
         visions: [V2VisionDTO]
     type V2VisionTrayDTO:
-        own: V2VisionRingDTO?
+        own: V2VisionRingDTO? or null
         rings: [V2VisionRingDTO]
     type V2VisionViewersDTO:
         count: int
@@ -1776,7 +1776,7 @@ app F33D3RTypes:
         pending_uaet: int
     type V2WalletEntryDTO:
         amount_uaet: int
-        counterparty_handle: text?
+        counterparty_handle: text? or null
         created_at: datetime
         id: text
         kind: text
@@ -1792,8 +1792,8 @@ app F33D3RTypes:
         created_at: datetime
         dislike_count: int
         disliked_by_viewer: bool
-        edited_at: datetime?
-        expires_at: datetime?
+        edited_at: datetime? or null
+        expires_at: datetime? or null
         id: text
         is_edited: bool
         is_gore: bool
@@ -1805,62 +1805,62 @@ app F33D3RTypes:
         latest_replier_handles: [text]?
         like_count: int
         liked_by_viewer: bool
-        lineage_display_name: text?
-        lineage_handle: text?
-        link_preview: V2LinkPreviewDTO?
+        lineage_display_name: text? or null
+        lineage_handle: text? or null
+        link_preview: V2LinkPreviewDTO? or null
         made_with_ai: bool
         media_urls: [text]?
         paid_partnership: bool
-        parent_cid: text?
-        poll: V2PollDTO?
-        price_uaet: int?
-        provenance: V2ProvenanceDTO?
+        parent_cid: text? or null
+        poll: V2PollDTO? or null
+        price_uaet: int? or null
+        provenance: V2ProvenanceDTO? or null
         purchased_by_viewer: bool
         quote_count: int
-        quoted: V2QuotedWorkDTO?
-        quoted_cid: text?
+        quoted: V2QuotedWorkDTO? or null
+        quoted_cid: text? or null
         reply_count: int
         repost_count: int
-        reposted_at: datetime?
-        reposted_by: V2AccountDTO?
+        reposted_at: datetime? or null
+        reposted_by: V2AccountDTO? or null
         reposted_by_viewer: bool
         scan_state: text
-        score_band: text?
+        score_band: text? or null
         subscriber_only: bool
         tags: [text]?
-        tip_total_uaet: int?
-        video: V2VideoDTO?
+        tip_total_uaet: int? or null
+        video: V2VideoDTO? or null
         view_count: int
         viewer_follows_author: bool
-        voice: V2VoiceDTO?
-        youtube_id: text?
-        youtube_playlist_id: text?
+        voice: V2VoiceDTO? or null
+        youtube_id: text? or null
+        youtube_playlist_id: text? or null
     type V2WorkThreadDTO:
         ancestors: [V2WorkDTO]
         replies: V2PageOfV2WorkDTO
         work: V2WorkDTO
     type VideoDTO:
-        captions_url: text?
+        captions_url: text? or null
         duration_secs: number
         height: int
         master_url: text
-        poster_override_url: text?
-        poster_url: text?
+        poster_override_url: text? or null
+        poster_url: text? or null
         width: int
     type VoiceDTO:
         duration_secs: number
         url: text
     type WorkAuthorDTO:
         account_label: text
-        avatar_url: text?
+        avatar_url: text? or null
         display_name: text
         handle: text
         is_creator: bool
         is_mutual: bool
         is_verified: bool
-        live_frequency_id: text?
-        official_type: text?
-        origin_label: text?
+        live_frequency_id: text? or null
+        official_type: text? or null
+        origin_label: text? or null
         realm: int
         role: text
     type WorkCreatedDTO:
@@ -1877,8 +1877,8 @@ app F33D3RTypes:
         created_at: datetime
         dislike_count: int
         disliked_by_viewer: bool
-        edited_at: datetime?
-        expires_at: datetime?
+        edited_at: datetime? or null
+        expires_at: datetime? or null
         id: text
         is_edited: bool
         is_gore: bool
@@ -1890,36 +1890,36 @@ app F33D3RTypes:
         latest_replier_handles: [text]?
         like_count: int
         liked_by_viewer: bool
-        lineage_display_name: text?
-        lineage_handle: text?
-        link_preview: LinkPreviewDTO?
+        lineage_display_name: text? or null
+        lineage_handle: text? or null
+        link_preview: LinkPreviewDTO? or null
         made_with_ai: bool
         media_urls: [text]?
         paid_partnership: bool
-        parent_cid: text?
-        poll: PollDTO?
-        price_uaet: int?
-        provenance: ProvenanceDTO?
+        parent_cid: text? or null
+        poll: PollDTO? or null
+        price_uaet: int? or null
+        provenance: ProvenanceDTO? or null
         quote_count: int
-        quoted: QuotedWorkDTO?
-        quoted_cid: text?
+        quoted: QuotedWorkDTO? or null
+        quoted_cid: text? or null
         reply_count: int
         repost_count: int
-        reposted_at: datetime?
-        reposted_by: WorkAuthorDTO?
+        reposted_at: datetime? or null
+        reposted_by: WorkAuthorDTO? or null
         reposted_by_viewer: bool
         scan_state: text
-        score_band: text?
+        score_band: text? or null
         subscriber_only: bool
         tags: [text]?
-        tip_total_uaet: int?
-        video: VideoDTO?
+        tip_total_uaet: int? or null
+        video: VideoDTO? or null
         view_count: int
         viewer_follows_author: bool
-        voice: VoiceDTO?
+        voice: VoiceDTO? or null
         work_purchased_by_viewer: bool
-        youtube_id: text?
-        youtube_playlist_id: text?
+        youtube_id: text? or null
+        youtube_playlist_id: text? or null
     type WorkEngagementEventDTO:
         bookmark_count: int
         dislike_count: int

@@ -685,27 +685,133 @@ app F33D3RSocial:
             add History { account: me, work: wid, viewed: now() }
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/works/{id}" -> getWork rate read since "2026-09-18"
-    api GET "/api/v2/works" -> getWorks rate read since "2026-09-18"
-    api GET "/api/v2/works/{id}/replies" -> getWorkReplies rate read since "2026-09-18"
-    api GET "/api/v2/works/{id}/quotes" -> getWorkQuotes rate read since "2026-09-18"
-    api GET "/api/v2/feed" -> feed rate read since "2026-09-18"
-    api GET "/api/v2/feed/changes" -> feedChanges rate read since "2026-09-18"
-    api GET "/api/v2/notifications" -> notifications rate read since "2026-09-18"
-    api GET "/api/v2/notifications/changes" -> notificationsChanges rate read since "2026-09-18"
-    api GET "/api/v2/tags/trending" -> tagsTrending rate read since "2026-09-18"
-    api GET "/api/v2/topics/snoozes" -> topicSnoozes rate read since "2026-09-18"
-    api GET "/api/v2/search" -> search rate read since "2026-09-18"
-    api GET "/api/v2/search/history" -> searchHistory rate read since "2026-09-18"
-    api GET "/api/v2/search/saved" -> searchSaved rate read since "2026-09-18"
-    api GET "/api/v2/search/suggest" -> searchSuggest rate read since "2026-09-18"
-    api GET "/api/v2/history" -> history rate read since "2026-09-18"
-    api GET "/api/v2/me/blocks" -> getBlocks rate read since "2026-09-18"
-    api GET "/api/v2/me/mutes" -> getMutes rate read since "2026-09-18"
-    api GET "/api/v2/users" -> getUsers rate read since "2026-09-18"
-    api GET "/api/v2/users/{handle}" -> getProfile rate read since "2026-09-20"
-    api GET "/api/v2/users/{handle}/followers" -> getFollowers rate read since "2026-09-18"
-    api GET "/api/v2/users/{handle}/following" -> getFollowing rate read since "2026-09-18"
-    api GET "/api/v2/users/{handle}/works" -> getUserWorks rate read since "2026-09-18"
-    api GET "/api/v2/bookmarks" -> bookmarksPage rate read since "2026-09-18"
-    api GET "/api/v2/bookmarks/folders" -> bookmarkFolders rate read since "2026-09-18"
+    api GET "/api/v2/works/{id}" -> getWork rate read since "2026-09-18":
+        summary "One work with its ancestors and replies."
+        errors 404
+        id: text "Work id."
+    api GET "/api/v2/works" -> getWorks rate read since "2026-09-18":
+        summary "Hydrate up to 100 works by id, in the order asked."
+        description "Each id is answered as GET /api/v2/works/{id} would answer it; an id that is unknown, deleted, not a uuid, or behind a wall the single read refuses is omitted rather than refused."
+        errors 400
+        ids: text "Comma-separated work ids, 1–100."
+    api GET "/api/v2/works/{id}/replies" -> getWorkReplies rate read since "2026-09-18":
+        summary "Replies to a work, newest first."
+        errors 400, 404
+        id: text "Work id."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+        limit: int "Page size, 1–50; default 20."
+    api GET "/api/v2/works/{id}/quotes" -> getWorkQuotes rate read since "2026-09-18":
+        summary "Works quoting a work, newest first."
+        errors 400, 404
+        id: text "Work id."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+        limit: int "Page size, 1–50; default 20."
+    api GET "/api/v2/feed" -> feed rate read since "2026-09-18":
+        summary "The home feed, one surface at a time."
+        errors 400
+        surface: text "Which feed; default following." one of "following", "foryou", "for_you"
+        tag: text "Restrict the surface to one #tag."
+        session_id: text "The client's browsing session, carried to the ranker."
+        limit: int "Page size, 1–50; default 20."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+    api GET "/api/v2/feed/changes" -> feedChanges rate read since "2026-09-18":
+        summary "What landed on a home surface after an instant."
+        description "The same per-surface arrivals statements the web's arrivals banner reads. Pass the next_cursor (or server_time) of the page held as since. next_cursor is set when more changed than one page: page GET /api/v2/feed downward from it until you meet the head you hold."
+        errors 400
+        surface: text "Which surface; default following." one of "following", "for_you", "trending"
+        since: text "RFC 3339 instant: the server_time or cursor of the page held."
+        limit: int "Page size, 1–50; default 20."
+    api GET "/api/v2/notifications" -> notifications rate read since "2026-09-18":
+        summary "The account's notifications, grouped, newest first."
+        errors 400
+        tab: text "Which notifications; default all." one of "all", "priority", "mention", "like", "follow", "repost", "tip"
+        limit: int "Page size, 1–50; default 20."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+    api GET "/api/v2/notifications/changes" -> notificationsChanges rate read since "2026-09-18":
+        summary "Notifications that changed after an instant."
+        description "Grouped as GET /api/v2/notifications groups them, newest first; unread_count is the whole badge. next_cursor, when set, pages the ordinary route downward."
+        errors 400
+        since: text "RFC 3339 instant: the server_time of the page held."
+        tab: text "Which notifications; default all." one of "all", "priority", "mention", "like", "follow", "repost", "tip"
+        limit: int "Page size, 1–50; default 20."
+    api GET "/api/v2/tags/trending" -> tagsTrending rate read since "2026-09-18":
+        errors 401
+        summary "Trending tags."
+    api GET "/api/v2/topics/snoozes" -> topicSnoozes rate read since "2026-09-18":
+        errors 401
+        summary "Topics the account has snoozed."
+    api GET "/api/v2/search" -> search rate read since "2026-09-18":
+        errors 401
+        summary "Search works, people, tags, articles, communities, music and live."
+        description "The query language of the web search bar: \"exact phrase\", -word, OR, #tag, $TICKER, @handle, from:handle, since:/until:YYYY-MM-DD, has:media|video|image|voice|poll|link, min_replies:N. Words are stemmed and accent-folded; a misspelling is tolerated and did_you_mean offers the corrected query."
+        q: text "The query; empty answers empty lists."
+        type: text "Restrict to one kind; default all." one of "all", "works", "people", "tags", "articles", "communities", "music", "live"
+        sort: text "Order of the works: by relevance (top, default) or newest first (latest)." one of "top", "latest"
+        page: int "Page of works, people, music and communities; 1 (default) to 200."
+    api GET "/api/v2/search/history" -> searchHistory rate read since "2026-09-18":
+        errors 401
+        summary "The account's recent searches, newest first."
+        description "Forgetting is the search_history_forget / search_history_clear events on POST /events."
+    api GET "/api/v2/search/saved" -> searchSaved rate read since "2026-09-18":
+        errors 401
+        summary "The account's saved searches, each with what arrived since it was last opened."
+        description "Saving and dropping are the search_save / search_unsave events on POST /events."
+    api GET "/api/v2/search/suggest" -> searchSuggest rate read since "2026-09-18":
+        errors 401
+        summary "Typeahead for the search bar."
+        description "For the characters typed so far: the caller's own recent and saved searches that begin with them, what others are searching, the corpus's completions of the last word, people and tags. With q empty: recent, saved and trending."
+        q: text "The characters typed so far; may be empty."
+        type: text "The lane the bar will search; default top." one of "top", "latest", "people", "posts", "media", "music", "live", "articles", "communities", "tags"
+    api GET "/api/v2/history" -> history rate read since "2026-09-18":
+        summary "Works the account viewed, most recent first."
+        errors 400
+        limit: int "Page size, 1–50; default 20."
+        cursor: text "next_cursor of the previous page (an RFC 3339 instant); absent means from now."
+    api GET "/api/v2/me/blocks" -> getBlocks rate read since "2026-09-18":
+        errors 401
+        summary "Accounts the caller has blocked."
+    api GET "/api/v2/me/mutes" -> getMutes rate read since "2026-09-18":
+        errors 401
+        summary "Accounts the caller has muted."
+    api GET "/api/v2/users" -> getUsers rate read since "2026-09-18":
+        summary "Hydrate up to 100 accounts by handle, in the order asked."
+        description "Each handle is answered as GET /api/v2/users/{handle} answers its account object; an unknown, malformed or deactivated handle is omitted. Each row's own viewer_follows names whether the caller follows it."
+        errors 400
+        handles: text "Comma-separated handles without the @, 1–100."
+    api GET "/api/v2/users/{handle}" -> getProfile rate read since "2026-09-20":
+        summary "A profile as the viewer may see it."
+        description "shop/membership/live/community are this creator's other surfaces, present only when they have them."
+        errors 403, 404
+        handle: text "Handle without the @."
+    api GET "/api/v2/users/{handle}/followers" -> getFollowers rate read since "2026-09-18":
+        summary "Who follows a profile."
+        errors 400, 404
+        handle: text "Handle without the @."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+        limit: int "Page size, 1–50; default 20."
+        active: text "1 narrows to accounts seen in the activity window."
+    api GET "/api/v2/users/{handle}/following" -> getFollowing rate read since "2026-09-18":
+        summary "Who a profile follows."
+        errors 400, 404
+        handle: text "Handle without the @."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+        limit: int "Page size, 1–50; default 20."
+        active: text "1 narrows to accounts seen in the activity window."
+    api GET "/api/v2/users/{handle}/works" -> getUserWorks rate read since "2026-09-18":
+        summary "A profile's works by tab."
+        errors 400, 403, 404
+        handle: text "Handle without the @."
+        tab: text "Which tab; default works. likes and saves are the owner's only." one of "works", "replies", "media", "likes", "saves"
+        sort: text "Order; default latest." one of "latest", "top", "media"
+        limit: int "Page size, 1–50; default 20."
+        cursor: text "next_cursor of the previous page — opaque, never parsed by the client; absent means from now."
+    api GET "/api/v2/bookmarks" -> bookmarksPage rate read since "2026-09-18":
+        summary "The account's saved works."
+        errors 400, 404
+        filter: text "Media filter as the bookmarks page names it."
+        folder: text "Restrict to one folder id."
+        limit: int "Page size, 1–50; default 20."
+        cursor: text "Opaque cursor from a previous page's next_cursor; absent means from now."
+    api GET "/api/v2/bookmarks/folders" -> bookmarkFolders rate read since "2026-09-18":
+        errors 401
+        summary "The account's bookmark folders."

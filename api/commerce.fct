@@ -89,15 +89,15 @@ app F33D3RCommerce:
 
     # Host-only: set (price > 0) or clear (absent/0) the one-time ticket a
     # listener buys to Tune In; answers the room as it now stands.
-    action frequencyTicket(id: text, price_aet: int?) -> V2FrequencyRoomDTO:
+    action frequencyTicket(id: text, price_aet: float?) -> V2FrequencyRoomDTO:
         requires member
         let fid = toInt(id)
         check exists(f in Frequency where f.id == fid) "no such frequency" status 404
         let me = max(a.id in Account where a.handle == actor)
         check Frequency(fid).host == me "not your frequency" status 403
-        check price_aet >= 0 "price_aet must not be negative" status 400
-        set Frequency(fid).ticket_price_aet = price_aet
-        add FrequencyTicketOffer { frequency: fid, price_aet: price_aet, created: now() }
+        check price_aet >= 0.0 "price_aet must not be negative" status 400
+        set Frequency(fid).ticket_price_aet = round(price_aet)
+        add FrequencyTicketOffer { frequency: fid, price_aet: round(price_aet), created: now() }
         return frequencyRoomDTO(Frequency(fid), me)
     action frequencyTicketPurchase(id: text) -> V2FrequencyTicketPurchaseDTO:
         requires member
@@ -106,17 +106,18 @@ app F33D3RCommerce:
         let me = max(a.id in Account where a.handle == actor)
         let tid = add FrequencyTicket { frequency: fid, account: me, price_aet: 0, created: now() }
         return V2FrequencyTicketPurchaseDTO{purchase_id: "" + tid, ain_soph_tx_id: "" + tid, amount_aet: 0}
-    action frequencyTip(id: text, amount_aet: text, message: text?) -> V2FrequencyTipReceiptDTO:
+    action frequencyTip(id: text, amount_aet: float, message: text?) -> V2FrequencyTipReceiptDTO:
         requires member
         let fid = toInt(id)
         check exists(f in Frequency where f.id == fid) "no such frequency" status 404
         let me = max(a.id in Account where a.handle == actor)
-        let amt = toInt(amount_aet)
+        let amt = do aetToUaet("" + amount_aet)
+        check amt > 0 "amount_aet must be a positive number of AET" status 400
         add WalletEntry { account: me, kind: "frequency_tip", amount_uaet: 0 - amt, counterparty: Frequency(fid).host, created: now() }
         add WalletEntry { account: Frequency(fid).host, kind: "frequency_tip_received", amount_uaet: amt, counterparty: me, created: now() }
         emit balance balanceDTO(me) to actor
         emit balance balanceDTO(Frequency(fid).host) to Account(Frequency(fid).host).handle
-        return V2FrequencyTipReceiptDTO{tip_id: "" + fid, ain_soph_tx_id: "" + fid, amount_aet: 0}
+        return V2FrequencyTipReceiptDTO{tip_id: "" + fid, ain_soph_tx_id: "" + fid, amount_aet: amount_aet}
     # Host-only: require one of the host's own shop plans to Tune In as a
     # listener (absent/"" clears it); answers the room as it now stands.
     action frequencyVipTier(id: text, required_plan_id: text?) -> V2FrequencyRoomDTO:
@@ -131,13 +132,46 @@ app F33D3RCommerce:
         return frequencyRoomDTO(Frequency(fid), me)
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/library" -> library rate read since "2026-09-18"
-    api GET "/api/v2/marketplace" -> marketplace rate read since "2026-09-18"
-    api GET "/api/v2/shop/status" -> shopStatus rate read since "2026-09-18"
-    api GET "/api/v2/shop/{handle}" -> getShop rate read since "2026-09-18"
-    api GET "/api/v2/transparency/notes" -> transparencyNotes rate read since "2026-09-18"
-    api GET "/api/v2/transparency/ratings" -> transparencyRatings rate read since "2026-09-18"
-    api POST "/api/v2/frequencies/{id}/ticket" -> frequencyTicket rate write since "2026-09-18"
-    api POST "/api/v2/frequencies/{id}/ticket/purchase" -> frequencyTicketPurchase rate write since "2026-09-18"
-    api POST "/api/v2/frequencies/{id}/tip" -> frequencyTip rate write since "2026-09-18"
-    api POST "/api/v2/frequencies/{id}/vip_tier" -> frequencyVipTier rate write since "2026-09-18"
+    api GET "/api/v2/library" -> library rate read since "2026-09-18":
+        summary "What the caller has bought."
+        errors 502, 503
+    api GET "/api/v2/marketplace" -> marketplace rate read since "2026-09-18":
+        summary "Browse marketplace listings."
+        errors 400, 403, 502, 503
+        cursor: text "Opaque cursor from a previous page's next_cursor; absent means the first page."
+    api GET "/api/v2/shop/status" -> shopStatus rate read since "2026-09-18":
+        summary "The caller's own shop: BTC/XRP addresses, plans, earnings."
+        errors 403, 502
+    api GET "/api/v2/shop/{handle}" -> getShop rate read since "2026-09-18":
+        summary "One creator's shop."
+        errors 404, 502, 503
+        handle: text "Handle without the @."
+    api GET "/api/v2/transparency/notes" -> transparencyNotes rate read since "2026-09-18":
+        summary "Context Notes, pseudonymised, for audit."
+        errors 503
+        limit: int "Page size; default 100."
+        offset: int "Rows to skip; default 0."
+    api GET "/api/v2/transparency/ratings" -> transparencyRatings rate read since "2026-09-18":
+        summary "Context Note ratings, pseudonymised, for audit."
+        errors 503
+        limit: int "Page size; default 100."
+        offset: int "Rows to skip; default 0."
+    api POST "/api/v2/frequencies/{id}/ticket" -> frequencyTicket rate write since "2026-09-18":
+        summary "Host-only: set or clear the one-time ticket price required to Tune In as a listener."
+        body V2FrequencyTicketRequestDTO
+        errors 400, 403, 404, 409, 503
+        id: text "Frequency id."
+    api POST "/api/v2/frequencies/{id}/ticket/purchase" -> frequencyTicketPurchase rate write since "2026-09-18":
+        summary "Buy this Frequency's ticket, through Themis, right now. Does not itself admit the caller — Tune In still re-checks payment fresh."
+        errors 400, 404, 409, 503
+        id: text "Frequency id."
+    api POST "/api/v2/frequencies/{id}/tip" -> frequencyTip rate write since "2026-09-18":
+        summary "Tip the host, through Themis, right now."
+        body V2FrequencyTipRequestDTO
+        errors 400, 404, 409, 503
+        id: text "Frequency id."
+    api POST "/api/v2/frequencies/{id}/vip_tier" -> frequencyVipTier rate write since "2026-09-18":
+        summary "Host-only: set or clear the Themis subscription plan required to Tune In as a listener."
+        body V2FrequencyVipTierRequestDTO
+        errors 400, 403, 404, 409, 503
+        id: text "Frequency id."

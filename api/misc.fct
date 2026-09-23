@@ -178,16 +178,51 @@ app F33D3RMisc:
         return FacetCatalogDTO{catalog_version: "1", contract_version: "1", count: 0, facets: [], server_time: iso(now())}
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/wallet" -> wallet rate read since "2026-09-18"
-    api GET "/api/v2/achievements" -> achievements rate read since "2026-09-18"
-    api GET "/api/v2/analytics" -> analytics rate read since "2026-09-18"
-    api GET "/api/v2/contact-requests" -> contactRequests rate read since "2026-09-18"
-    api POST "/api/v2/contact-requests/{id}" -> decideContactRequest status 204 rate write since "2026-09-18"
-    api GET "/api/v2/creator/fans" -> creatorFans rate read since "2026-09-18"
-    api GET "/api/v2/lists" -> listWorkLists rate read since "2026-09-18"
-    api GET "/api/v2/lists/{id}" -> getWorkList rate read since "2026-09-18"
-    api GET "/api/v2/packs" -> listPacks rate read since "2026-09-18"
-    api GET "/api/v2/packs/{slug}" -> getPack rate read since "2026-09-18"
-    api GET "/api/v2/transparency/methodology" -> transparencyMethodology rate read since "2026-09-18"
-    api GET "/api/v2/upstream" -> upstreamSources rate read since "2026-09-18"
-    api GET "/api/v2/contract/facets" -> sanctumFacetsCatalog rate read since "2026-09-13"
+    api GET "/api/v2/wallet" -> wallet rate read since "2026-09-18":
+        summary "The AET balance and ledger."
+        errors 503
+    api GET "/api/v2/achievements" -> achievements rate read since "2026-09-18":
+        errors 401
+        summary "The account's achievements and leaderboard standing."
+    api GET "/api/v2/analytics" -> analytics rate read since "2026-09-18":
+        errors 401
+        summary "The caller's own creator analytics."
+        period: text "Window in days; default 30." one of "7", "30", "90", "all"
+        sort: text "Order of the posts table; default impressions."
+    api GET "/api/v2/contact-requests" -> contactRequests rate read since "2026-09-18":
+        summary "People asking to reach this account."
+        errors 503
+    api POST "/api/v2/contact-requests/{id}" -> decideContactRequest status 204 rate write since "2026-09-18":
+        summary "Accept or decline a contact request."
+        body V2ContactDecisionRequest
+        errors 400, 409
+        id: text "The request."
+    api GET "/api/v2/creator/fans" -> creatorFans rate read since "2026-09-18":
+        summary "The creator's own Fan CRM: recent followers with subscription, tips, PPV, shop and Frequencies-attendance figures."
+        errors 403
+    api GET "/api/v2/lists" -> listWorkLists rate read since "2026-09-18":
+        errors 401
+        summary "The account's lists."
+    api GET "/api/v2/lists/{id}" -> getWorkList rate read since "2026-09-18":
+        summary "One list with its timeline."
+        errors 400, 404
+        id: text "List id."
+        limit: int "Page size, 1–50; default 20."
+        cursor: text "Opaque cursor from a previous page's next_cursor; absent means from now."
+    api GET "/api/v2/packs" -> listPacks rate read since "2026-09-18":
+        errors 401
+        summary "Starter packs."
+    api GET "/api/v2/packs/{slug}" -> getPack rate read since "2026-09-18":
+        summary "One starter pack."
+        errors 404
+        slug: text "Pack slug."
+    api GET "/api/v2/transparency/methodology" -> transparencyMethodology rate read since "2026-09-18":
+        summary "How Context Notes are scored."
+        errors 503
+    api GET "/api/v2/upstream" -> upstreamSources rate read since "2026-09-18":
+        errors 401
+        summary "External data sources and whether they answer"
+        description "Every source this server has asked (scores, quotes, GIFs, unfurls). down is true when the latest evidence is a failure — draw the same notice the web's upstream_unavailable Facet draws."
+    api GET "/api/v2/contract/facets" -> sanctumFacetsCatalog rate read since "2026-09-13":
+        summary "Android's contract: every web Facet the Atlas knows, with its id, layer, inputs, composition, the /facets route that renders it and the stream events that replace it."
+        description "Read from the same FACET headers and template graph the Atlas (GET /_atlas) reads, plus what the code binds to each Facet (x-facet-catalog). catalog_version is the sha256 of the entries; the answer is a conditional GET like every other."

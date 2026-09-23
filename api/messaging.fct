@@ -62,7 +62,7 @@ app F33D3RMessaging:
     action sendMessage(id: int, body: text, reply_to: text?) -> V2MessageDTO:
         requires member
         requires inConversation(id)
-        check body != "" "say something"
+        check body != "" "Write something to send." status 400 code "body_required"
         let me = max(a.id in Account where a.handle == actor)
         let rt = toInt(reply_to)
         let mid = add Message { conversation: id, sender: me, body: body, kind: "text", reply_to: rt, deleted: false, edited_at: 0, created: now() }
@@ -103,7 +103,7 @@ app F33D3RMessaging:
     action callSignal(id: int, kind: text, media: text?, reason: text?) -> CallDTO:
         requires member
         requires inConversation(id)
-        check kind != "" "kind is required"
+        check kind != "" "kind is required" status 400
         let me = max(a.id in Account where a.handle == actor)
         add CallSignal { conversation: id, from_account: me, kind: kind, media: media, reason: reason, created: now() }
         for m in ConversationMember where m.conversation == id && m.account != me:
@@ -173,19 +173,87 @@ app F33D3RMessaging:
         return V2JoinResultDTO{joined: !already, admitted: true, already_member: already, conversation_id: "" + cid, preview: V2JoinPreviewDTO{token: token, title: Conversation(cid).title, member_count: count(m in ConversationMember where m.conversation == cid), already_member: true, conversation_id: "" + cid, sealed: false, state: "open", faces: []}}
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api GET "/api/v2/messages" -> listConversations rate read since "2026-09-18"
-    api POST "/api/v2/messages" -> startConversation rate write since "2026-09-18"
-    api GET "/api/v2/messages/changes" -> conversationChanges rate read since "2026-09-18"
-    api GET "/api/v2/messages/{id}" -> getThread rate read since "2026-09-18"
-    api POST "/api/v2/messages/{id}" -> sendMessage status 201 rate write since "2026-09-18"
-    api POST "/api/v2/messages/{id}/read-receipts" -> markRead status 204 rate write since "2026-09-18"
-    api POST "/api/v2/messages/{id}/typing" -> typing rate read since "2026-09-18"
-    api POST "/api/v2/messages/{id}/ttl" -> setTTL rate write since "2026-09-18"
-    api POST "/api/v2/messages/{id}/call-signal" -> callSignal rate write since "2026-09-18"
-    api GET "/api/v2/messages/dm-settings" -> getDMSettings rate read since "2026-09-18"
-    api POST "/api/v2/messages/dm-settings" -> setDMSettings rate write since "2026-09-18"
-    api GET "/api/v2/messages/{id}/invites" -> getInvites rate read since "2026-09-18"
-    api POST "/api/v2/messages/{id}/invites" -> createInvite rate write since "2026-09-18"
-    api POST "/api/v2/messages/invites/{token}/revoke" -> revokeInvite rate write since "2026-09-18"
-    api GET "/api/v2/join/{token}" -> previewJoin rate read since "2026-09-18"
-    api POST "/api/v2/join/{token}" -> join rate write since "2026-09-18"
+    api GET "/api/v2/messages" -> listConversations rate read since "2026-09-18":
+        summary "The caller's conversations, newest activity first."
+        errors 400
+        cursor: text "Opaque page cursor from a previous next_cursor."
+        limit: int "Page size, 1-200; default 50."
+    api POST "/api/v2/messages" -> startConversation rate write since "2026-09-18":
+        summary "Start a conversation with a person, by handle or by Number."
+        description "One resource, three addressing modes: handle (message_start), number (message_number), or number+pending_id to release a message already held for one. The one answer shape whether or not it was delivered."
+        body V2StartConversationRequest
+        errors 400, 429, 503
+    api GET "/api/v2/messages/changes" -> conversationChanges rate read since "2026-09-18":
+        summary "Conversations with activity after an instant."
+        description "v1's GET /api/v1/messages/arrived under the naming GET /api/v2/feed/changes and /api/v2/notifications/changes already established: the resource fact (\"what changed\"), not the push mechanism (\"what arrived\")."
+        errors 400
+        since: text "RFC 3339 instant: the server_time of the list held."
+    api GET "/api/v2/messages/{id}" -> getThread rate read since "2026-09-18":
+        summary "One conversation's messages, newest first."
+        errors 400, 403, 404
+        id: text "Conversation id."
+        cursor: text "Opaque page cursor from a previous next_cursor; the page before it."
+        limit: int "Page size, 1-200; default 50."
+    api POST "/api/v2/messages/{id}" -> sendMessage status 201 rate write since "2026-09-18":
+        summary "Send a plaintext message into a conversation that already exists."
+        description "Sealed conversations are refused here; a sealed message goes to /api/gnosis/send-sealed."
+        body V2SendMessageRequest
+        errors 400, 403, 404, 409, 413
+        id: text "Conversation id."
+    api POST "/api/v2/messages/{id}/read-receipts" -> markRead status 204 rate write since "2026-09-18":
+        summary "Mark a conversation read, up to now."
+        errors 403
+        id: text "Conversation id."
+    api POST "/api/v2/messages/{id}/typing" -> typing rate read since "2026-09-18":
+        errors 401
+        summary "Say the caller is typing"
+        description "Send at most once every 3 s while typing; the server holds the notice for 4 s and clears it itself. 204."
+        id: text "Conversation id."
+    api POST "/api/v2/messages/{id}/ttl" -> setTTL rate write since "2026-09-18":
+        errors 401
+        summary "Set a conversation's disappearing-messages timer"
+        description "Any member of a 1:1, an admin of a group. The change is recorded as a system row in the thread and every member's conversation redraws."
+        body V2MessageTTLRequest
+        id: text "Conversation id."
+    api POST "/api/v2/messages/{id}/call-signal" -> callSignal rate write since "2026-09-18":
+        errors 401
+        summary "Relay a sealed call signal"
+        description "The native form of POST /api/gnosis/call-signal; `c` comes from the path. kind is offer|answer|ice|end; offer and answer carry a sealed envelope keyed to the other party and are answered with CallDTO; ice and end answer 204. The relay stores nothing and reads no SDP."
+        body CallSignalRequest
+        id: text "Conversation id."
+    api GET "/api/v2/messages/dm-settings" -> getDMSettings rate read since "2026-09-18":
+        summary "DM access-level settings: the caller's own, or (with ?handle=) another account's requirement."
+        description "With no query, the caller's own settings — the same read the web settings panel makes. With ?handle=, a READ-ONLY look at what messaging that account would require (its access level and price), for a composer to show ahead of time. Not a live verdict on the caller's own eligibility (following, subscribed, VIP) — that only exists at send time inside check_send_gate (gnosis/src/access.rs), never cached and never recomputed here; the send itself is still the real answer. A query param, not a path segment, because /api/v2/messages/{id}/... already claims a wildcard first segment for conversation ids (see .../invites), and a second wildcard segment here would collide with it."
+        errors 404
+        handle: text "Another account's handle, to read its requirement instead of the caller's own settings."
+    api POST "/api/v2/messages/dm-settings" -> setDMSettings rate write since "2026-09-18":
+        summary "Set who may DM the caller, and what it costs."
+        description "Validated in gnosis, not here — e.g. paid_only with a price of 0 or less is refused. Same fields the web settings panel writes."
+        body V2SetDMSettingsRequest
+        errors 400, 503
+    api GET "/api/v2/messages/{id}/invites" -> getInvites rate read since "2026-09-18":
+        errors 401
+        summary "A group's live join links"
+        description "Admin-only. 409 for a 1:1."
+        id: text "Conversation id."
+    api POST "/api/v2/messages/{id}/invites" -> createInvite rate write since "2026-09-18":
+        errors 401
+        summary "Mint a join link for a group"
+        description "Admin-only. 201 with the new link."
+        body V2InviteCreateRequest
+        id: text "Conversation id."
+    api POST "/api/v2/messages/invites/{token}/revoke" -> revokeInvite rate write since "2026-09-18":
+        errors 401
+        summary "Retire a join link"
+        description "Admin-only on the link's group. Answers the links that remain."
+        token: text "Join link token."
+    api GET "/api/v2/join/{token}" -> previewJoin rate read since "2026-09-18":
+        errors 401
+        summary "Preview a join link"
+        description "The group's name, size and a few faces, and whether the link still opens (state: open|expired|revoked|used_up|unknown)."
+        token: text "Join link token."
+    api POST "/api/v2/join/{token}" -> join rate write since "2026-09-18":
+        errors 401
+        summary "Join a group through a link"
+        description "Admitted is true when the thread is now the caller's to open; otherwise preview says why not (the link's state, or the sealed 18+ gate)."
+        token: text "Join link token."

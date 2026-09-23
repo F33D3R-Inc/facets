@@ -62,22 +62,47 @@ def core(s):
         return None  # a nested list; the caller decides
     return "json"
 
+def shape(s):
+    """The fct wire type (no ?/or null) of one property schema: a scalar, a
+    declared type, `json` for any JSON value, `[T]` / `[[T]]` for a list and
+    its nesting, `{T}` for an object of T values."""
+    s = strip_null(s)
+    t = s.get("type")
+    if t == "array":
+        inner = shape(s.get("items", {}))
+        return f"[{inner}]" if not inner.startswith("{") and inner != "json" else "json"
+    if t == "object" and isinstance(s.get("additionalProperties"), dict) and not s.get("properties"):
+        inner = shape(s["additionalProperties"])
+        return f"{{{inner}}}" if not inner.startswith(("[", "{")) and inner != "json" else "json"
+    c = core(s)
+    return "json" if c is None else c
+
+def strip_null(s):
+    """The schema without its null alternative (type [T, "null"] or
+    oneOf [T, null])."""
+    t = s.get("type")
+    if isinstance(t, list) and "null" in t:
+        rest = [x for x in t if x != "null"]
+        s = dict(s)
+        if len(rest) == 1:
+            s["type"] = rest[0]
+        else:
+            s.pop("type")
+        return s
+    parts = [x for x in s.get("oneOf", []) if x.get("type") != "null"]
+    if s.get("oneOf") and len(parts) == 1:
+        return parts[0]
+    return s
+
 def field(name, s, required):
     nullable = (isinstance(s.get("type"), list) and "null" in s["type"]) or \
                any(x.get("type") == "null" for x in s.get("oneOf", []))
-    # Not required: `T?` (left out when empty). Required but nullable:
-    # `T or null` (always present, null when empty).
-    opt = "?" if not required else (" or null" if nullable else "")
-    if s.get("type") == "array":
-        inner = s.get("items", {})
-        c = core(inner)
-        if c is None:
-            return f"{name}: json{opt}"
-        return f"{name}: [{c}]{opt}"
-    c = core(s)
-    if c is None:
-        c = "json"
-    return f"{name}: {c}{opt}"
+    # Not required: `T?` (left out when empty). Maybe-null where present:
+    # `or null` — `T or null` is always present, `T? or null` is left out
+    # when empty and null-typed where present.
+    opt = "" if required else "?"
+    null = " or null" if nullable else ""
+    return f"{name}: {shape(s)}{opt}{null}"
 
 lines = ["app F33D3RTypes:"]
 skipped = []

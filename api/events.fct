@@ -6,8 +6,11 @@ import "social.fct"
 app F33D3REvents:
     # The account's own event stream (text/event-stream). The runtime opens every
     # connection with the typed `hello` frame and numbers the rest, replaying
-    # what a reconnecting client missed after its Last-Event-ID.
+    # what a reconnecting client missed after its Last-Event-ID. (The room
+    # streams in live.fct send no hello, as legacy's never did.)
     stream "/api/v2/events" requires member rate read since "2026-09-18":
+        summary "The account's own event stream (text/event-stream)."
+        hello since "2026-09-13"
         connect -> eventsBalance as balance
         connect -> eventsUnread as notify
         connect -> eventsOnline

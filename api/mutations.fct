@@ -627,4 +627,7 @@ app F33D3RMutations:
         | work_unrepost -> workUnrepost since "2026-09-06" "Remove a repost.":
             work_id: text "The work; `post_id` is accepted too." also post_id
 
-    api POST "/events" -> Mutation rate write since "2026-09-06"
+    api POST "/events" -> Mutation rate write since "2026-09-06":
+        summary "The mutation lane: one event_type per call, as a form or a JSON object."
+        description "See x-mutation-events for every event_type, its fields, and the JSON result a native caller (Accept: application/json) receives. Web callers receive rendered Facet fragments; that projection is not part of this contract."
+        operation "postEvent"

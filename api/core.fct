@@ -443,11 +443,11 @@ app F33D3RCore:
         return selfDTO(Account(id))
     # Queues the account's deletion (the same pending instruction the
     # account_delete event writes) and signs every device out.
-    action deleteMe():
+    action deleteMe(reason: text?):
         requires member
         let id = max(a.id in Account where a.handle == actor)
         remove d in DeletionRequest where d.account == id
-        add DeletionRequest { account: id, reason: "", status: "pending", requested: now() }
+        add DeletionRequest { account: id, reason: trim(reason), status: "pending", requested: now() }
         for s in Session where s.account == id:
             revoke s.sid
         remove s in Session where s.account == id
@@ -492,7 +492,7 @@ app F33D3RCore:
         let sid = randomToken(24)
         add LivenessChallenge { account: id, session_id: sid, challenges: "turn_left,turn_right,blink", expires: now() + 300 }
         return V2LivenessChallengeDTO{session_id: sid, challenges: ["turn_left", "turn_right", "blink"], ttl: 300}
-    action submitIdentity(age_band: text, document_hash: text, document_image: text, face_image: text, liveness_session_id: text) -> V2IdentitySubmissionResultDTO:
+    action submitIdentity(age_band: text, document_hash: text, document_image: text, face_image: text, liveness_challenge_frames: json, liveness_session_id: text) -> V2IdentitySubmissionResultDTO:
         requires member
         check document_image != "" && face_image != "" "document and face images are required"
         let id = max(a.id in Account where a.handle == actor)
@@ -654,35 +654,120 @@ app F33D3RCore:
         return V2ProfileDTO{account: accountDTO(Account(id), id), viewer_follows: false, follows_viewer: false, viewer_is_blocked: false}
 
     # This module's HTTP surface (merged into the app with the rest of it).
-    api POST "/api/v2/accounts" -> signup status 201 rate auth since "2026-09-18"
-    api POST "/api/v2/sessions" -> createSession status 201 rate auth since "2026-09-18"
-    api GET "/api/v2/sessions" -> listSessions rate read since "2026-09-18"
-    api DELETE "/api/v2/sessions" -> revokeOtherSessions status 204 rate write since "2026-09-18"
-    api DELETE "/api/v2/sessions/current" -> revokeCurrentSession status 204 rate write since "2026-09-18"
-    api DELETE "/api/v2/sessions/{id}" -> revokeSession status 204 rate write since "2026-09-18"
-    api GET "/api/v2/me" -> me rate read since "2026-09-20"
-    api DELETE "/api/v2/me" -> deleteMe status 204 rate write since "2026-09-18"
-    api GET "/api/v2/me/export" -> exportMe rate read since "2026-09-18"
-    api GET "/api/v2/me/identity" -> identity rate read since "2026-09-18"
-    api POST "/api/v2/me/identity/adult-content" -> enableAdultContent status 201 rate write since "2026-09-18"
-    api POST "/api/v2/me/identity/age-verifications" -> verifyAge status 201 rate write since "2026-09-18"
-    api GET "/api/v2/me/identity/creator-statement" -> creatorStatement rate read since "2026-09-18"
-    api POST "/api/v2/me/identity/creator-statement/acceptances" -> acceptCreatorStatement status 201 rate write since "2026-09-18"
-    api POST "/api/v2/me/identity/liveness-challenges" -> livenessChallenge status 201 rate write since "2026-09-18"
-    api POST "/api/v2/me/identity/submissions" -> submitIdentity status 201 rate write since "2026-09-18"
-    api GET "/api/v2/me/notification-preferences" -> notificationPreferences rate read since "2026-09-18"
-    api PATCH "/api/v2/me/notification-preferences" -> patchNotificationPreferences rate write since "2026-09-18"
-    api POST "/api/v2/me/two-factor" -> enrollTwoFactor status 200 rate write since "2026-09-18"
-    api PUT "/api/v2/me/two-factor" -> confirmTwoFactor rate write since "2026-09-18"
-    api DELETE "/api/v2/me/two-factor" -> disableTwoFactor rate write since "2026-09-18"
-    api POST "/api/v2/me/two-factor/backup-codes" -> backupCodes status 201 rate write since "2026-09-18"
-    api POST "/api/v2/password-resets" -> requestPasswordReset status 201 rate auth since "2026-09-18"
-    api POST "/api/v2/password-resets/{token}/redemptions" -> redeemPasswordReset status 201 rate auth since "2026-09-18"
-    api GET "/api/v2/numbers" -> numbers rate read since "2026-09-18"
-    api POST "/api/v2/numbers" -> mintNumber status 201 rate write since "2026-09-18"
-    api DELETE "/api/v2/numbers/{id}" -> revokeNumber status 204 rate write since "2026-09-18"
-    api PATCH "/api/v2/numbers/{id}" -> setNumberPolicy status 204 rate write since "2026-09-18"
-    api PUT "/api/v2/contact-policy" -> setContactPolicy status 204 rate write since "2026-09-18"
-    api GET "/api/v2/sanctum" -> sanctumStatus rate read since "2026-09-18"
-    api POST "/api/v2/dev/oauth/token" -> devToken rate auth since "2026-09-21"
-    api GET "/api/v2/dev/profile" -> devProfile auth dev_token bearer access_token rate read since "2026-09-21"
+    api POST "/api/v2/accounts" -> signup status 201 rate auth since "2026-09-18":
+        summary "Create an account and sign it in."
+        body V2SignupRequest
+        errors 400, 409
+    api POST "/api/v2/sessions" -> createSession status 201 rate auth since "2026-09-18":
+        summary "Sign in with handle and password; the second factor when 2FA is on."
+        body V2LoginRequest
+        errors 400, 401, 403
+    api GET "/api/v2/sessions" -> listSessions rate read since "2026-09-18":
+        errors 401
+        summary "The account's signed-in devices."
+    api DELETE "/api/v2/sessions" -> revokeOtherSessions status 204 rate write since "2026-09-18":
+        errors 401
+        summary "Sign out every device but this one."
+    api DELETE "/api/v2/sessions/current" -> revokeCurrentSession status 204 rate write since "2026-09-18":
+        errors 401
+        summary "Revoke the presented session token."
+    api DELETE "/api/v2/sessions/{id}" -> revokeSession status 204 rate write since "2026-09-18":
+        summary "Sign out one other device."
+        errors 404
+        id: text "Session id, from GET /api/v2/sessions."
+    api GET "/api/v2/me" -> me rate read since "2026-09-20":
+        errors 401
+        summary "The signed-in account."
+        description "content_mode is this account's own declared publishing posture (sfw|mixed|adult) — what its own works default to at compose time; distinct from content_setting, which is what is shown to it."
+    api DELETE "/api/v2/me" -> deleteMe status 204 rate write since "2026-09-18":
+        errors 401
+        summary "Queue the account's deletion and sign out every device."
+        body V2AccountDeletionRequest
+    api GET "/api/v2/me/export" -> exportMe rate read since "2026-09-18":
+        summary "The account's own subject-access export."
+        errors 500
+    api GET "/api/v2/me/identity" -> identity rate read since "2026-09-18":
+        errors 401
+        summary "The account's identity tier, age band and what they unlock."
+    api POST "/api/v2/me/identity/adult-content" -> enableAdultContent status 201 rate write since "2026-09-18":
+        summary "Enable adult content on this account."
+        errors 403, 500, 503
+    api POST "/api/v2/me/identity/age-verifications" -> verifyAge status 201 rate write since "2026-09-18":
+        summary "Verify age from a document image alone."
+        body V2AgeVerificationRequest
+        errors 400, 403, 422, 503
+    api GET "/api/v2/me/identity/creator-statement" -> creatorStatement rate read since "2026-09-18":
+        errors 401
+        summary "The adult-creator statement to accept."
+    api POST "/api/v2/me/identity/creator-statement/acceptances" -> acceptCreatorStatement status 201 rate write since "2026-09-18":
+        summary "Accept the adult-creator statement and activate adult creator mode."
+        errors 403
+    api POST "/api/v2/me/identity/liveness-challenges" -> livenessChallenge status 201 rate write since "2026-09-18":
+        summary "Open a liveness session: the gestures to perform and how long they are valid."
+        errors 502
+    api POST "/api/v2/me/identity/submissions" -> submitIdentity status 201 rate write since "2026-09-18":
+        summary "Submit the identity document, face and liveness frames."
+        body V2IdentitySubmissionRequest
+        errors 400, 403, 422, 503
+    api GET "/api/v2/me/notification-preferences" -> notificationPreferences rate read since "2026-09-18":
+        errors 401
+        summary "What Herald may send this account."
+    api PATCH "/api/v2/me/notification-preferences" -> patchNotificationPreferences rate write since "2026-09-18":
+        summary "Change what Herald may send; only fields present change."
+        body V2NotificationPreferencesPatchRequest
+        errors 403, 503
+    api POST "/api/v2/me/two-factor" -> enrollTwoFactor status 200 rate write since "2026-09-18":
+        summary "Begin TOTP enrolment: mint the secret and its otpauth URI."
+        errors 409
+    api PUT "/api/v2/me/two-factor" -> confirmTwoFactor rate write since "2026-09-18":
+        summary "Confirm enrolment with a code from the secret POST /api/v2/me/two-factor issued, turning 2FA on."
+        body V2TwoFactorCodeRequest
+        errors 400, 409
+    api DELETE "/api/v2/me/two-factor" -> disableTwoFactor rate write since "2026-09-18":
+        summary "Turn 2FA off with a current code."
+        body V2TwoFactorCodeRequest
+        errors 400
+    api POST "/api/v2/me/two-factor/backup-codes" -> backupCodes status 201 rate write since "2026-09-18":
+        errors 401
+        summary "Issue a fresh set of backup codes, replacing the old."
+    api POST "/api/v2/password-resets" -> requestPasswordReset status 201 rate auth since "2026-09-18":
+        summary "Spend a backup code for a short-lived password reset token."
+        body V2PasswordResetRequest
+        errors 400, 401, 429
+    api POST "/api/v2/password-resets/{token}/redemptions" -> redeemPasswordReset status 201 rate auth since "2026-09-18":
+        summary "Redeem a reset token: set a new password and sign in."
+        body V2PasswordResetRedemptionRequest
+        errors 400, 401
+        token: text "The reset token from POST /api/v2/password-resets."
+    api GET "/api/v2/numbers" -> numbers rate read since "2026-09-18":
+        summary "The Numbers this account holds."
+        errors 503
+    api POST "/api/v2/numbers" -> mintNumber status 201 rate write since "2026-09-18":
+        summary "Mint a F33D3R Number."
+        body V2NumberMintRequest
+        errors 400, 409, 429, 503
+    api DELETE "/api/v2/numbers/{id}" -> revokeNumber status 204 rate write since "2026-09-18":
+        summary "Retire one of the caller's own Numbers."
+        errors 409
+        id: text "The Number, canonical or grouped for reading aloud."
+    api PATCH "/api/v2/numbers/{id}" -> setNumberPolicy status 204 rate write since "2026-09-18":
+        summary "Change who one Number admits."
+        body V2NumberPolicyRequest
+        errors 400, 409
+        id: text "The Number, canonical or grouped for reading aloud."
+    api PUT "/api/v2/contact-policy" -> setContactPolicy status 204 rate write since "2026-09-18":
+        summary "Change who may reach the caller by @handle."
+        body V2ContactPolicyRequest
+        errors 400, 503
+    api GET "/api/v2/sanctum" -> sanctumStatus rate read since "2026-09-18":
+        errors 401
+        summary "The account's secure drop: whether one is open, its deadman switch, and its escrow recipients."
+        description "Read-only. Opening a drop, and reading or sending anything inside one, needs the browser's sealed-key crypto and has no API yet. Writes here (check-in, the deadman policy, escrow recipients) go through POST /events: sanctum.checkin, sanctum.deadman, sanctum.escrow.add, sanctum.escrow.remove."
+    api POST "/api/v2/dev/oauth/token" -> devToken rate auth since "2026-09-21":
+        summary "Exchange an authorization code from Facet(dev_consent) for a scoped access token."
+        description "Server to server: HTTP Basic client_id/client_secret from app registration (Settings → Developer), form body grant_type=authorization_code&code=. No refresh-token lane in v1 — re-consent is the refresh."
+        errors 400, 401
+    api GET "/api/v2/dev/profile" -> devProfile auth dev_token bearer access_token rate read since "2026-09-21":
+        summary "The authorizing account's own public profile, for a third-party app holding a read:public_profile access token."
+        description "The bearer must be a third-party access token from POST /api/v2/dev/oauth/token, not a first-party session — see x-auth."
+        errors 403
