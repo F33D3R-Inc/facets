@@ -1,0 +1,116 @@
+import "entities.fct"
+import "core.fct"
+
+# Polls on works: a work may carry one ballot (its options, an optional end
+# time, an optional per-viewer shuffle); each account casts at most one vote,
+# which never changes (a second vote is a no-op, as the legacy ballot's
+# ON CONFLICT DO NOTHING). Every projection is for a viewer `me`: their own
+# vote marked, the options in their own order.
+app F33D3RPolls:
+    entity Poll:
+        id: int
+        work: int
+        ends_at: int
+        shuffle: bool
+        created: int
+    entity PollOption:
+        id: int
+        poll: int
+        idx: int
+        label: text
+        image_url: text
+    entity PollVote:
+        id: int
+        poll: int
+        account: int
+        idx: int
+        created: int
+
+    # The remaining-time label: none for a ballot that never closes, "Final
+    # results" once it has, otherwise the time left rounded up (2h59m is
+    # "3 hours left").
+    proc pollTimeLeft(endsAt: int) -> text:
+        if endsAt == 0:
+            return ""
+        let d = endsAt - now()
+        if d <= 0:
+            return "Final results"
+        if d <= 60:
+            return "Less than a minute left"
+        if d <= 3600:
+            return pollPlural((d + 59) / 60, "minute")
+        if d <= 86400:
+            return pollPlural((d + 3599) / 3600, "hour")
+        return pollPlural((d + 86399) / 86400, "day")
+    proc pollPlural(n: int, unit: text) -> text:
+        if n == 1:
+            return "1 " + unit + " left"
+        return "" + n + " " + unit + "s left"
+    proc pollClosed(endsAt: int) -> bool:
+        return endsAt > 0 && endsAt <= now()
+    # An option's share, rounded half up (two of three is 67%).
+    proc pollPct(votes: int, total: int) -> int:
+        if total == 0:
+            return 0
+        return (votes * 200 + total) / (total * 2)
+    # The layout seed: "viewer|work" — each by its legacy id when it has one,
+    # so a migrated viewer keeps the order the legacy ballot showed them —
+    # or "" (option order) when the ballot is not shuffled or has no viewer.
+    proc pollSeed(shuffle: bool, me: int, meLegacy: text, work: int, workLegacy: text) -> text:
+        if !shuffle || me == 0:
+            return ""
+        let mut v = meLegacy
+        if v == "":
+            v = "" + me
+        let mut w = workLegacy
+        if w == "":
+            w = "" + work
+        return v + "|" + w
+    # An option's position in a layout order (shuffleOrder's permutation).
+    proc pollPosition(order: [int], idx: int) -> int:
+        let mut i = 0
+        loop i < len(order):
+            if order[i] == idx:
+                return i
+            i = i + 1
+        return idx
+    # The viewer's vote as the v1 ballot carries it: -1 when none.
+    proc pollViewerVote(voted: bool, idx: int) -> int:
+        if !voted:
+            return -1
+        return idx
+
+
+    # The ballot as the v2 surfaces carry it (V2PollDTO), for the viewer `me`.
+    derive pollV2(p: Poll, me: int): V2PollDTO = V2PollDTO{
+        closed: pollClosed(p.ends_at),
+        ends_at: iso(p.ends_at),
+        shuffle: p.shuffle,
+        time_left: pollTimeLeft(p.ends_at),
+        total_votes: count(v in PollVote where v.poll == p.id),
+        viewer_vote: PollVote(max(v.id in PollVote where v.poll == p.id && v.account == me)).idx,
+        results: list(V2PollResultDTO{index: o.idx, label: o.label, image_url: o.image_url, votes: count(v in PollVote where v.poll == p.id && v.idx == o.idx), pct: pollPct(count(v in PollVote where v.poll == p.id && v.idx == o.idx), count(v in PollVote where v.poll == p.id)), voted: exists(v in PollVote where v.poll == p.id && v.account == me && v.idx == o.idx), is_winner: exists(v in PollVote where v.poll == p.id) && !exists(o2 in PollOption where o2.poll == p.id && count(v in PollVote where v.poll == p.id && v.idx == o2.idx) > count(v in PollVote where v.poll == p.id && v.idx == o.idx))} in PollOption where o.poll == p.id by pollPosition(shuffleOrder(pollSeed(p.shuffle, me, Account(me).legacy_id, p.work, Work(p.work).legacy_id), count(x in PollOption where x.poll == p.id)), o.idx))
+        }
+
+    # The ballot as the v1 surfaces and the event stream carry it (PollDTO).
+    derive pollV1(p: Poll, me: int): PollDTO = PollDTO{
+        closed: pollClosed(p.ends_at),
+        ends_at: iso(p.ends_at),
+        shuffle: p.shuffle,
+        time_left: pollTimeLeft(p.ends_at),
+        total_votes: count(v in PollVote where v.poll == p.id),
+        viewer_vote: pollViewerVote(exists(v in PollVote where v.poll == p.id && v.account == me), PollVote(max(v.id in PollVote where v.poll == p.id && v.account == me)).idx),
+        results: list(PollResultDTO{index: o.idx, label: o.label, image_url: o.image_url, votes: count(v in PollVote where v.poll == p.id && v.idx == o.idx), pct: pollPct(count(v in PollVote where v.poll == p.id && v.idx == o.idx), count(v in PollVote where v.poll == p.id)), voted: exists(v in PollVote where v.poll == p.id && v.account == me && v.idx == o.idx), is_winner: exists(v in PollVote where v.poll == p.id) && !exists(o2 in PollOption where o2.poll == p.id && count(v in PollVote where v.poll == p.id && v.idx == o2.idx) > count(v in PollVote where v.poll == p.id && v.idx == o.idx))} in PollOption where o.poll == p.id by pollPosition(shuffleOrder(pollSeed(p.shuffle, me, Account(me).legacy_id, p.work, Work(p.work).legacy_id), count(x in PollOption where x.poll == p.id)), o.idx))
+        }
+
+    # One option's image from the index-aligned image list: "" for none, and
+    # only a local path or an https URL (the legacy normalisation).
+    proc pollImage(images: [text], i: int) -> text:
+        if i >= len(images):
+            return ""
+        let img = trim(images[i])
+        if len(img) > 2048 || slice(img, 0, 2) == "//":
+            return ""
+        if slice(img, 0, 1) == "/" || slice(img, 0, 8) == "https://":
+            return img
+        return ""

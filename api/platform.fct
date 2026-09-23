@@ -1,0 +1,60 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+
+# The platform edges of the API: the third-party read of an account's own
+# works (a developer app's access token, not a session) and the story card,
+# rendered by the Caeor brain and handed back as a download.
+app F33D3RPlatform:
+    # Caeor renders a work as a 1080×1920 WebP story card (dark ground, the
+    # author's avatar, name and @handle, the body word-wrapped, the first
+    # image, the "@handle • f33d3r.com" watermark). It answers the image
+    # bytes, which the runtime stores and the route streams as a download.
+    service Caeor at "http://caeor:8095/v1":
+        storyCard(display_name: text, handle: text, body: text, avatar_url: text, image_url: text) -> bytes
+
+    # The first of a work's space-separated media URLs, "" when it has none.
+    proc firstMedia(urls: text) -> text:
+        let parts = split(trim(urls), " ")
+        if len(parts) == 0:
+            return ""
+        return parts[0]
+
+    # GET /api/v2/works/{id}/story-card — behind the same wall as the work's
+    # own media: a deleted work, one whose author blocked the viewer, or a
+    # private account's work to a non-follower is not found; adult work to a
+    # viewer the adult rules do not admit is forbidden.
+    action storyCard(id: int) -> bytes:
+        requires member
+        check exists(w in Work where w.id == id && !w.deleted) "not found" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let author = Work(id).author
+        check author == me || !exists(b in Block where b.account == author && b.target == me) "not found" status 404
+        check author == me || !Account(author).is_private || exists(f in Follow where f.follower == me && f.followee == author) "not found" status 404
+        check author == me || !(Work(id).is_nsfw || Work(id).is_gore || Account(author).is_adult_creator) || Account(me).nsfw_access "this work's media is behind the adult-content gate" status 403
+        let image = do firstMedia(Work(id).media_urls)
+        let card = call Caeor.storyCard(Account(author).display_name, Account(author).handle, Work(id).body, Account(author).avatar_url, image)
+        return card
+
+    # GET /api/v2/dev/works — the account that authorized a developer app,
+    # its works tab only (never replies, media, likes or saves), paged like
+    # GET /api/v2/users/{handle}/works. The access token arrives as
+    # `Authorization: Bearer` (the route's `auth dev_token bearer`).
+    action devWorks(access_token: text, limit: int?, cursor: text?) -> V2PageOfV2WorkDTO:
+        let t1 = now()
+        let sel = do tokenPart(access_token, 0)
+        let secret = do tokenPart(access_token, 1)
+        check exists(t in DevToken where "" + t.id == sel && t.expires > t1) "This access token is unknown, revoked, or expired." status 401 code "invalid_token"
+        let tid = max(t.id in DevToken where "" + t.id == sel)
+        check verifyPassword(DevToken(tid).access_token, secret) "This access token is unknown, revoked, or expired." status 401 code "invalid_token"
+        check contains(DevApp(DevToken(tid).app).scope, "read:public_works") "This access token was not granted the read:public_works scope." status 403 code "insufficient_scope"
+        let id = DevToken(tid).account
+        let n = do pageSize(limit, 20, 50)
+        let start = do cursorStart(cursor)
+        let own = list(w.id in Work where w.author == id && !w.deleted && w.parent_cid == 0 && w.id < start by id desc limit n)
+        let next = do nextCursor(own, n)
+        return V2PageOfV2WorkDTO{items: list(workDTO(w, id) in Work where w.id in own by id desc), next_cursor: next, server_time: iso(now())}
+
+    # This module's HTTP surface (merged into the app with the rest of it).
+    api GET "/api/v2/dev/works" -> devWorks auth dev_token bearer access_token rate read since "2026-09-21"
+    api GET "/api/v2/works/{id}/story-card" -> storyCard rate read since "2026-09-18"

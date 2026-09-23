@@ -6,6 +6,10 @@
 app F33D3REntities:
     entity Work:
         id: int
+        # The work's id in the legacy F33D3R database ("" for one made here):
+        # what a migrated work's identity-derived values (its ballot order)
+        # were computed from.
+        legacy_id: text
         author: int
         body: text
         kind: text
@@ -25,6 +29,16 @@ app F33D3REntities:
         edited: bool
         created: int
         edited_at: int
+        # A signed work's content id ("sha256:…"; "" for an unsigned one,
+        # whose cid is its id), its media's alt text, who it is delivered to
+        # (public | circle), the community it is attributed to, when a
+        # scheduled one goes out (0 = at once) and a react video's layout.
+        cid: text
+        alt_text: text
+        visibility: text
+        community: int
+        scheduled_at: int
+        react_layout: text
     entity Like:
         id: int
         work: int
@@ -42,11 +56,19 @@ app F33D3REntities:
         work: int
         account: int
         folder: int
+    # One #hashtag a work carries (lowercased, without the #), dated with the
+    # work, so trending counts can window by time.
+    entity WorkTag:
+        id: int
+        work: int
+        tag: text
+        created: int
     entity BookmarkFolder:
         id: int
         account: int
         name: text
         position: int
+        created: int
     entity Follow:
         id: int
         follower: int
@@ -113,6 +135,8 @@ app F33D3REntities:
         lane: text
         name: text
         created: int
+        # When its chip was last looked at: new_count counts arrivals since.
+        last_seen: int
     entity WorkList:
         id: int
         owner: int
@@ -170,8 +194,8 @@ app F33D3REntities:
         account: int
         access_level: text
         charge_mode: text
-        price_aet: text
-        vip_min_price_aet: text
+        price_aet: float
+        vip_min_price_aet: float
     entity ConversationInvite:
         id: int
         conversation: int
@@ -205,6 +229,17 @@ app F33D3REntities:
         kind: text
         amount_uaet: int
         created: int
+        # The chat scan: a held line waits on the broadcaster (hold_reason says
+        # why); a dropped one was held and refused. norm is the body lowercased
+        # with its whitespace collapsed, for spotting a repeat.
+        held: bool
+        hold_reason: text
+        dropped: bool
+        norm: text
+    # An operator-listed term: a chat line carrying it is held for review.
+    entity LiveChatHoldTerm:
+        id: int
+        term: text
     entity LiveViewer:
         id: int
         stream: int
@@ -227,6 +262,13 @@ app F33D3REntities:
         started_at: int
         ended_at: int
         end_reason: text
+        ticket_price_aet: int
+        vip_plan: int
+        # The community hosting it (0 for none), the Verity tier a speaker
+        # needs (0-3), and the host's retry key for the create ("" for none).
+        community: int
+        speaker_min_tier: int
+        idem_key: text
     entity FrequencyMember:
         id: int
         frequency: int
@@ -250,6 +292,13 @@ app F33D3REntities:
         banner_url: text
         membership_policy: text
         created: int
+        # The creator's account, the optimistic version every settings change
+        # bumps, when it last changed, and the shop plan a vip_only community
+        # admits (0 for none).
+        creator: int
+        version: int
+        updated: int
+        required_plan: int
     entity CommunityMember:
         id: int
         community: int
@@ -261,11 +310,13 @@ app F33D3REntities:
         community: int
         account: int
         created: int
+        message: text
     entity CommunityInvite:
         id: int
         community: int
         invitee: int
         created: int
+        inviter: int
     entity ModerationAction:
         id: int
         community: int
@@ -274,6 +325,9 @@ app F33D3REntities:
         reason: text
         moderator: int
         created: int
+        # Who or what the action was aimed at (0 for neither).
+        target: int
+        work: int
     entity FrequencyReport:
         id: int
         frequency: int
@@ -294,16 +348,28 @@ app F33D3REntities:
         description: text
         address: text
         website: text
-        lat: text
-        lon: text
+        lat: float
+        lon: float
         status: text
         created: int
+    # One open /api/v2/events connection: presence is having at least one.
+    # Connections end with the process, so the rows do too.
+    entity EventsConnection @ephemeral:
+        id: int
+        account: int
+        opened: int
     entity WalletEntry:
         id: int
         account: int
         kind: text
         amount_uaet: int
         counterparty: int
+        created: int
+    # XP an account earned, and when: the daily leaderboard sums today's.
+    entity XpEvent:
+        id: int
+        account: int
+        amount: int
         created: int
     entity Achievement:
         id: int
@@ -354,6 +420,8 @@ app F33D3REntities:
         created: int
         updated: int
         view_count: int
+        # Up to six lowercased tags, comma-separated.
+        tags: text
     entity ArticleLike:
         id: int
         article: int
@@ -420,6 +488,7 @@ app F33D3REntities:
         width: int
         height: int
         duration_secs: float
+        digest: text
         created: int
     entity VoiceUpload:
         id: int
@@ -440,13 +509,22 @@ app F33D3REntities:
         price_sats: int
         currency: text
         is_active: bool
+        content_url: text
+        content_hash: text
+        cek_encrypted: text
         created: int
+        visibility: text
     entity Purchase:
         id: int
         listing: int
         buyer: int
         status: text
+        currency: text
         expected_sats: int
+        cek_for_buyer: text
+        expires: int
+        confirmed: int
+        delivered: int
         created: int
     entity Shop:
         id: int
@@ -461,12 +539,16 @@ app F33D3REntities:
         name: text
         description: text
         price_aet: int
+        is_active: bool
+        created: int
     entity ShopSubscription:
         id: int
         shop: int
         account: int
         plan: int
         created: int
+        status: text
+        period_end: int
     entity TransparencyNote:
         id: int
         work: int
@@ -479,6 +561,13 @@ app F33D3REntities:
         not_helpful_count: int
         status: text
         created: int
+        # The account that wrote it (never published: the token stands for
+        # it), its source, whether the work's author disputed it, and when
+        # it last changed.
+        author: int
+        evidence_url: text
+        author_disputed: bool
+        updated: int
     entity TransparencyRating:
         id: int
         note: int

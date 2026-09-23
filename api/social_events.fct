@@ -1,0 +1,1081 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+import "polls.fct"
+
+# The social half of the mutation lane (POST /events), one action per event:
+# reactions on works, a work's lifecycle (edit, labels, delete, pins), the
+# signed Malkuth publish, bookmark folders, polls, reports, Context Notes,
+# muted keywords, feed-surface pins and article saves. Each follows the legacy
+# feed-engine handler it replaces (internal/handler) — its validation, status
+# codes, side effects and the stream events it owes — and answers the golden
+# result type projected from the rows it just wrote.
+app F33D3RSocialEvents:
+    # An interest surface of the home feed (legacy feed_surfaces): a tab a
+    # reader pins, snoozes as a whole, and whose tags route works onto it.
+    # tags is comma-separated; parent names the general surface a child
+    # (a league under sports) also belongs to.
+    entity FeedSurface:
+        id: int
+        slug: text @unique
+        label: text
+        emoji: text
+        surface_type: text
+        tags: text
+        content_type: text
+        sort_order: int
+        parent: text
+        is_active: bool
+    # A surface pinned to a reader's home tab strip (legacy user_surface_pins).
+    entity SurfacePin:
+        id: int
+        account: int
+        surface: text
+        sort_order: int
+        created: int
+    # A keyword whose works a reader never sees (legacy muted_keywords),
+    # stored lowercased and trimmed.
+    entity MutedKeyword:
+        id: int
+        account: int
+        keyword: text
+        created: int
+    # One immutable snapshot of a work's words (legacy editions): edition 1
+    # is the signed publish, each edit inside the window appends the next.
+    entity WorkEdition:
+        id: int
+        work: int
+        cid: text
+        body: text
+        edition_number: int
+        created: int
+    # A Context Notes participant (Sanhedrin's note_contributor_scores): the
+    # stable pseudonymous token their notes and ratings are published under,
+    # and their visible record.
+    entity NoteContributor:
+        id: int
+        account: int
+        token: text
+        notes_written: int
+        notes_helpful: int
+        created: int
+    # A capability grant on an account (legacy pial_capabilities). Absent rows
+    # read as the default: POSTING, MONETIZATION, MESSAGING, MUSIC_UPLOAD,
+    # REALM_PROGRESSION and NEW_ACCOUNT_TRUST are held unless restricted or
+    # revoked; anything else (NOTE_AUTHORING, the AI consents) only when
+    # explicitly granted.
+    entity PialCapability:
+        id: int
+        account: int
+        capability: text
+        state: text
+        reason: text
+        granted_by: text
+        updated: int
+    # A per-device Ed25519 identity (gnosis's device directory): the key a
+    # signed work is verified against. The first device an account registers
+    # approves itself with a self-attestation; every later one is pending
+    # until an approved device of the same account attests it.
+    entity GnosisDevice:
+        id: int
+        account: int
+        device_id: text
+        ed_pub_b64: text
+        label: text
+        status: text
+        approved_by: text
+        approval_sig_b64: text
+        approved_at: int
+        revoked_at: int
+        created: int
+    # A PIAL's single ECDSA-P256 signing key (legacy elohim-veni
+    # pial_signing_keys, one row per identity): what an envelope with no
+    # device_id — the iOS client and pre-device web sessions — is verified
+    # against. `pial` is the identity: the bound PIAL of the account, or the
+    # account itself when it is bound to none. The key is kept as sent (DER
+    # SPKI, standard base64), as the key authority kept it.
+    entity PialSigningKey:
+        id: int
+        pial: int
+        public_key_b64: text
+        algorithm: text
+        registered_by: int
+        created: int
+        updated: int
+    # One saved state of an article (legacy article_versions).
+    entity ArticleVersion:
+        id: int
+        article: int
+        author: int
+        title: text
+        subtitle: text
+        body: text
+        cover_url: text
+        reason: text
+        created: int
+
+    # ── Projections ────────────────────────────────────────────────────────
+
+    # A work's tallies as the work_engagement frame carries them: counts only,
+    # nothing viewer-relative (it goes to every watcher at once).
+    derive engagementV1(w: Work): WorkEngagementEventDTO = WorkEngagementEventDTO{
+        work_id: "" + w.id,
+        like_count: count(l in Like where l.work == w.id),
+        dislike_count: count(l in Dislike where l.work == w.id),
+        bookmark_count: count(b in Bookmark where b.work == w.id),
+        repost_count: count(r in Repost where r.work == w.id),
+        reply_count: count(r in Work where r.parent_cid == w.id && !r.deleted),
+        quote_count: count(q in Work where q.quoted == w.id && !q.deleted),
+        view_count: count(x in ViewEvent where x.work == w.id)
+        }
+    # The reader's bookmark folder row: every folder in position order with
+    # how many saves are filed in it, and the total ("All").
+    derive bookmarkFolderListV1(me: int): BookmarkFolderListDTO = BookmarkFolderListDTO{
+        all_count: count(b in Bookmark where b.account == me),
+        folders: list(BookmarkFolderDTO{id: "" + f.id, name: f.name, position: f.position, count: count(b in Bookmark where b.account == me && b.folder == f.id), created_at: iso(f.created)} in BookmarkFolder where f.account == me by position)
+        }
+    # The reader's saved searches, oldest first, each with how many works
+    # arrived for it since it was last looked at (counted to 100) when its
+    # lane shows works.
+    derive savedSearchListV1(me: int): SavedSearchListDTO = SavedSearchListDTO{
+        max: 50,
+        saved: list(SavedSearchDTO{id: "" + s.id, query: s.query, lane: s.lane, name: s.name, new_count: seCap(count(w in Work where seLaneCounts(s.lane) && !w.deleted && w.created > seLaterOf(s.last_seen, s.created) && contains(lower(w.body), lower(s.query)) && (s.lane != "media" || w.media_urls != "")), 100), last_seen_at: iso(seLaterOf(s.last_seen, s.created)), created_at: iso(s.created)} in SavedSearch where s.account == me by id)
+        }
+    # The reader's recent searches, newest first.
+    derive searchHistoryV1(me: int): SearchHistoryDTO = SearchHistoryDTO{
+        recent: list(SearchHistoryEntryDTO{query: h.query, lane: h.lane, searched_at: iso(h.searched)} in SearchHistoryEntry where h.account == me by searched desc limit 50)
+        }
+    # The reader's topic snoozes still in force at `at`, soonest to expire
+    # first.
+    derive topicSnoozesV1(me: int, at: int): TopicSnoozesDTO = TopicSnoozesDTO{
+        snoozes: list(TopicSnoozeDTO{tag: t.tag, until: iso(t.until)} in TopicSnooze where t.account == me && t.until > at by until)
+        }
+
+    # ── Helpers ────────────────────────────────────────────────────────────
+
+    proc seCap(n: int, cap: int) -> int:
+        if n > cap:
+            return cap
+        return n
+    proc seLaterOf(a: int, b: int) -> int:
+        if a > b:
+            return a
+        return b
+    # A saved search's lane counts arrivals when it lists works.
+    proc seLaneCounts(lane: text) -> bool:
+        return lane == "top" || lane == "latest" || lane == "posts" || lane == "media"
+    # The next position after the largest one, or 0 for the first.
+    proc seNextPos(has: bool, largest: int) -> int:
+        if has:
+            return largest + 1
+        return 0
+    # search.Normalize: trimmed, inner whitespace collapsed to one space,
+    # at most 200 characters.
+    proc seSearchNorm(raw: text) -> text:
+        let mut out = ""
+        let mut gap = false
+        let mut i = 0
+        let n = len(raw)
+        loop i < n:
+            let c = charAt(raw, i)
+            if c == " " || c == "\t" || c == "\n" || c == "\r":
+                gap = true
+            else:
+                if gap && out != "":
+                    out = out + " "
+                gap = false
+                out = out + c
+            i = i + 1
+        if len(out) > 200:
+            return trim(slice(out, 0, 200))
+        return out
+    # search.ParseLane: a known lane, "works" for posts, anything else top.
+    proc seLane(raw: text) -> text:
+        let l = lower(trim(raw))
+        if l == "top" || l == "latest" || l == "people" || l == "posts" || l == "media" || l == "music" || l == "live" || l == "articles" || l == "communities" || l == "tags":
+            return l
+        if l == "works":
+            return "posts"
+        return "top"
+    # Whether every character of s is one of allowed, and s is 1..max long.
+    proc seOnly(s: text, allowed: text, max: int) -> bool:
+        if len(s) == 0 || len(s) > max:
+            return false
+        let mut i = 0
+        loop i < len(s):
+            if !contains(allowed, charAt(s, i)):
+                return false
+            i = i + 1
+        return true
+    # A #tag as typed: lowercased, without the #.
+    proc seTag(raw: text) -> text:
+        let mut t = trim(raw)
+        if slice(t, 0, 1) == "#":
+            t = slice(t, 1, len(t))
+        return lower(trim(t))
+    proc seValidTag(t: text) -> bool:
+        return seOnly(t, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", 100)
+    # Whether k reads as a P-256 public key in DER SPKI form, standard base64
+    # padded (124) or not (122): every such key is 91 bytes opening with the
+    # same 27-byte header (id-ecPublicKey, prime256v1, an uncompressed point).
+    # Anything else is no usable key on file — "not approved", never a forged
+    # signature (legacy verifyMalkuthSigLegacyECDSA's parse failures).
+    proc seP256Spki(k: text) -> bool:
+        return slice(k, 0, 36) == "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" && (len(k) == 124 || len(k) == 122)
+    proc seValidDeviceId(d: text) -> bool:
+        return len(d) == 32 && seOnly(d, "0123456789abcdef", 32)
+    # A surface's snooze set: its tags and its own id, normalised, each once.
+    proc seSurfaceTags(tags: text, id: text) -> [text]:
+        let parts = append(split(tags, ","), id)
+        let mut out = []
+        let mut i = 0
+        loop i < len(parts):
+            let t = seTag(parts[i])
+            if t != "" && !seHas(out, t):
+                out = append(out, t)
+            i = i + 1
+        return out
+    # What a snooze covers: a surface's whole set, else the one tag.
+    proc seTopicSet(surface: text, covered: [text], tag: text) -> [text]:
+        if surface != "":
+            return covered
+        return [tag]
+    proc seHas(xs: [text], x: text) -> bool:
+        let mut i = 0
+        loop i < len(xs):
+            if xs[i] == x:
+                return true
+            i = i + 1
+        return false
+    # Texts in ascending byte order (the canonical payload's media_urls).
+    proc seSorted(xs: [text]) -> [text]:
+        let mut out = []
+        let mut i = 0
+        loop i < len(xs):
+            out = append(out, xs[i])
+            i = i + 1
+        let mut k = 1
+        loop k < len(out):
+            let mut j = k
+            loop j > 0 && out[j - 1] > out[j]:
+                let t = out[j]
+                out[j] = out[j - 1]
+                out[j - 1] = t
+                j = j - 1
+            k = k + 1
+        return out
+    # The payload's list as the canonical JSON carries it: [] when absent.
+    proc seList(xs: [text]) -> [text]:
+        let mut out = []
+        let mut i = 0
+        loop i < len(xs):
+            out = append(out, xs[i])
+            i = i + 1
+        return out
+    proc seText(v: text) -> text:
+        return "" + v
+    proc seBool(v: bool) -> bool:
+        return v == true
+    proc seInt(v: int) -> int:
+        return v + 0
+    # The tag index of a signed work (deriveTags): the client's tags, then the
+    # body's #hashtags, lowercased, each once.
+    proc seWorkTags(client: [text], body: text) -> [text]:
+        let found = hashtags(body)
+        let mut out = []
+        let mut i = 0
+        loop i < len(client):
+            let t = lower(trim(client[i]))
+            if t != "" && !seHas(out, t):
+                out = append(out, t)
+            i = i + 1
+        let mut k = 0
+        loop k < len(found):
+            if !seHas(out, found[k]):
+                out = append(out, found[k])
+            k = k + 1
+        return out
+    # The @handles a body names, lowercased, each once, at most 20.
+    proc seMentions(body: text) -> [text]:
+        let mut out = []
+        let mut i = 0
+        let n = len(body)
+        loop i < n:
+            if charAt(body, i) == "@":
+                let mut j = i + 1
+                loop j < n && j - i <= 50 && contains("abcdefghijklmnopqrstuvwxyz0123456789_", lower(charAt(body, j))):
+                    j = j + 1
+                if j > i + 1:
+                    let h = lower(slice(body, i + 1, j))
+                    if !seHas(out, h) && len(out) < 20:
+                        out = append(out, h)
+                i = j
+            else:
+                i = i + 1
+        return out
+    # Whether any poll option image survives normalisation: a set with none
+    # is stored as no images at all.
+    proc seAnyPollImage(images: [text]) -> bool:
+        let mut i = 0
+        loop i < len(images):
+            if pollImage(images, i) != "":
+                return true
+            i = i + 1
+        return false
+    # A work's content class: an explicit valid tier wins, then the is_nsfw
+    # toggle, then the author's own content mode, then sfw.
+    proc seContentClass(explicit: text, nsfw: bool, mode: text) -> text:
+        let c = lower(trim(explicit))
+        if c == "sfw" || c == "mature" || c == "adult":
+            return c
+        if nsfw:
+            return "adult"
+        if mode == "adult":
+            return "adult"
+        return "sfw"
+    proc seWorkKind(k: text) -> bool:
+        return k == "post" || k == "reply" || k == "quote" || k == "poll" || k == "video" || k == "voice" || k == "thread_post" || k == "react_video"
+    # Media URLs as the Work row keeps them: space-separated, the video master
+    # last when there is one.
+    proc seMediaText(urls: [text], master: text) -> text:
+        let mut all = urls
+        if master != "":
+            all = append(all, master)
+        return join(all, " ")
+    proc seTruncate(s: text, n: int) -> text:
+        if len(s) > n:
+            return slice(s, 0, n)
+        return s
+    # An article's tags from the comma list: lowercased, trimmed, each once,
+    # at most 6.
+    proc seArticleTags(raw: text) -> text:
+        let parts = split(raw, ",")
+        let mut out = []
+        let mut i = 0
+        loop i < len(parts) && len(out) < 6:
+            let t = lower(trim(parts[i]))
+            if t != "" && !seHas(out, t):
+                out = append(out, t)
+            i = i + 1
+        return join(out, ",")
+    # slugify: the title's slug, at most 80 characters, never empty.
+    proc seSlugBase(title: text) -> text:
+        let s = seTruncate(slug(title), 80)
+        if s == "":
+            return "article-" + now()
+        return s
+    # uniqueSlug: base itself, else base-2 … base-99, whichever no other
+    # article holds (taken lists the slugs of that shape already in use).
+    proc sePickSlug(base: text, taken: [text]) -> text:
+        if !seHas(taken, base):
+            return base
+        let mut i = 2
+        loop i < 100:
+            let c = base + "-" + i
+            if !seHas(taken, c):
+                return c
+            i = i + 1
+        return base + "-" + now()
+    proc seArticleStatus(s: text) -> text:
+        if trim(s) == "published":
+            return "published"
+        return "draft"
+    proc seOrText(v: text, fallback: text) -> text:
+        if trim(v) == "":
+            return fallback
+        return trim(v)
+    # A Context Note's fast refit (Sanhedrin mf::refit_note) against raters
+    # with no fitted factors yet: the closed-form ridge intercept of the
+    # ±1-encoded ratings, λ = 0.3.
+    proc seNoteIntercept(helpful: int, notHelpful: int) -> float:
+        return toFloat(helpful - notHelpful) / (toFloat(helpful + notHelpful) + 0.3)
+    # consensus::status_for: pending under 5 ratings, then the thresholds.
+    proc seNoteStatus(ratings: int, intercept: float) -> text:
+        if ratings < 5:
+            return "needs_more_ratings"
+        if intercept >= 0.4:
+            return "helpful"
+        if intercept <= -0.2:
+            return "not_helpful"
+        return "needs_more_ratings"
+    proc seNoteType(t: text) -> bool:
+        return t == "context" || t == "correction" || t == "source" || t == "translation" || t == "historical" || t == "technical" || t == "location" || t == "date" || t == "outdated" || t == "disputed" || t == "satire" || t == "warning"
+    proc seDefaultCapability(c: text) -> bool:
+        return c == "POSTING" || c == "REALM_PROGRESSION" || c == "NEW_ACCOUNT_TRUST" || c == "MESSAGING" || c == "MUSIC_UPLOAD" || c == "MONETIZATION"
+
+    # ── Reactions: like, dislike, repost, bookmark and their inverses ──────
+    # Each answers the work re-read after the write, for the caller, and
+    # hands every watcher of the work its new tallies.
+
+    action workLike(work_id: text) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        if !exists(l in Like where l.work == wid && l.account == me):
+            add Like { work: wid, account: me }
+            if author != me:
+                let note = add Notification { account: author, actor: me, kind: "like", target_type: "work", target_id: wid, preview: Work(wid).body, amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(note), author) to Account(author).handle
+                emit notify NotifyEventDTO{unread: count(n in Notification where n.account == author && !n.is_read)} to Account(author).handle
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    action workUnlike(work_id: text) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        remove l in Like where l.work == wid && l.account == me
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    action workDislike(work_id: text) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        if !exists(l in Dislike where l.work == wid && l.account == me):
+            add Dislike { work: wid, account: me }
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    action workUndislike(work_id: text) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        remove l in Dislike where l.work == wid && l.account == me
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    # A repost is also an arrival on the reposter's followers' feeds.
+    action workRepost(work_id: text) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        if !exists(r in Repost where r.work == wid && r.account == me):
+            add Repost { work: wid, account: me }
+            if author != me:
+                let note = add Notification { account: author, actor: me, kind: "repost", target_type: "work", target_id: wid, preview: Work(wid).body, amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(note), author) to Account(author).handle
+                emit notify NotifyEventDTO{unread: count(n in Notification where n.account == author && !n.is_read)} to Account(author).handle
+            for f in Follow where f.followee == me:
+                emit new_post NewPostEventDTO{work_id: "" + wid, author_handle: Account(author).handle, reposted_by: actor, work: workCardDTO(Work(wid), f.follower)} to Account(f.follower).handle
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    action workUnrepost(work_id: text) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        remove r in Repost where r.work == wid && r.account == me
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    # A save is filed as it is made: folder_id names one of the reader's
+    # folders, none files it under All; saving a saved work re-files it.
+    action workBookmark(work_id: text, folder_id: text?) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        let fid = toInt(folder_id)
+        check folder_id == "" || exists(f in BookmarkFolder where f.id == fid && f.account == me) "That folder is not one of yours" status 404 code "folder_not_found"
+        if exists(b in Bookmark where b.work == wid && b.account == me):
+            for b in Bookmark where b.work == wid && b.account == me:
+                set Bookmark(b.id).folder = fid
+        else:
+            add Bookmark { work: wid, account: me, folder: fid }
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    action workUnbookmark(work_id: text) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "That work doesn't exist." status 404
+        let author = Work(wid).author
+        check !exists(b in Block where (b.account == author && b.target == me) || (b.account == me && b.target == author)) "That work doesn't exist." status 404
+        check !Account(author).is_private || author == me || exists(f in Follow where f.follower == me && f.followee == author) "This account is private." status 403 code "private_account"
+        remove b in Bookmark where b.work == wid && b.account == me
+        for ww in WorkWatch where ww.work == wid:
+            emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+
+    # ── A work's lifecycle ─────────────────────────────────────────────────
+
+    # Soft-delete one of the caller's works: every screen showing it gets its
+    # tombstone, and the work it replied to or quoted its new counts.
+    action workDelete(work_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check work_id != "" "work_id required" status 400
+        check exists(w in Work where w.id == wid && !w.deleted && w.author == me) "Post not found or you do not own it" status 403
+        set Work(wid).deleted = true
+        let cited = max(w.id in Work where w.id > 0 && (w.id == Work(wid).parent_cid || w.id == Work(wid).quoted))
+        if cited > 0:
+            for ww in WorkWatch where ww.work == cited:
+                emit work_engagement engagementV1(Work(cited)) to Account(ww.account).handle
+        emit post_deleted WorkRemovedEventDTO{work_id: "" + wid}
+        for ww in WorkWatch where ww.work == wid:
+            emit work_removed WorkRemovedEventDTO{work_id: "" + wid} to Account(ww.account).handle
+    # New words inside the hour after publishing, recorded as the next
+    # edition. made_with_ai / paid_partnership ride the same edit when the
+    # body names them (true or false); a label the body does not name is
+    # left as it is.
+    action workEdit(work_id: text, body: text, made_with_ai: bool?, paid_partnership: bool?) -> WorkDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        let words = trim(body)
+        check work_id != "" && words != "" "work_id and body required" status 400
+        check len(words) <= 2000 "body exceeds 2000 characters" status 400
+        check exists(w in Work where w.id == wid && !w.deleted) "work not found" status 404
+        check Work(wid).author == me "forbidden" status 403
+        let at = now()
+        check at - Work(wid).created <= 3600 "edit window closed" status 409
+        let edition = count(e in WorkEdition where e.work == wid) + 1
+        add WorkEdition { work: wid, cid: "sha256:" + sha256Hex("" + wid + "|" + edition + "|" + words), body: words, edition_number: edition, created: now() }
+        set Work(wid).body = words
+        set Work(wid).edited = true
+        set Work(wid).edited_at = now()
+        if given(made_with_ai):
+            set Work(wid).made_with_ai = made_with_ai
+        if given(paid_partnership):
+            set Work(wid).paid_partnership = paid_partnership
+        for ww in WorkWatch where ww.work == wid:
+            emit work_edited WorkEventDTO{work_id: "" + wid, work: workCardDTO(Work(wid), ww.account)} to Account(ww.account).handle
+        return workCardDTO(Work(wid), me)
+    # The author's disclosure labels: an unchecked toggle submits nothing,
+    # which is off.
+    action workSetLabels(work_id: text, made_with_ai: bool?, paid_partnership: bool?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check work_id != "" "work_id required" status 400
+        check exists(w in Work where w.id == wid && !w.deleted && w.author == me) "work not found" status 404
+        set Work(wid).made_with_ai = made_with_ai
+        set Work(wid).paid_partnership = paid_partnership
+    # One pinned work per profile: pinning one unpins the last.
+    action pinPost(post_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(post_id)
+        check post_id != "" "post_id required" status 400
+        check exists(w in Work where w.id == wid && !w.deleted && w.author == me) "Could not pin post" status 403
+        for w in Work where w.author == me && w.is_pinned:
+            set Work(w.id).is_pinned = false
+        set Work(wid).is_pinned = true
+    # Clears the profile's pinned work, whichever it is.
+    action unpinPost(post_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        for w in Work where w.author == me && w.is_pinned:
+            set Work(w.id).is_pinned = false
+
+    # ── The signed publish (Malkuth envelope) ──────────────────────────────
+
+    # A work is published by an envelope its author's approved device signed:
+    # the claimed cid must be sha256 over the canonical JSON of the signed
+    # payload (media_urls sorted, absent lists as []), and the signature an
+    # Ed25519 signature over the cid by the device the envelope names.
+    # Envelopes with no device_id (the legacy single-ECDSA-key clients) are
+    # refused as not approved: this stack keeps no ECDSA signing keys.
+    action postSigned(envelope: WorkEnvelope, is_nsfw: bool?, content_class: text?, video_watermarked_url: text?, video_width: int?, video_height: int?, quoted_work_id: text?, react_layout: text?, poll_option_images: text?, poll_shuffle: bool?, video_captions_url: text?, video_poster_override_url: text?) -> WorkCreatedDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check !exists(c in PialCapability where c.account == me && c.capability == "POSTING" && c.state != "granted") "Posting is restricted on this account" status 403 code "posting_restricted"
+        let cid = seText(envelope.cid)
+        let sig = seText(envelope.signature)
+        check slice(cid, 0, 7) == "sha256:" "invalid cid format" status 400
+        check sig != "" "signature required" status 400
+        let p = envelope.payload
+        let media = seSorted(p.media_urls)
+        let clientTags = seList(p.tags)
+        let canonical = WorkCanonicalPayload{author_pial: seText(p.author_pial), body: seText(p.body), comment_gating: seText(p.comment_gating), is_repost: seBool(p.is_repost), kind: seText(p.kind), media_urls: media, parent_cid: p.parent_cid, poll_ends_at: p.poll_ends_at, poll_options: p.poll_options, repost_source_id: p.repost_source_id, scheduled_at: p.scheduled_at, subscriber_only: seBool(p.subscriber_only), tags: clientTags, timestamp_ms: seInt(p.timestamp_ms), video_duration_secs: p.video_duration_secs, video_master_url: p.video_master_url, video_poster_url: p.video_poster_url, voice_duration_secs: p.voice_duration_secs, voice_url: p.voice_url}
+        check cid == "sha256:" + sha256Hex(canonicalJson(canonical)) "cid mismatch" status 400
+        let deviceId = seText(envelope.device_id)
+        if deviceId != "":
+            check exists(d in GnosisDevice where d.account == me && d.device_id == deviceId && d.status == "approved") "device not approved — approve this device from another signed-in, approved device (Settings → Security → Devices)" status 403
+            let pub = max(d.ed_pub_b64 in GnosisDevice where d.account == me && d.device_id == deviceId && d.status == "approved")
+            check ed25519Verify(pub, cid, sig) "signature invalid" status 403
+        else:
+            # No device_id: the legacy single ECDSA-P256 key of the author's
+            # PIAL, a WebCrypto/CryptoKit r||s signature (base64url) over the
+            # cid. No key on file (or none that reads as one) is "not
+            # approved"; a key that does not verify is "signature invalid".
+            let bound = max(b.pial in AccountBinding where b.account == me && b.status == "active")
+            let pial = max(x.id in Account where x.id == me && bound == 0) + bound
+            let spki = trim(max(k.public_key_b64 in PialSigningKey where k.pial == pial))
+            check seP256Spki(spki) "device not approved — approve this device from another signed-in, approved device (Settings → Security → Devices)" status 403
+            check ecdsaP256Verify(spki, cid, sig) "signature invalid" status 403
+        let kind = seOrText(p.kind, "post")
+        check seWorkKind(kind) "unknown work kind" status 400
+        let body = seText(p.body)
+        check len(body) <= 2000 "body exceeds 2000 characters" status 400
+        let repostSource = "" + p.repost_source_id
+        check !seBool(p.is_repost) || trim(repostSource) != "" "repost requires repost_source_id" status 400
+        let parentCid = "" + p.parent_cid
+        check kind != "reply" || trim(parentCid) != "" "reply requires parent_cid" status 400
+        let parent = max(w.id in Work where parentCid != "" && ((w.cid == parentCid) || (w.cid == "" && "" + w.id == parentCid)))
+        let quoted = max(w.id in Work where quoted_work_id != "" && "" + w.id == quoted_work_id && !w.deleted)
+        let options = jsonTexts(p.poll_options)
+        let rawImages = jsonTexts(fromJson(poll_option_images))
+        let shuffle = len(options) > 0 && seBool(poll_shuffle)
+        check len(options) == 0 || !seAnyPollImage(rawImages) || len(rawImages) == len(options) "poll_option_images must have one entry per option" status 400
+        let gating = seOrText(p.comment_gating, "everyone")
+        let tags = seWorkTags(clientTags, body)
+        let visibility = seOrText(envelope.audience, "public")
+        let communityText = trim(seText(envelope.community_id))
+        let community = toInt(communityText)
+        check communityText == "" || exists(m in CommunityMember where m.community == community && m.account == me) "not a member of that community" status 403
+        let klass = seContentClass(content_class, seBool(is_nsfw), Account(me).content_mode)
+        let videoMaster = "" + p.video_master_url
+        let scheduled = fromIso("" + p.scheduled_at)
+        let wid = add Work { legacy_id: "", author: me, body: body, kind: kind, content_class: klass, media_urls: seMediaText(media, videoMaster), is_nsfw: seBool(is_nsfw), is_gore: false, is_sensitive: false, is_pinned: false, made_with_ai: seBool(envelope.made_with_ai), paid_partnership: seBool(envelope.paid_partnership), parent_cid: parent, quoted: quoted, price_uaet: 0, comment_gating: gating, deleted: false, edited: false, created: now(), edited_at: 0, cid: cid, alt_text: seText(envelope.alt_text), visibility: visibility, community: community, scheduled_at: scheduled, react_layout: seText(react_layout) }
+        add WorkEdition { work: wid, cid: cid, body: body, edition_number: 1, created: now() }
+        for ht in tags:
+            add WorkTag { work: wid, tag: ht, created: now() }
+        if len(options) > 0:
+            let pid = add Poll { work: wid, ends_at: fromIso("" + p.poll_ends_at), shuffle: shuffle, created: now() }
+            for label in options:
+                let at = count(o in PollOption where o.poll == pid)
+                add PollOption { poll: pid, idx: at, label: label, image_url: pollImage(rawImages, at) }
+        # The transcoder's job for this master carries what the compose sheet
+        # relayed: its size, captions and chosen poster.
+        if videoMaster != "":
+            for v in VideoJob where v.owner == me && v.master_url == videoMaster by id desc limit 1:
+                if video_width > 0 && video_height > 0:
+                    set VideoJob(v.id).width = video_width
+                    set VideoJob(v.id).height = video_height
+                if seText(video_captions_url) != "":
+                    set VideoJob(v.id).captions_url = video_captions_url
+                if seText(video_poster_override_url) != "":
+                    set VideoJob(v.id).poster_url = video_poster_override_url
+        # A scheduled work has not happened yet: it owes nobody anything until
+        # it is published.
+        let at = now()
+        if scheduled <= at:
+            let cited = max(w.id in Work where w.id > 0 && ((kind == "reply" && w.id == parent) || (kind == "quote" && w.id == quoted)))
+            let citedAuthor = Work(cited).author
+            if cited > 0 && citedAuthor != me:
+                let note = add Notification { account: citedAuthor, actor: me, kind: kind, target_type: "work", target_id: wid, preview: body, amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(note), citedAuthor) to Account(citedAuthor).handle
+                emit notify NotifyEventDTO{unread: count(n in Notification where n.account == citedAuthor && !n.is_read)} to Account(citedAuthor).handle
+            if cited > 0:
+                for ww in WorkWatch where ww.work == cited:
+                    emit work_engagement engagementV1(Work(cited)) to Account(ww.account).handle
+            let named = seMentions(body)
+            for h in named:
+                for a in Account where lower(a.handle) == h && a.id != me && (cited == 0 || a.id != citedAuthor) limit 1:
+                    let mention = add Notification { account: a.id, actor: me, kind: "mention", target_type: "work", target_id: wid, preview: body, amount_uaet: 0, is_read: false, created: now() }
+                    emit notification notificationV1(Notification(mention), a.id) to a.handle
+                    emit notify NotifyEventDTO{unread: count(n in Notification where n.account == a.id && !n.is_read)} to a.handle
+            if kind != "reply":
+                for f in Follow where f.followee == me && (visibility != "circle" || exists(c in Circle where c.account == me && c.target == f.follower)):
+                    emit new_post NewPostEventDTO{work_id: "" + wid, author_handle: actor, work: workCardDTO(Work(wid), f.follower)} to Account(f.follower).handle
+        return WorkCreatedDTO{work_id: "" + wid, cid: cid} status 201
+
+    # Register the PIAL's ECDSA-P256 signing key (legacy POST
+    # /api/pial/signing-key/register, feed-engine handler/pial_keys.go
+    # registerPIALSigningKey, which wrote it to elohim-veni's
+    # /v1/pial/signing-key/register upsert; that store is PialSigningKey
+    # here). Malkuth re-asserts the same key on every page load and a first
+    # key binds freely; swapping a DIFFERENT key onto an identity that already
+    # signs with one asks for the account's own credential first (TOTP when
+    # enabled, else the current password) and tells the owner it happened.
+    # Not a golden route: reached through the generic action lane.
+    action registerPialSigningKey(public_key_b64: text, algorithm: text?, current_password: text?, totp_code: text?) -> EventOKDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let key = trim(public_key_b64)
+        check key != "" "invalid request" status 400
+        let bound = max(b.pial in AccountBinding where b.account == me && b.status == "active")
+        let pial = max(x.id in Account where x.id == me && bound == 0) + bound
+        let existing = max(k.public_key_b64 in PialSigningKey where k.pial == pial)
+        let changed = existing != "" && existing != key
+        if changed:
+            let code = replace(trim(totp_code), " ", "")
+            let totpOk = Account(me).two_factor_enabled && code != "" && totpValid(Account(me).two_factor_secret, code)
+            if !totpOk:
+                check Account(me).has_password "step-up verification is unavailable for this account" status 403
+                check trim(current_password) != "" "current_password or totp_code required" status 403
+                check verifyPassword(Account(me).password, current_password) "current password is incorrect" status 403
+        let algo = seOrText(algorithm, "ECDSA-P256")
+        if exists(k in PialSigningKey where k.pial == pial):
+            for k in PialSigningKey where k.pial == pial:
+                set PialSigningKey(k.id).public_key_b64 = key
+                set PialSigningKey(k.id).algorithm = algo
+                set PialSigningKey(k.id).registered_by = me
+                set PialSigningKey(k.id).updated = now()
+        else:
+            add PialSigningKey { pial: pial, public_key_b64: key, algorithm: algo, registered_by: me, created: now(), updated: now() }
+        # A new key is a new way to act as this identity: the owner hears of
+        # it (the same-key re-assertion is not that event).
+        if existing != key:
+            let note = add Notification { account: me, actor: me, kind: "signing_key_registered", target_type: "security", target_id: 0, preview: "New signing key added to your account", amount_uaet: 0, is_read: false, created: now() }
+            emit notification notificationV1(Notification(note), me) to actor
+            emit notify NotifyEventDTO{unread: count(n in Notification where n.account == me && !n.is_read)} to actor
+        return EventOKDTO{ok: true}
+
+    # The gnosis device directory the signed publish verifies against. A
+    # device attests "gnosis-device-v1\n<account>\n<device_id>\n<ed_pub_b64>"
+    # with its own key (the first device) or an approved device's (the rest).
+    action gnosisDeviceRegister(device_id: text, ed_pub_b64: text, label: text?, self_sig_b64: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check seValidDeviceId(device_id) "bad device id" status 400
+        let pub = trim(ed_pub_b64)
+        check pub != "" && !contains(pub, "\n") "bad key" status 400
+        if exists(d in GnosisDevice where d.account == me && d.device_id == device_id):
+            let did = max(d.id in GnosisDevice where d.account == me && d.device_id == device_id)
+            check GnosisDevice(did).ed_pub_b64 == pub "device identity mismatch" status 409
+            check GnosisDevice(did).status != "revoked" "device revoked" status 409
+            if seText(label) != "":
+                set GnosisDevice(did).label = seTruncate(label, 100)
+        else:
+            if exists(d in GnosisDevice where d.account == me && d.status == "approved"):
+                add GnosisDevice { account: me, device_id: device_id, ed_pub_b64: pub, label: seTruncate(seText(label), 100), status: "pending", approved_by: "", approval_sig_b64: "", approved_at: 0, revoked_at: 0, created: now() }
+            else:
+                check ed25519Verify(pub, "gnosis-device-v1\n" + me + "\n" + device_id + "\n" + pub, seText(self_sig_b64)) "bad attestation" status 400
+                add GnosisDevice { account: me, device_id: device_id, ed_pub_b64: pub, label: seTruncate(seText(label), 100), status: "approved", approved_by: device_id, approval_sig_b64: self_sig_b64, approved_at: now(), revoked_at: 0, created: now() }
+    action gnosisDeviceApprove(device_id: text, approver_device_id: text, sig_b64: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(d in GnosisDevice where d.account == me && d.device_id == approver_device_id && d.status == "approved") "approver not approved" status 403
+        check exists(d in GnosisDevice where d.account == me && d.device_id == device_id) "no such device" status 404
+        let target = max(d.id in GnosisDevice where d.account == me && d.device_id == device_id)
+        check GnosisDevice(target).status == "pending" "device is not pending" status 409
+        let approverPub = max(d.ed_pub_b64 in GnosisDevice where d.account == me && d.device_id == approver_device_id)
+        check ed25519Verify(approverPub, "gnosis-device-v1\n" + me + "\n" + device_id + "\n" + GnosisDevice(target).ed_pub_b64, sig_b64) "bad attestation" status 400
+        set GnosisDevice(target).status = "approved"
+        set GnosisDevice(target).approved_by = approver_device_id
+        set GnosisDevice(target).approval_sig_b64 = sig_b64
+        set GnosisDevice(target).approved_at = now()
+    action gnosisDeviceRevoke(device_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(d in GnosisDevice where d.account == me && d.device_id == device_id && d.status != "revoked") "no such device" status 404
+        for d in GnosisDevice where d.account == me && d.device_id == device_id:
+            set GnosisDevice(d.id).status = "revoked"
+            set GnosisDevice(d.id).revoked_at = now()
+
+    # ── Polls ──────────────────────────────────────────────────────────────
+
+    # Cast a ballot: idempotent per work and voter. Everyone watching the
+    # work sees the tally move, each in their own order with their own vote
+    # marked; the caller gets the ballot re-read after the write.
+    action pollVote(work_id: text, option_idx: int) -> PollDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(work_id)
+        check work_id != "" && option_idx >= 0 "work_id and option_idx required" status 400
+        check exists(p in Poll where p.work == wid) && exists(w in Work where w.id == wid && !w.deleted) "work not found or not a poll" status 404
+        let pid = max(p.id in Poll where p.work == wid)
+        check option_idx < count(o in PollOption where o.poll == pid) "option out of range" status 400
+        check !pollClosed(Poll(pid).ends_at) "poll closed" status 400
+        if !exists(v in PollVote where v.poll == pid && v.account == me):
+            add PollVote { poll: pid, account: me, idx: option_idx, created: now() }
+        for ww in WorkWatch where ww.work == wid:
+            emit poll_result PollResultEventDTO{work_id: "" + wid, poll: pollV1(Poll(pid), ww.account)} to Account(ww.account).handle
+        return pollV1(Poll(pid), me)
+
+    # ── Bookmark folders ───────────────────────────────────────────────────
+    # Names are 1–40 characters and unique per owner; each answers the
+    # folder row re-read after the write.
+
+    action bookmarkFolderCreate(name: text, work_id: text?, filter: text?) -> BookmarkFolderListDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let n = trim(name)
+        check n != "" && len(n) <= 40 "bookmark folder name must be 1–40 characters" status 400
+        check !exists(f in BookmarkFolder where f.account == me && f.name == n) "a folder with that name already exists" status 400
+        let wid = toInt(work_id)
+        check work_id == "" || exists(w in Work where w.id == wid && !w.deleted) "bookmark folder not found" status 404
+        let fid = add BookmarkFolder { account: me, name: n, position: seNextPos(exists(f in BookmarkFolder where f.account == me), max(f.position in BookmarkFolder where f.account == me)), created: now() }
+        if work_id != "":
+            if exists(b in Bookmark where b.work == wid && b.account == me):
+                for b in Bookmark where b.work == wid && b.account == me:
+                    set Bookmark(b.id).folder = fid
+            else:
+                add Bookmark { work: wid, account: me, folder: fid }
+            for ww in WorkWatch where ww.work == wid:
+                emit work_engagement engagementV1(Work(wid)) to Account(ww.account).handle
+        return bookmarkFolderListV1(me)
+    action bookmarkFolderRename(folder_id: text, name: text, filter: text?) -> BookmarkFolderListDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let n = trim(name)
+        check n != "" && len(n) <= 40 "bookmark folder name must be 1–40 characters" status 400
+        let fid = toInt(folder_id)
+        check exists(f in BookmarkFolder where f.id == fid && f.account == me) "folder not found" status 404
+        check !exists(f in BookmarkFolder where f.account == me && f.name == n && f.id != fid) "a folder with that name already exists" status 400
+        set BookmarkFolder(fid).name = n
+        return bookmarkFolderListV1(me)
+    # Deleting a folder unfiles its saves; it never unsaves them.
+    action bookmarkFolderDelete(folder_id: text, filter: text?) -> BookmarkFolderListDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let fid = toInt(folder_id)
+        check exists(f in BookmarkFolder where f.id == fid && f.account == me) "folder not found" status 404
+        for b in Bookmark where b.folder == fid:
+            set Bookmark(b.id).folder = 0
+        remove BookmarkFolder(fid)
+        return bookmarkFolderListV1(me)
+
+    # ── Reports ────────────────────────────────────────────────────────────
+
+    # A work (post_id) or, with none, a person (target_handle). One open
+    # report per reporter per item: a repeat while it is pending files
+    # nothing new.
+    action report(reason: text, post_id: text?, target_handle: text?, detail: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check reason == "spam" || reason == "harassment" || reason == "hate" || reason == "nsfw" || reason == "violence" || reason == "illegal" || reason == "other" "reason required" status 400
+        let wid = toInt(post_id)
+        let handle = lower(trim(replace(seText(target_handle), "@", "")))
+        check post_id != "" || handle != "" "post_id or target_handle required" status 400
+        check post_id == "" || exists(w in Work where w.id == wid) "work not found" status 404
+        check post_id != "" || exists(a in Account where lower(a.handle) == handle) "user not found" status 404
+        let target = max(a.id in Account where post_id == "" && lower(a.handle) == handle)
+        if !exists(r in Report where r.reporter == me && r.work == wid && r.target == target):
+            add Report { reporter: me, reason: reason, work: wid, target: target, detail: seTruncate(seText(detail), 500), created: now() }
+
+    # ── Context Notes ──────────────────────────────────────────────────────
+    # Notes are written by accounts granted NOTE_AUTHORING, rated by anyone
+    # signed in, and published under each contributor's pseudonymous token.
+
+    action noteCreate(work_id: text, note_type: text, body: text, evidence_url: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(c in PialCapability where c.account == me && c.capability == "NOTE_AUTHORING" && c.state == "granted") "not eligible to author context notes" status 403
+        let wid = toInt(work_id)
+        check wid > 0 && exists(w in Work where w.id == wid) "work_id required" status 400
+        check note_type != "" && body != "" "note_type and body required" status 400
+        let words = trim(body)
+        check seNoteType(note_type) && words != "" && len(words) <= 500 "invalid note" status 400
+        if !exists(c in NoteContributor where c.account == me):
+            add NoteContributor { account: me, token: "p_" + slice(sha256Hex(randomToken(32)), 0, 32), notes_written: 0, notes_helpful: 0, created: now() }
+        let contributor = max(c.id in NoteContributor where c.account == me)
+        add TransparencyNote { work: wid, author_token: NoteContributor(contributor).token, note_type: note_type, body: words, factor: 0, intercept: 0, helpful_count: 0, not_helpful_count: 0, status: "needs_more_ratings", created: now(), author: me, evidence_url: seText(evidence_url), author_disputed: false, updated: now() }
+        set NoteContributor(contributor).notes_written = NoteContributor(contributor).notes_written + 1
+    # A rating replaces the rater's earlier one; the note's status is refit
+    # from its ratings (intercept stored in millionths), and a note resolving
+    # helpful for the first time counts toward its author's record.
+    action noteRate(note_id: text, rating: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let nid = toInt(note_id)
+        check nid > 0 && (rating == "helpful" || rating == "not_helpful") "note_id and a valid rating are required" status 400
+        check exists(t in TransparencyNote where t.id == nid) "note not found" status 404
+        check TransparencyNote(nid).status != "removed" "note has been removed" status 409
+        if !exists(c in NoteContributor where c.account == me):
+            add NoteContributor { account: me, token: "p_" + slice(sha256Hex(randomToken(32)), 0, 32), notes_written: 0, notes_helpful: 0, created: now() }
+        let token = max(c.token in NoteContributor where c.account == me)
+        let before = TransparencyNote(nid).status
+        if exists(r in TransparencyRating where r.note == nid && r.rater_token == token):
+            for r in TransparencyRating where r.note == nid && r.rater_token == token:
+                set TransparencyRating(r.id).rating = rating
+        else:
+            add TransparencyRating { note: nid, rater_token: token, rating: rating, created: now() }
+        let helpful = count(r in TransparencyRating where r.note == nid && r.rating == "helpful")
+        let unhelpful = count(r in TransparencyRating where r.note == nid && r.rating == "not_helpful")
+        let intercept = seNoteIntercept(helpful, unhelpful)
+        let after = seNoteStatus(helpful + unhelpful, intercept)
+        set TransparencyNote(nid).helpful_count = helpful
+        set TransparencyNote(nid).not_helpful_count = unhelpful
+        set TransparencyNote(nid).intercept = round(intercept * 1000000.0)
+        set TransparencyNote(nid).status = after
+        set TransparencyNote(nid).updated = now()
+        if before != "helpful" && after == "helpful":
+            for c in NoteContributor where c.account == TransparencyNote(nid).author:
+                set NoteContributor(c.id).notes_helpful = c.notes_helpful + 1
+    # Only the author of the work a note is attached to may dispute it.
+    action noteRequestReview(note_id: text, work_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let nid = toInt(note_id)
+        let wid = toInt(work_id)
+        check nid > 0 && work_id != "" "note_id and work_id required" status 400
+        check exists(w in Work where w.id == wid && w.author == me) "only the work's author may request review" status 403
+        check exists(t in TransparencyNote where t.id == nid && t.work == wid) "note not found" status 404
+        set TransparencyNote(nid).author_disputed = true
+        set TransparencyNote(nid).updated = now()
+
+    # Grant, restrict or revoke a capability (the operator's console).
+    action setCapability(handle: text, capability: text, state: text, reason: text?):
+        requires operator
+        check exists(a in Account where a.handle == handle) "no such account" status 404
+        check state == "granted" || state == "restricted" || state == "revoked" || state == "cooldown" "unknown state" status 400
+        let target = max(a.id in Account where a.handle == handle)
+        if exists(c in PialCapability where c.account == target && c.capability == capability):
+            for c in PialCapability where c.account == target && c.capability == capability:
+                set PialCapability(c.id).state = state
+                set PialCapability(c.id).reason = seText(reason)
+                set PialCapability(c.id).granted_by = actor
+                set PialCapability(c.id).updated = now()
+        else:
+            add PialCapability { account: target, capability: capability, state: state, reason: seText(reason), granted_by: actor, updated: now() }
+
+    # ── Account-level settings the lane carries ────────────────────────────
+
+    # Who may reach the caller by @handle.
+    action contactPolicy(policy: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let p = trim(policy)
+        check isContactPolicy(p) "That is not a contact policy." status 400 code "unknown_policy"
+        set Account(me).contact_policy = p
+    action muteKeyword(keyword: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let k = lower(trim(keyword))
+        check k != "" "keyword required" status 400
+        if !exists(m in MutedKeyword where m.account == me && m.keyword == k):
+            add MutedKeyword { account: me, keyword: k, created: now() }
+    action unmuteKeyword(keyword: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let k = lower(trim(keyword))
+        check k != "" "keyword required" status 400
+        remove m in MutedKeyword where m.account == me && m.keyword == k
+    # Reserved: the legacy lane answers it 404 not implemented, to anyone.
+    # (It touches nothing, so it is placed on the authority by the dispatch
+    # route that serves it.)
+    action contentReveal():
+        check false "not implemented" status 404
+
+    # ── Feed surfaces ──────────────────────────────────────────────────────
+
+    # Pin an interest surface to the home tabs (a no-op for one that does
+    # not exist or is already pinned).
+    action pinSurface(surface_id: text, session_id: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let sid = trim(surface_id)
+        check sid != "" "surface_id required" status 400
+        if exists(s in FeedSurface where s.slug == sid && s.is_active) && !exists(p in SurfacePin where p.account == me && p.surface == sid):
+            add SurfacePin { account: me, surface: sid, sort_order: seNextPos(exists(p in SurfacePin where p.account == me), max(p.sort_order in SurfacePin where p.account == me)), created: now() }
+    action unpinSurface(surface_id: text, session_id: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let sid = trim(surface_id)
+        check sid != "" "surface_id required" status 400
+        remove p in SurfacePin where p.account == me && p.surface == sid
+    # The algorithm rail's own unpin: the same row.
+    action railUnpinSurface(surface_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let sid = trim(surface_id)
+        check sid != "" "surface_id required" status 400
+        remove p in SurfacePin where p.account == me && p.surface == sid
+
+    # The interest surfaces (legacy migrations 0001 and 0045), put in place
+    # when the server starts; one already there is left as it is.
+    action seedFeedSurfaces():
+        requires operator
+        if !exists(s in FeedSurface where s.slug == "music"):
+            add FeedSurface { slug: "music", label: "Music", emoji: "🎵", surface_type: "interest", tags: "", content_type: "audio", sort_order: 10, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "video"):
+            add FeedSurface { slug: "video", label: "Video", emoji: "🎬", surface_type: "interest", tags: "", content_type: "video", sort_order: 20, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "art"):
+            add FeedSurface { slug: "art", label: "Art", emoji: "🎨", surface_type: "interest", tags: "art,digitalart,illustration,design", content_type: "", sort_order: 30, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "gaming"):
+            add FeedSurface { slug: "gaming", label: "Gaming", emoji: "🎮", surface_type: "interest", tags: "gaming,games,gamer,esports", content_type: "", sort_order: 40, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "tech"):
+            add FeedSurface { slug: "tech", label: "Tech", emoji: "💻", surface_type: "interest", tags: "tech,coding,ai,programming,dev", content_type: "", sort_order: 50, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "fashion"):
+            add FeedSurface { slug: "fashion", label: "Fashion", emoji: "👗", surface_type: "interest", tags: "fashion,style,ootd,streetwear", content_type: "", sort_order: 60, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "sports"):
+            add FeedSurface { slug: "sports", label: "Sports", emoji: "⚽", surface_type: "interest", tags: "sports,football,basketball,fitness", content_type: "", sort_order: 70, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "nfl"):
+            add FeedSurface { slug: "nfl", label: "NFL", emoji: "🏈", surface_type: "interest", tags: "nfl,football,superbowl,playoffs,gameday", content_type: "", sort_order: 71, parent: "sports", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "nba"):
+            add FeedSurface { slug: "nba", label: "NBA", emoji: "🏀", surface_type: "interest", tags: "nba,basketball,playoffs", content_type: "", sort_order: 72, parent: "sports", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "mlb"):
+            add FeedSurface { slug: "mlb", label: "MLB", emoji: "⚾", surface_type: "interest", tags: "mlb,baseball,worldseries", content_type: "", sort_order: 73, parent: "sports", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "nhl"):
+            add FeedSurface { slug: "nhl", label: "NHL", emoji: "🏒", surface_type: "interest", tags: "nhl,hockey,stanleycup", content_type: "", sort_order: 74, parent: "sports", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "food"):
+            add FeedSurface { slug: "food", label: "Food", emoji: "🍕", surface_type: "interest", tags: "food,cooking,recipe,foodie", content_type: "", sort_order: 80, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "crypto"):
+            add FeedSurface { slug: "crypto", label: "Crypto", emoji: "🪙", surface_type: "interest", tags: "crypto,web3,blockchain,nft,defi", content_type: "", sort_order: 90, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "film"):
+            add FeedSurface { slug: "film", label: "Film", emoji: "🎥", surface_type: "interest", tags: "film,movies,cinema,tv,series", content_type: "", sort_order: 100, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "books"):
+            add FeedSurface { slug: "books", label: "Books", emoji: "📚", surface_type: "interest", tags: "books,reading,literature,author", content_type: "", sort_order: 110, parent: "", is_active: true }
+        if !exists(s in FeedSurface where s.slug == "travel"):
+            add FeedSurface { slug: "travel", label: "Travel", emoji: "✈️", surface_type: "interest", tags: "travel,wanderlust,adventure,explore", content_type: "", sort_order: 120, parent: "", is_active: true }
+    job feedSurfaces on start -> seedFeedSurfaces
+
+    # ── Articles from the web editor ───────────────────────────────────────
+
+    # Save (id absent) or edit (id names one of the caller's articles) an
+    # article: an empty title is "Untitled", the subtitle keeps 200
+    # characters, status is published or draft, the slug follows the title
+    # (made unique with -2, -3 …), the first publish stamps published_at,
+    # and every save keeps a version.
+    action publishArticle(id: text?, title: text, subtitle: text?, body: text, status: text?, cover_url: text?, subscriber_only: bool?, tags: text?, community_id: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check !exists(c in PialCapability where c.account == me && c.capability == "POSTING" && c.state != "granted") "posting is restricted on this account" status 403 code "posting_restricted"
+        check !subscriber_only || !exists(c in PialCapability where c.account == me && c.capability == "MONETIZATION" && c.state != "granted") "monetization is required to publish a subscriber-only article" status 403 code "monetization_required"
+        let communityText = trim(seText(community_id))
+        let community = toInt(communityText)
+        check communityText == "" || exists(m in CommunityMember where m.community == community && m.account == me) "not a member of that community" status 403
+        let heading = seOrText(title, "Untitled")
+        let sub = seTruncate(trim(seText(subtitle)), 200)
+        let state = seArticleStatus(status)
+        let cover = trim(seText(cover_url))
+        let tagText = seArticleTags(seText(tags))
+        let base = seSlugBase(heading)
+        let aid = toInt(id)
+        check trim(seText(id)) == "" || exists(a in Article where a.id == aid && a.author == me) "Not found" status 404
+        let taken = list(a.slug in Article where a.id != aid && (a.slug == base || slice(a.slug, 0, len(base) + 1) == base + "-"))
+        if trim(seText(id)) == "":
+            let created = add Article { author: me, slug: sePickSlug(base, taken), title: heading, subtitle: sub, body: body, cover_url: cover, status: state, subscriber_only: subscriber_only, community_id: community, published_at: 0, created: now(), updated: now(), view_count: 0, tags: tagText }
+            if state == "published":
+                set Article(created).published_at = now()
+            add ArticleVersion { article: created, author: me, title: heading, subtitle: sub, body: body, cover_url: cover, reason: "initial", created: now() }
+        else:
+            if seSlugBase(Article(aid).title) != base:
+                set Article(aid).slug = sePickSlug(base, taken)
+            set Article(aid).title = heading
+            set Article(aid).subtitle = sub
+            set Article(aid).body = body
+            set Article(aid).cover_url = cover
+            set Article(aid).status = state
+            set Article(aid).subscriber_only = subscriber_only
+            set Article(aid).tags = tagText
+            set Article(aid).community_id = community
+            if state == "published" && Article(aid).published_at == 0:
+                set Article(aid).published_at = now()
+            if state != "published":
+                set Article(aid).published_at = 0
+            set Article(aid).updated = now()
+            add ArticleVersion { article: aid, author: me, title: heading, subtitle: sub, body: body, cover_url: cover, reason: "edit", created: now() }

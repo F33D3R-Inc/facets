@@ -1,33 +1,4 @@
 app F33D3RTypes:
-    type APIContractComponentsDTO:
-        schemas: json
-        securitySchemes: json
-    type APIContractHistoryDTO:
-        current: text
-        schema_version: int
-        server_time: text
-        versions: [APIContractHistoryEntryDTO]
-    type APIContractHistoryEntryDTO:
-        current: bool
-        first_seen: text
-        schema_version: int
-        version: text
-    type APIContractInfoDTO:
-        description: text
-        title: text
-        version: text
-    type APIContractMutationFieldDTO:
-        description: text?
-        enum: [text]?
-        name: text
-        required: bool
-        type: text
-    type APIContractVersionDTO:
-        generated_at: text
-        schema_version: int
-        version: text
-    type APIErrorDTO:
-        error: json
     type AccountExportDTO:
         bio: text
         display_name: text
@@ -45,14 +16,14 @@ app F33D3RTypes:
         website: text
         xp: int
     type ArticleSummaryDTO:
-        created_at: text
+        created_at: datetime
         excerpt: text
         id: text
-        published_at: text?
+        published_at: datetime?
         slug: text
         status: text
         title: text
-        updated_at: text
+        updated_at: datetime
         view_count: int
     type AstraonAudience:
         period_days: int
@@ -75,7 +46,7 @@ app F33D3RTypes:
         bar_pct: number
         body_preview: text
         content_type: text
-        created_at: text
+        created_at: datetime
         engagement_pct: number
         impressions: int
         likes: int
@@ -89,11 +60,11 @@ app F33D3RTypes:
         engagement_rate: number
         followers_gained: int
         followers_lost: int
-        followers_pct_change: number?
+        followers_pct_change: number or null
         impressions: int
-        impressions_pct_change: number?
+        impressions_pct_change: number or null
         likes: int
-        likes_pct_change: number?
+        likes_pct_change: number or null
         net_followers: int
         period_days: int
         pial_id: text
@@ -123,7 +94,7 @@ app F33D3RTypes:
         pending_uaet: int
     type BookmarkFolderDTO:
         count: int
-        created_at: text
+        created_at: datetime
         id: text
         name: text
         position: int
@@ -153,21 +124,21 @@ app F33D3RTypes:
         c: text
         call_id: text
         device: text
-        envelope: json
+        envelope: SealedEnvelope
         kind: text
         media: text
         reason: text
     type CommunityDTO:
-        avatar_url: text?
-        banner_url: text?
-        created_at: text
+        avatar_url: text or null
+        banner_url: text or null
+        created_at: datetime
         description: text
         handle: text
         id: text
         member_count: int
         membership_policy: text
         name: text
-        updated_at: text
+        updated_at: datetime
         version: int
     type CommunityResultDTO:
         avatar_url: text?
@@ -177,66 +148,10 @@ app F33D3RTypes:
         member_count: int
         membership_policy: text
         name: text
-    type ContractDiffDTO:
-        from: ContractDiffSideDTO
-        identical: bool
-        mutations_added: [text]
-        mutations_changed: [ContractMutationDiffDTO]
-        mutations_removed: [text]
-        routes_added: [text]
-        routes_changed: [ContractRouteDiffDTO]
-        routes_removed: [text]
-        schemas_added: [text]
-        schemas_changed: [ContractSchemaDiffDTO]
-        schemas_removed: [text]
-        stream_events_added: [text]
-        stream_events_changed: [ContractEventDiffDTO]
-        stream_events_removed: [text]
-        to: ContractDiffSideDTO
-    type ContractDiffSideDTO:
-        schema_version: int
-        version: text
-    type ContractEventDiffDTO:
-        name: text
-        payload: ContractFieldsDiffDTO
-        stream: text
-    type ContractFieldChangeDTO:
-        from: text
-        name: text
-        to: text
-    type ContractFieldDTO:
-        name: text
-        required: bool
-        type: text
-    type ContractFieldsDiffDTO:
-        added: [ContractFieldDTO]
-        removed: [ContractFieldDTO]
-        required_changed: [ContractFieldChangeDTO]
-        type_changed: [ContractFieldChangeDTO]
-    type ContractMutationDiffDTO:
-        body: ContractFieldsDiffDTO
-        event_type: text
-        fields: ContractFieldsDiffDTO
-        result: ContractFieldsDiffDTO
-    type ContractResponseDiffDTO:
-        added: bool
-        fields: ContractFieldsDiffDTO
-        removed: bool
-        status: text
-    type ContractRouteDiffDTO:
-        deprecated: bool
-        deprecated_changed: bool
-        params: ContractFieldsDiffDTO
-        request: ContractFieldsDiffDTO
-        responses: [ContractResponseDiffDTO]
-        route: text
-    type ContractSchemaDiffDTO:
-        fields: ContractFieldsDiffDTO
-        name: text
     type ConversationDTO:
         id: text
         is_group: bool
-        last_at: text
+        last_at: datetime
         message_ttl_seconds: int
         mode: text
         other_avatar: text?
@@ -251,18 +166,12 @@ app F33D3RTypes:
         state: text
     type EventOKDTO:
         ok: bool
-    type FacetCatalogBindingDTO:
-        facet_id: text
-        layer: text
-        name: text
-        routes: [text]
-        stream_events: [text]
     type FacetCatalogDTO:
         catalog_version: text
         contract_version: text
         count: int
         facets: [FacetCatalogEntryDTO]
-        server_time: text
+        server_time: datetime
     type FacetCatalogEntryDTO:
         context: [text]
         facet_id: text
@@ -290,20 +199,20 @@ app F33D3RTypes:
     type FrequencyEndedDTO:
         reason: text
     type FrequencyHeartbeatDTO:
-        counts: FrequencyCountsDTO?
+        counts: FrequencyCountsDTO or null
         muted: bool
         present: bool
         role: text
         state: text
     type FrequencyParticipantDTO:
         author: WorkAuthorDTO
-        joined_at: text
+        joined_at: datetime
         muted: bool
         present: bool
         role: text
     type FrequencyRequestDTO:
         author: WorkAuthorDTO
-        created_at: text
+        created_at: datetime
         id: text
         reason: text
         upvotes: int
@@ -311,7 +220,7 @@ app F33D3RTypes:
         cohosts: [WorkAuthorDTO]
         frequency: FrequencySummaryDTO
         requests: [FrequencyRequestDTO]
-        session: FrequencySessionDTO?
+        session: FrequencySessionDTO or null
         speakers: [FrequencyParticipantDTO]
         viewer: FrequencyViewerDTO
     type FrequencySessionDTO:
@@ -320,10 +229,10 @@ app F33D3RTypes:
         signal_path: text
         token: text
     type FrequencySummaryDTO:
-        audio_unavailable: text?
-        description: text?
-        end_reason: text?
-        ended_at: text?
+        audio_unavailable: text or null
+        description: text or null
+        end_reason: text or null
+        ended_at: datetime or null
         host: WorkAuthorDTO
         id: text
         is_nsfw: bool
@@ -335,9 +244,9 @@ app F33D3RTypes:
         participant_count: int
         replay_status: text
         requests_open: bool
-        scheduled_at: text?
+        scheduled_at: datetime or null
         speaker_count: int
-        started_at: text?
+        started_at: datetime or null
         state: text
         title: text
         visibility: text
@@ -350,13 +259,8 @@ app F33D3RTypes:
         can_speak: bool
         muted: bool
         present: bool
-        request: FrequencyRequestDTO?
-        role: text?
-    type HelloEventDTO:
-        contract_version: text
-        schema_version: text
-        server_time: text
-        session_id: text
+        request: FrequencyRequestDTO or null
+        role: text or null
     type LinkPreviewDTO:
         description: text?
         image_url: text?
@@ -367,7 +271,7 @@ app F33D3RTypes:
         amount_uaet: int?
         author: WorkAuthorDTO?
         body: text
-        created_at: text
+        created_at: datetime
         id: text
         kind: text
     type LiveHeartsEventDTO:
@@ -386,7 +290,7 @@ app F33D3RTypes:
         audience: text
         author: WorkAuthorDTO
         description: text?
-        ended_at: text?
+        ended_at: datetime?
         has_video: bool
         heart_count: int
         id: text
@@ -395,8 +299,8 @@ app F33D3RTypes:
         pinned_body: text?
         reminder_count: int
         reminder_set: bool
-        scheduled_at: text?
-        started_at: text?
+        scheduled_at: datetime?
+        started_at: datetime?
         status: text
         tip_goal_uaet: int
         tip_total_uaet: int
@@ -421,7 +325,7 @@ app F33D3RTypes:
         birthday_year_visibility: text
         celebrations_enabled: bool
         content_setting: text
-        country_code: text?
+        country_code: text or null
         display_name: text
         external_tip_links: json
         follower_count: int
@@ -436,8 +340,8 @@ app F33D3RTypes:
         is_minor: bool
         is_private: bool
         is_verified: bool
-        kyc_status: text?
-        kyc_submitted_at: text?
+        kyc_status: text or null
+        kyc_submitted_at: datetime or null
         live_frequency_id: text?
         location: text?
         official_type: text?
@@ -474,11 +378,11 @@ app F33D3RTypes:
         ck_sealed_b64: text?
         ck_sealed_nonce_b64: text?
         conversation_id: text
-        created_at: text
+        created_at: datetime
         deleted: bool
-        deleted_at: text?
-        edited_at: text?
-        expires_at: text?
+        deleted_at: datetime?
+        edited_at: datetime?
+        expires_at: datetime?
         id: text
         is_mine: bool
         kind: text
@@ -500,7 +404,7 @@ app F33D3RTypes:
         body_ct_b64: text?
         body_nonce_b64: text?
         conversation_id: text
-        created_at: text
+        created_at: datetime
         message_id: text
         mode: text
         sealed_keys: [SealedKeyDTO]?
@@ -522,7 +426,7 @@ app F33D3RTypes:
         actor_count: int
         actors: [WorkAuthorDTO]
         amount_uaet: int?
-        created_at: text
+        created_at: datetime
         id: text
         is_read: bool
         kind: text
@@ -539,8 +443,8 @@ app F33D3RTypes:
         messages_enabled: bool
         push_enabled: bool
         quiet_hours_enabled: bool
-        quiet_hours_end: text?
-        quiet_hours_start: text?
+        quiet_hours_end: text or null
+        quiet_hours_start: text or null
         replies_enabled: bool
         reposts_enabled: bool
     type NotificationSubjectDTO:
@@ -558,7 +462,7 @@ app F33D3RTypes:
         revoked: bool
     type PollDTO:
         closed: bool
-        ends_at: text?
+        ends_at: datetime?
         results: [PollResultDTO]
         shuffle: bool
         time_left: text
@@ -597,7 +501,7 @@ app F33D3RTypes:
         author: WorkAuthorDTO
         body: text
         cid: text
-        created_at: text
+        created_at: datetime
         id: text
         is_gore: bool
         is_nsfw: bool
@@ -609,10 +513,10 @@ app F33D3RTypes:
         emoji: text
         reacted: bool
     type SavedSearchDTO:
-        created_at: text
+        created_at: datetime
         id: text
         lane: text
-        last_seen_at: text
+        last_seen_at: datetime
         name: text
         new_count: int
         query: text
@@ -630,7 +534,7 @@ app F33D3RTypes:
     type SearchHistoryEntryDTO:
         lane: text
         query: text
-        searched_at: text
+        searched_at: datetime
     type StarterPackDTO:
         description: text
         id: text
@@ -644,13 +548,13 @@ app F33D3RTypes:
         tag: text
     type ThemisPurchaseDTO:
         cek_for_buyer: json
-        confirmed_at: text?
+        confirmed_at: datetime or null
         content_hash: text
         content_url: text
         currency: text
-        delivered_at: text?
+        delivered_at: datetime or null
         expected_sats: int
-        expires_at: text
+        expires_at: datetime
         id: text
         listing_id: text
         listing_title: text
@@ -665,14 +569,14 @@ app F33D3RTypes:
         author: WorkAuthorDTO
     type TopicSnoozeDTO:
         tag: text
-        until: text
+        until: datetime
     type TopicSnoozesDTO:
         snoozes: [TopicSnoozeDTO]
     type TrackDTO:
         audio_url: text
         author: WorkAuthorDTO
         cover_url: text?
-        created_at: text
+        created_at: datetime
         description: text
         duration_secs: int
         genre: text
@@ -749,11 +653,11 @@ app F33D3RTypes:
         active_only: bool
         items: [V2AccountDTO]
         next_cursor: text?
-        server_time: text
+        server_time: datetime
     type V2AchievementDTO:
         category: text
         description: text
-        earned_at: text?
+        earned_at: datetime?
         icon: text
         id: text
         name: text
@@ -765,12 +669,12 @@ app F33D3RTypes:
         label: text
         slug: text
     type V2AchievementsDTO:
-        all_time_country_board: json?
-        all_time_global_board: json
+        all_time_country_board: V2PageOfV2LeaderboardEntryDTO?
+        all_time_global_board: V2PageOfV2LeaderboardEntryDTO
         country_name: text?
         current_tier: text
-        daily_country_board: json?
-        daily_global_board: json
+        daily_country_board: V2PageOfV2LeaderboardEntryDTO?
+        daily_global_board: V2PageOfV2LeaderboardEntryDTO
         earned_count: int
         groups: [V2AchievementGroupDTO]
         in_top10: bool
@@ -807,20 +711,20 @@ app F33D3RTypes:
         bookmarked_by_user: bool
         community_id: text?
         cover_url: text?
-        created_at: text
+        created_at: datetime
         embedded_works: [V2WorkDTO]?
         excerpt: text?
         id: text
         like_count: int
         liked_by_user: bool
-        published_at: text?
+        published_at: datetime?
         slug: text
         status: text
         subscriber_only: bool
         subtitle: text?
         tags: [text]?
         title: text
-        updated_at: text
+        updated_at: datetime
         view_count: int
     type V2ArticleEngagementDTO:
         bookmark_count: int
@@ -828,14 +732,14 @@ app F33D3RTypes:
         like_count: int
         liked: bool?
     type V2ArticleSummaryDTO:
-        created_at: text
+        created_at: datetime
         excerpt: text?
         id: text
-        published_at: text?
+        published_at: datetime?
         slug: text
         status: text
         title: text
-        updated_at: text
+        updated_at: datetime
         view_count: int
     type V2ArticleWriteRequest:
         body: text
@@ -867,7 +771,7 @@ app F33D3RTypes:
         codes: [text]
     type V2BookmarkFolderDTO:
         count: int
-        created_at: text
+        created_at: datetime
         id: text
         name: text
         position: int
@@ -880,9 +784,9 @@ app F33D3RTypes:
         folders: [V2BookmarkFolderDTO]
         items: [V2WorkDTO]
         next_cursor: text?
-        server_time: text
+        server_time: datetime
     type V2CashtagQuoteDTO:
-        as_of: text
+        as_of: datetime
         change_label: text
         change_pct: number
         company_name: text
@@ -944,7 +848,7 @@ app F33D3RTypes:
     type V2ConversationDTO:
         id: text
         is_group: bool
-        last_at: text
+        last_at: datetime
         message_ttl_seconds: int
         mode: text
         other: V2AccountDTO?
@@ -961,7 +865,7 @@ app F33D3RTypes:
         avatar_url: text?
         commerce_available: bool
         display_name: text
-        following_since: text
+        following_since: datetime
         handle: text
         lifetime_tips_aet: number?
         lifetime_tips_count: int?
@@ -971,10 +875,10 @@ app F33D3RTypes:
         shop_purchase_total_sats: int?
         subscription: V2CreatorFanSubscriptionDTO?
     type V2CreatorFanSubscriptionDTO:
-        current_period_end: text
+        current_period_end: datetime
         is_active: bool
         plan_name: text?
-        since: text
+        since: datetime
         status: text
     type V2CreatorFansDTO:
         attendance_available: bool
@@ -1000,7 +904,7 @@ app F33D3RTypes:
         items: [V2WorkDTO]
         live_count: int?
         next_cursor: text?
-        server_time: text
+        server_time: datetime
     type V2FrequencyListDTO:
         count: int
         frequencies: [V2FrequencySummaryDTO]
@@ -1008,13 +912,13 @@ app F33D3RTypes:
         own: V2FrequencySummaryDTO?
     type V2FrequencyParticipantDTO:
         author: V2AccountDTO
-        joined_at: text
+        joined_at: datetime
         muted: bool
         present: bool
         role: text
     type V2FrequencyRequestDTO:
         author: V2AccountDTO
-        created_at: text
+        created_at: datetime
         id: text
         reason: text
         upvotes: int
@@ -1034,7 +938,7 @@ app F33D3RTypes:
         audio_unavailable: text?
         description: text?
         end_reason: text?
-        ended_at: text?
+        ended_at: datetime?
         host: V2AccountDTO
         id: text
         is_nsfw: bool
@@ -1048,9 +952,9 @@ app F33D3RTypes:
         requests_open: bool
         requires_payment: bool
         requires_vip_tier: bool
-        scheduled_at: text?
+        scheduled_at: datetime?
         speaker_count: int
-        started_at: text?
+        started_at: datetime?
         state: text
         ticket_price_aet: int?
         title: text
@@ -1060,7 +964,7 @@ app F33D3RTypes:
         amount_aet: number
         purchase_id: text
     type V2FrequencyTicketRequestDTO:
-        price_aet: number?
+        price_aet: number or null
     type V2FrequencyTipReceiptDTO:
         ain_soph_tx_id: text
         amount_aet: number
@@ -1080,7 +984,7 @@ app F33D3RTypes:
         request: V2FrequencyRequestDTO?
         role: text?
     type V2FrequencyVipTierRequestDTO:
-        required_plan_id: text?
+        required_plan_id: text or null
     type V2GifResultDTO:
         height: int?
         id: text
@@ -1091,7 +995,7 @@ app F33D3RTypes:
     type V2GifSearchDTO:
         results: [V2GifResultDTO]
     type V2HistoryEntryDTO:
-        viewed_at: text
+        viewed_at: datetime
         work: V2WorkDTO
     type V2IdentityDTO:
         age_band: text
@@ -1114,8 +1018,8 @@ app F33D3RTypes:
         expires_in: int
         max_uses: int
     type V2InviteDTO:
-        created_at: text
-        expires_at: text?
+        created_at: datetime
+        expires_at: datetime?
         max_uses: int
         state: text
         token: text
@@ -1153,7 +1057,7 @@ app F33D3RTypes:
         title: text
         url: text
     type V2ListDTO:
-        created_at: text
+        created_at: datetime
         description: text?
         id: text
         is_public: bool
@@ -1163,12 +1067,12 @@ app F33D3RTypes:
     type V2ListDetailDTO:
         list: V2ListDTO
         members: [V2AccountDTO]
-        works: json
+        works: V2PageOfV2WorkDTO
     type V2LiveChatDTO:
         amount_uaet: int?
         author: V2AccountDTO?
         body: text
-        created_at: text
+        created_at: datetime
         id: text
         kind: text
     type V2LiveChatRequest:
@@ -1198,7 +1102,7 @@ app F33D3RTypes:
         audience: text
         author: V2AccountDTO
         description: text?
-        ended_at: text?
+        ended_at: datetime?
         has_video: bool
         heart_count: int
         id: text
@@ -1207,8 +1111,8 @@ app F33D3RTypes:
         pinned_body: text?
         reminder_count: int
         reminder_set: bool
-        scheduled_at: text?
-        started_at: text?
+        scheduled_at: datetime?
+        started_at: datetime?
         status: text
         tip_goal_uaet: int
         tip_total_uaet: int
@@ -1244,11 +1148,11 @@ app F33D3RTypes:
         body_ct_b64: text?
         body_nonce_b64: text?
         conversation_id: text
-        created_at: text
+        created_at: datetime
         deleted: bool
-        deleted_at: text?
-        edited_at: text?
-        expires_at: text?
+        deleted_at: datetime?
+        edited_at: datetime?
+        expires_at: datetime?
         id: text
         is_mine: bool
         kind: text
@@ -1272,7 +1176,7 @@ app F33D3RTypes:
         actor_count: int
         actors: [V2AccountDTO]
         amount_uaet: int?
-        created_at: text
+        created_at: datetime
         id: text
         is_read: bool
         kind: text
@@ -1315,7 +1219,7 @@ app F33D3RTypes:
     type V2NotificationsPageDTO:
         items: [V2NotificationDTO]
         next_cursor: text?
-        server_time: text
+        server_time: datetime
         tab: text
         unread_count: int
     type V2NumberDTO:
@@ -1333,6 +1237,66 @@ app F33D3RTypes:
         mail_address: text
         numbers: [V2NumberDTO]
         policies: [text]
+    type V2PageOfPublicListingDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.PublicListingDTO]":
+        items: [PublicListingDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfStarterPackDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.StarterPackDTO]":
+        items: [StarterPackDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfTagDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.TagDTO]":
+        items: [TagDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfThemisPurchaseDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.ThemisPurchaseDTO]":
+        items: [ThemisPurchaseDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfTrackDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.TrackDTO]":
+        items: [TrackDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2AccountDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2AccountDTO]":
+        items: [V2AccountDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2ArticleSummaryDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2ArticleSummaryDTO]":
+        items: [V2ArticleSummaryDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2CommunityListItemDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2CommunityListItemDTO]":
+        items: [V2CommunityListItemDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2ConversationDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2ConversationDTO]":
+        items: [V2ConversationDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2HistoryEntryDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2HistoryEntryDTO]":
+        items: [V2HistoryEntryDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2LeaderboardEntryDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2LeaderboardEntryDTO]":
+        items: [V2LeaderboardEntryDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2ListDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2ListDTO]":
+        items: [V2ListDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2MessageDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2MessageDTO]":
+        items: [V2MessageDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2PlaceListingDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2PlaceListingDTO]":
+        items: [V2PlaceListingDTO]
+        next_cursor: text?
+        server_time: datetime
+    type V2PageOfV2WorkDTO as "V2Page[github.com/f33d3r/feed-engine/internal/handler.V2WorkDTO]":
+        items: [V2WorkDTO]
+        next_cursor: text?
+        server_time: datetime
     type V2PasswordResetRedemptionRequest:
         device_name: text
         new_password: text
@@ -1365,7 +1329,7 @@ app F33D3RTypes:
         website: text
     type V2PollDTO:
         closed: bool
-        ends_at: text?
+        ends_at: datetime?
         results: [V2PollResultDTO]
         shuffle: bool
         time_left: text
@@ -1402,7 +1366,7 @@ app F33D3RTypes:
         body: text
         cid: text
         content_class: text
-        created_at: text
+        created_at: datetime
         id: text
         is_gore: bool
         is_nsfw: bool
@@ -1480,7 +1444,7 @@ app F33D3RTypes:
         is_private: bool
         is_verified: bool
         kyc_status: text?
-        kyc_submitted_at: text?
+        kyc_submitted_at: datetime?
         live_frequency_id: text?
         location: text?
         location_label: text?
@@ -1507,16 +1471,16 @@ app F33D3RTypes:
         reply_to: text?
     type V2SessionDTO:
         account: V2SelfDTO
-        expires_at: text
+        expires_at: datetime
         needs_backup_codes: bool
         token: text
     type V2SessionInfoDTO:
-        created_at: text
+        created_at: datetime
         device_name: text
         id: text
         ip_address: text?
         is_current: bool
-        last_seen_at: text
+        last_seen_at: datetime
     type V2SessionsDTO:
         items: [V2SessionInfoDTO]
     type V2SetCommunityMembershipGateRequest:
@@ -1593,7 +1557,7 @@ app F33D3RTypes:
         possession_text: text?
         red_zone: bool
         series_summary: text?
-        start: text
+        start: datetime
         start_label: text?
         state: text
         status_label: text
@@ -1656,7 +1620,7 @@ app F33D3RTypes:
     type V2ThreadDTO:
         conversation: V2ConversationDTO
         members: [V2AccountDTO]
-        messages: json
+        messages: V2PageOfV2MessageDTO
     type V2TipperDTO:
         amount_uaet: int
         author: V2AccountDTO
@@ -1681,7 +1645,7 @@ app F33D3RTypes:
     type V2TransparencyNoteDTO:
         author_token: text
         body: text
-        created_at: text
+        created_at: datetime
         factor: number
         helpful_count: int
         id: text
@@ -1696,7 +1660,7 @@ app F33D3RTypes:
         offset: int
         total: int
     type V2TransparencyRatingDTO:
-        created_at: text
+        created_at: datetime
         note_id: text
         rater_token: text
         rating: text
@@ -1711,15 +1675,15 @@ app F33D3RTypes:
         secret: text
         uri: text
     type V2UpstreamListDTO:
-        server_time: text
+        server_time: datetime
         sources: [V2UpstreamSourceDTO]
     type V2UpstreamSourceDTO:
         down: bool
         failures: int
         known: bool
         last_error: text?
-        last_failure: text?
-        last_success: text?
+        last_failure: datetime?
+        last_success: datetime?
         message: text?
         name: text
         source: text
@@ -1774,8 +1738,8 @@ app F33D3RTypes:
         author: V2AccountDTO
         body: text
         content_type: text
-        created_at: text
-        expires_at: text
+        created_at: datetime
+        expires_at: datetime
         id: text
         is_nsfw: bool
         media_urls: [text]?
@@ -1788,7 +1752,7 @@ app F33D3RTypes:
         author: V2AccountDTO
         count: int
         is_live: bool
-        latest_at: text
+        latest_at: datetime
         provenance: V2ProvenanceDTO?
         state: text
         unseen_count: int
@@ -1813,7 +1777,7 @@ app F33D3RTypes:
     type V2WalletEntryDTO:
         amount_uaet: int
         counterparty_handle: text?
-        created_at: text
+        created_at: datetime
         id: text
         kind: text
     type V2WorkDTO:
@@ -1825,11 +1789,11 @@ app F33D3RTypes:
         comment_gating: text
         content_class: text
         content_type: text
-        created_at: text
+        created_at: datetime
         dislike_count: int
         disliked_by_viewer: bool
-        edited_at: text?
-        expires_at: text?
+        edited_at: datetime?
+        expires_at: datetime?
         id: text
         is_edited: bool
         is_gore: bool
@@ -1857,7 +1821,7 @@ app F33D3RTypes:
         quoted_cid: text?
         reply_count: int
         repost_count: int
-        reposted_at: text?
+        reposted_at: datetime?
         reposted_by: V2AccountDTO?
         reposted_by_viewer: bool
         scan_state: text
@@ -1873,7 +1837,7 @@ app F33D3RTypes:
         youtube_playlist_id: text?
     type V2WorkThreadDTO:
         ancestors: [V2WorkDTO]
-        replies: json
+        replies: V2PageOfV2WorkDTO
         work: V2WorkDTO
     type VideoDTO:
         captions_url: text?
@@ -1910,11 +1874,11 @@ app F33D3RTypes:
         cid: text
         comment_gating: text
         content_type: text
-        created_at: text
+        created_at: datetime
         dislike_count: int
         disliked_by_viewer: bool
-        edited_at: text?
-        expires_at: text?
+        edited_at: datetime?
+        expires_at: datetime?
         id: text
         is_edited: bool
         is_gore: bool
@@ -1941,7 +1905,7 @@ app F33D3RTypes:
         quoted_cid: text?
         reply_count: int
         repost_count: int
-        reposted_at: text?
+        reposted_at: datetime?
         reposted_by: WorkAuthorDTO?
         reposted_by_viewer: bool
         scan_state: text
@@ -1970,3 +1934,48 @@ app F33D3RTypes:
         work_id: text
     type WorkRemovedEventDTO:
         work_id: text
+    type SealedEnvelope as "sealedEnvelope":
+        body_ct_b64: text
+        body_nonce_b64: text
+        sealed: [SealedKeyWire]
+        sk_counter: int
+        sk_device: text
+        sk_epoch: int
+    type SealedKeyWire as "sealedKeyWire":
+        eph_pub_b64: text
+        key_id: text
+        recipient_account: text
+        recipient_device: text
+        sealed_b64: text
+        sealed_nonce_b64: text
+    type WorkCanonicalPayload as "workCanonicalPayload":
+        author_pial: text
+        body: text
+        comment_gating: text
+        is_repost: bool
+        kind: text
+        media_urls: [text]
+        parent_cid: json
+        poll_ends_at: json
+        poll_options: json
+        repost_source_id: json
+        scheduled_at: json
+        subscriber_only: bool
+        tags: [text]
+        timestamp_ms: int
+        video_duration_secs: json
+        video_master_url: json
+        video_poster_url: json
+        voice_duration_secs: json
+        voice_url: json
+    type WorkEnvelope as "workEnvelope":
+        alt_text: text
+        audience: text
+        cid: text
+        community_id: text
+        device_id: text?
+        event_type: text
+        made_with_ai: bool
+        paid_partnership: bool
+        payload: WorkCanonicalPayload
+        signature: text

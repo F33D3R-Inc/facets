@@ -1,0 +1,178 @@
+import "entities.fct"
+import "core.fct"
+import "dealings.fct"
+
+# The secure-drop inbox's owner events: its public intro and retention,
+# pausing the drop page, the deadman switch (check in, or what fires when a
+# check-in is missed) with the escrow recipients a "release" hands sealed
+# copies to, deleting one source's thread, and closing the inbox. Every one
+# answers 404 "no inbox" unless the caller's inbox is open. Nothing here
+# ever reads a body: threads hold ciphertext sealed in the source's browser.
+app F33D3RSanctum:
+    # One source's thread in an inbox, keyed by the source's id (a hash of
+    # its signing key), and the sealed drops in it.
+    entity SanctumSource:
+        id: int
+        account: int
+        source_key: text
+        x_pub_b64: text
+        created: int
+        last_at: int
+    entity SanctumDrop:
+        id: int
+        source: int
+        direction: text
+        body_ct_b64: text
+        is_read: bool
+        created: int
+        expires: int
+
+    # A 32-byte X25519 public key, standard base64.
+    proc validXPub(s: text) -> bool:
+        let t = trim(s)
+        return validBase64(t) && len(t) == 44 && charAt(t, 42) != "="
+    proc deadmanActionOk(a: text) -> bool:
+        return a == "off" || a == "alert" || a == "burn" || a == "release"
+    # The first positive of given, current, fallback.
+    proc daysOrKeep(given: int, current: int, fallback: int) -> int:
+        if given != 0:
+            return given
+        if current > 0:
+            return current
+        return fallback
+
+    # Open the account's inbox with a key the owner's browser generated
+    # (legacy sanctumProvision, POST /api/sanctum/provision). The gate is a
+    # documented identity (kyc_status "full"): a source who sees "verified"
+    # on the drop page is reading a fact. One inbox per account: a second
+    # open is refused rather than replacing the key every source sealed to;
+    # closing is the only way to a new key. custody "wrapped" keeps the
+    # private key sealed under the owner's passphrase; "offline" stores none.
+    # Answers the inbox id.
+    action sanctumOpen(pub_b64: text, custody: text, wrapped_priv: text?, wrap_nonce: text?) -> text:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check !SanctumState(s).is_open "an inbox is already open on this account" status 409
+        check Account(me).kyc_status == "full" "identity verification required" status 403
+        let k = trim(pub_b64)
+        check k != "" "bad request" status 400
+        check validXPub(k) && len(wrapped_priv) <= 512 && len(wrap_nonce) <= 512 "bad key" status 400
+        check custody == "wrapped" || custody == "offline" "bad custody" status 400
+        check custody == "offline" || (wrapped_priv != "" && wrap_nonce != "") "wrapped custody needs the wrapped key" status 400
+        set SanctumState(s).pub_b64 = k
+        set SanctumState(s).custody = custody
+        if custody == "wrapped":
+            set SanctumState(s).wrapped_priv_b64 = wrapped_priv
+            set SanctumState(s).wrap_nonce_b64 = wrap_nonce
+        else:
+            set SanctumState(s).wrapped_priv_b64 = ""
+            set SanctumState(s).wrap_nonce_b64 = ""
+        set SanctumState(s).opened_at = now()
+        set SanctumState(s).is_open = true
+        set SanctumState(s).paused = false
+        return "" + s
+    action sanctumSettings(intro: text?, retention_days: int?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        let note = trim(intro)
+        check len(note) <= 2000 "intro too long" status 400
+        let days = daysOrKeep(retention_days, SanctumState(s).retention_days, 30)
+        check days >= 1 && days <= 365 "retention must be 1–365 days" status 400
+        set SanctumState(s).intro = note
+        set SanctumState(s).retention_days = days
+    # Pause (value true) or resume the drop page; the key and the drops
+    # already held are untouched.
+    action sanctumPause(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        set SanctumState(s).paused = value
+    # Delete one source's thread and every drop in it.
+    action sanctumThreadDelete(source_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        let key = trim(source_id)
+        for src in SanctumSource where src.account == me && src.source_key == key:
+            remove d in SanctumDrop where d.source == src.id
+        remove src in SanctumSource where src.account == me && src.source_key == key
+    # Close the inbox: every thread, drop and escrow recipient goes with it,
+    # and the settings return to a fresh inbox's.
+    action sanctumClose():
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        for src in SanctumSource where src.account == me:
+            remove d in SanctumDrop where d.source == src.id
+        remove src in SanctumSource where src.account == me
+        remove e in SanctumEscrow where e.account == me
+        set SanctumState(s).is_open = false
+        set SanctumState(s).paused = false
+        set SanctumState(s).intro = ""
+        set SanctumState(s).retention_days = 30
+        set SanctumState(s).deadman_action = ""
+        set SanctumState(s).deadman_interval_days = 0
+        set SanctumState(s).deadman_grace_days = 0
+        set SanctumState(s).deadman_warned = false
+        set SanctumState(s).deadman_fired = false
+        set SanctumState(s).last_checkin_at = 0
+        set SanctumState(s).pub_b64 = ""
+        set SanctumState(s).custody = ""
+        set SanctumState(s).wrapped_priv_b64 = ""
+        set SanctumState(s).wrap_nonce_b64 = ""
+        set SanctumState(s).opened_at = 0
+    # Prove the owner is still here: the deadman clock restarts.
+    action sanctumCheckin():
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        set SanctumState(s).last_checkin_at = now()
+        set SanctumState(s).deadman_warned = false
+        set SanctumState(s).deadman_fired = false
+    # Set the switch: what fires (off, alert, burn, release) after
+    # interval days (1–90) without a check-in plus grace days (1–30). An
+    # absent interval or grace keeps the current one (14 and 7 when unset).
+    # Setting it restarts the clock.
+    action sanctumDeadman(deadman_action: text, deadman_interval_days: int?, deadman_grace_days: int?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        let act = trim(deadman_action)
+        let interval = daysOrKeep(deadman_interval_days, SanctumState(s).deadman_interval_days, 14)
+        let grace = daysOrKeep(deadman_grace_days, SanctumState(s).deadman_grace_days, 7)
+        check deadmanActionOk(act) && interval >= 1 && interval <= 90 && grace >= 1 && grace <= 30 "bad deadman settings" status 400
+        set SanctumState(s).deadman_action = act
+        set SanctumState(s).deadman_interval_days = interval
+        set SanctumState(s).deadman_grace_days = grace
+        set SanctumState(s).last_checkin_at = now()
+        set SanctumState(s).deadman_warned = false
+        set SanctumState(s).deadman_fired = false
+    # Name a party (at most five) who receives the sealed copies a fired
+    # "release" switch hands over.
+    action sanctumEscrowAdd(label: text, x_pub_b64: text, email: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        let l = trim(label)
+        let k = trim(x_pub_b64)
+        let m = trim(email)
+        check validXPub(k) && l != "" && len(l) <= 200 && m != "" && len(m) <= 320 && contains(m, "@") "sanctum: bad escrow recipient" status 400
+        check count(e in SanctumEscrow where e.account == me) < 5 "sanctum: an inbox may name at most a few escrow recipients" status 409
+        add SanctumEscrow { account: me, label: l, email: m, x_pub_b64: k }
+    action sanctumEscrowRemove(recipient_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = max(x.id in SanctumState where x.account == me)
+        check SanctumState(s).is_open "no inbox" status 404
+        let rid = toInt(recipient_id)
+        check exists(e in SanctumEscrow where e.id == rid && e.account == me) "could not remove" status 404
+        remove e in SanctumEscrow where e.id == rid

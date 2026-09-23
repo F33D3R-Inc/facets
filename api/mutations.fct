@@ -1,0 +1,630 @@
+import "entities.fct"
+import "core.fct"
+
+# POST /events — the mutation lane: one event_type per call, as a JSON object
+# or a form. Every variant is the golden contract's (its wire name, fields,
+# their descriptions, aliases and closed values, and the reply its action
+# answers); each names the action it runs. The route itself is declared at the
+# bottom of this module.
+app F33D3RMutations:
+    message Mutation tag "event_type":
+        | account_delete -> accountDelete since "2026-09-06" "Delete the account.":
+            reason: text? "Why, up to 500 characters."
+        | block -> block since "2026-09-06" "Block a person.":
+            target_handle: text "Handle without the @."
+        | bookmark_folder_create -> bookmarkFolderCreate since "2026-09-06" "Create a bookmark folder, optionally saving a work into it.":
+            name: text "Name."
+            work_id: text? "A work to save into the new folder."
+            filter: text? "Media filter the chips are drawn for (web only)."
+        | bookmark_folder_delete -> bookmarkFolderDelete since "2026-09-06" "Delete a bookmark folder; its saves stay.":
+            folder_id: text "Folder id."
+            filter: text? "Media filter the chips are drawn for (web only)."
+        | bookmark_folder_rename -> bookmarkFolderRename since "2026-09-06" "Rename a bookmark folder.":
+            folder_id: text "Folder id."
+            name: text "New name."
+            filter: text? "Media filter the chips are drawn for (web only)."
+        | brand_deal_accept -> brandDealAccept since "2026-09-06" "Creator-only: accept a pending sponsorship proposal.":
+            deal_id: text "The brand deal."
+        | brand_deal_cancel -> brandDealCancel since "2026-09-06" "Brand-only: withdraw a proposal the creator hasn't answered yet.":
+            deal_id: text "The brand deal."
+        | brand_deal_decline -> brandDealDecline since "2026-09-06" "Creator-only: decline a pending sponsorship proposal.":
+            deal_id: text "The brand deal."
+        | brand_deal_link_work -> brandDealLinkWork since "2026-09-06" "Creator-only: tag one of your own works as the sponsored post for an accepted deal. Non-reversible: the disclosure this adds cannot be removed.":
+            deal_id: text "The brand deal."
+            work_id: text "The work to disclose as sponsored."
+        | brand_deal_mark_paid -> brandDealMarkPaid since "2026-09-06" "Brand-only: release payment for a live (linked) deal through the wallet.":
+            deal_id: text "The brand deal."
+        | brand_deal_propose -> brandDealPropose since "2026-09-06" "Brand-only: propose a sponsorship to a creator.":
+            target_handle: text "The creator's handle."
+            amount: number "AET, e.g. 500."
+            terms: text? "Free-text terms of the sponsorship."
+        | circle_add -> circleAdd since "2026-09-06" "Add a person to the caller's circle.":
+            target_handle: text "Handle without the @."
+        | circle_remove -> circleRemove since "2026-09-06" "Remove a person from the caller's circle.":
+            target_handle: text "Handle without the @."
+        | community_accept_invite as "community.accept_invite" -> communityAcceptInvite since "2026-09-06" "Accept an invite.":
+            community_id: text "Community id; `id` is accepted too." also id
+            invite_id: text "Invite id."
+        | community_approve_join_request as "community.approve_join_request" -> communityApproveJoinRequest since "2026-09-06" "Approve a join request.":
+            community_id: text "Community id; `id` is accepted too." also id
+            request_id: text "Join request id."
+        | community_ban_member as "community.ban_member" -> communityBanMember since "2026-09-06" "Ban a member.":
+            community_id: text "Community id; `id` is accepted too." also id
+            reason: text? "Why, up to 500 characters."
+            target_pial: text? "The member, by PIAL."
+            target_handle: text? "The member, by handle; `handle` is accepted too." also handle
+        | community_create as "community.create" -> communityCreate since "2026-09-06" "Create a community.":
+            handle: text "The community's handle."
+            name: text? "Display name."
+            description: text? "Description."
+            membership_policy: text? "Who may join."
+            avatar_url: text? "Avatar image URL."
+            banner_url: text? "Banner image URL."
+        | community_decline_invite as "community.decline_invite" -> communityDeclineInvite since "2026-09-06" "Decline an invite.":
+            community_id: text "Community id; `id` is accepted too." also id
+            invite_id: text "Invite id."
+        | community_decline_join_request as "community.decline_join_request" -> communityDeclineJoinRequest since "2026-09-06" "Decline a join request.":
+            community_id: text "Community id; `id` is accepted too." also id
+            request_id: text "Join request id."
+        | community_invite as "community.invite" -> communityInvite since "2026-09-06" "Invite a person.":
+            community_id: text "Community id; `id` is accepted too." also id
+            invitee_handle: text "Who to invite; `invitee` is accepted too." also invitee
+        | community_join as "community.join" -> communityJoin since "2026-09-06" "Join an open community.":
+            community_id: text "Community id; `id` is accepted too." also id
+        | community_leave as "community.leave" -> communityLeave since "2026-09-06" "Leave a community.":
+            community_id: text "Community id; `id` is accepted too." also id
+        | community_moderate_post as "community.moderate_post" -> communityModeratePost since "2026-09-06" "Act on a report.":
+            community_id: text "Community id; `id` is accepted too." also id
+            report_id: text "The report."
+            action: text "What to do."
+            reason: text? "Why, up to 500 characters."
+        | community_remove_member as "community.remove_member" -> communityRemoveMember since "2026-09-06" "Remove a member.":
+            community_id: text "Community id; `id` is accepted too." also id
+            target_pial: text? "The member, by PIAL."
+            target_handle: text? "The member, by handle; `handle` is accepted too." also handle
+        | community_report_post as "community.report_post" -> communityReportPost since "2026-09-06" "Report a work posted into the community.":
+            community_id: text "Community id; `id` is accepted too." also id
+            work_id: text "The work."
+            reason: text "Why."
+            rule_id: text? "The rule broken."
+            detail: text? "Detail, up to 500 characters."
+        | community_request_join as "community.request_join" -> communityRequestJoin since "2026-09-06" "Ask to join a community that approves members.":
+            community_id: text "Community id; `id` is accepted too." also id
+            message: text? "A note to the moderators, up to 300 characters."
+        | community_set_member_role as "community.set_member_role" -> communitySetMemberRole since "2026-09-06" "Change a member's role.":
+            community_id: text "Community id; `id` is accepted too." also id
+            role: text "The new role."
+            target_pial: text? "The member, by PIAL."
+            target_handle: text? "The member, by handle; `handle` is accepted too." also handle
+        | community_unban_member as "community.unban_member" -> communityUnbanMember since "2026-09-06" "Lift a ban.":
+            community_id: text "Community id; `id` is accepted too." also id
+            target_pial: text? "The member, by PIAL."
+            target_handle: text? "The member, by handle; `handle` is accepted too." also handle
+        | community_update_rules as "community.update_rules" -> communityUpdateRules since "2026-09-06" "Replace a community's rules.":
+            community_id: text "Community id; `id` is accepted too." also id
+            rules: text "JSON array of rule bodies, in order."
+        | community_update_settings as "community.update_settings" -> communityUpdateSettings since "2026-09-06" "Change a community's name, description, images or membership policy.":
+            community_id: text "Community id; `id` is accepted too." also id
+            name: text? "Display name."
+            description: text? "Description."
+            membership_policy: text? "Who may join."
+            avatar_url: text? "Avatar image URL."
+            banner_url: text? "Banner image URL."
+        | contact_decide -> contactDecide since "2026-09-06" "Accept or decline a contact request.":
+            request_id: text "The request."
+            decision: text "The decision." one of "accept", "decline"
+        | contact_policy -> contactPolicy since "2026-09-06" "Change who may reach the caller by handle.":
+            policy: text "The handle policy; `handle_policy` is accepted too." also handle_policy
+        | content_reveal as "content.reveal" -> contentReveal since "2026-09-06" "Reserved. Answers 404 not implemented."
+        | create_list -> createList since "2026-09-06" "Create a list.":
+            name: text "Name."
+            description: text? "Description."
+            is_public: bool? "Public unless false; `is_private` true also makes it private."
+        | creator_plan_create as "creator.plan.create" -> creatorPlanCreate since "2026-09-06" "Create a subscription plan.":
+            name: text "Plan name."
+            price_aet: number "Monthly price in AET."
+            description: text? "Description."
+        | creator_plan_delete as "creator.plan.delete" -> creatorPlanDelete since "2026-09-06" "Delete a subscription plan.":
+            plan_id: text "Plan id."
+        | creator_plan_update as "creator.plan.update" -> creatorPlanUpdate since "2026-09-06" "Change a subscription plan.":
+            plan_id: text "Plan id."
+            name: text "Plan name."
+            price_aet: number "Monthly price in AET."
+            description: text? "Description."
+        | creator_setup_complete as "creator.setup.complete" -> creatorSetupComplete since "2026-09-06" "Finish creator onboarding.":
+            display_name: text? "Display name."
+            bio: text? "Bio."
+            is_adult: bool? "Adult creator."
+            btc_address: text? "BTC payout address."
+            subscription_price_aet: number? "Subscription price in AET."
+        | deactivate_account -> deactivateAccount since "2026-09-06" "Deactivate the account; signing in reactivates it.":
+            reason: text? "Why, optional."
+        | delete_list -> deleteList since "2026-09-06" "Delete a list.":
+            list_id: text "List id."
+        | follow -> follow since "2026-09-06" "Follow a person.":
+            target_handle: text? "Who, by handle."
+            target_pial: text? "Who, by PIAL; one of the two is required."
+            source: text? "The surface the follow came from."
+        | follow_topic -> followTopic since "2026-09-06" "Follow a #tag.":
+            tag: text "The tag, with or without #."
+        | frequency_approve as "frequency.approve" -> frequencyApprove since "2026-09-06" "Approve a mic request.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            request_id: text "Mic request id."
+        | frequency_block as "frequency.block" -> frequencyBlock since "2026-09-06" "Block a participant from the room.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_cancel as "frequency.cancel" -> frequencyCancel since "2026-09-06" "Cancel a scheduled Frequency.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+        | frequency_cohost as "frequency.cohost" -> frequencyCohost since "2026-09-06" "Make a participant a co-host.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_create as "frequency.create" -> frequencyCreate since "2026-09-06" "Create a Frequency, scheduled or ready to start.":
+            title: text "Title."
+            description: text? "Description."
+            visibility: text? "Who may tune in; `audience` is accepted too." also audience
+            language: text? "Language tag."
+            adult_content: bool? "Adult content; `is_nsfw` and `nsfw` are accepted too." also is_nsfw, nsfw
+            max_speakers: int? "Speaker cap."
+            max_listeners: int? "Listener cap."
+            speaker_verity_min_tier: int? "Minimum identity tier to speak, 0–3."
+            scheduled_at: text? "RFC 3339 start, for a scheduled Frequency."
+            community_id: text? "Host it inside a community."
+            idempotency_key: text? "Retry-safe key for the create."
+        | frequency_decline as "frequency.decline" -> frequencyDecline since "2026-09-06" "Decline a mic request.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            request_id: text "Mic request id."
+        | frequency_demote as "frequency.demote" -> frequencyDemote since "2026-09-06" "Move a speaker back to listening.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_end as "frequency.end" -> frequencyEnd since "2026-09-06" "End a Frequency.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+        | frequency_go_live as "frequency.go_live" -> frequencyGoLive since "2026-09-06" "Create a Frequency and start it now.":
+            title: text "Title."
+            description: text? "Description."
+            visibility: text? "Who may tune in; `audience` is accepted too." also audience
+            language: text? "Language tag."
+            adult_content: bool? "Adult content; `is_nsfw` and `nsfw` are accepted too." also is_nsfw, nsfw
+            max_speakers: int? "Speaker cap."
+            max_listeners: int? "Listener cap."
+            speaker_verity_min_tier: int? "Minimum identity tier to speak, 0–3."
+            scheduled_at: text? "RFC 3339 start, for a scheduled Frequency."
+            community_id: text? "Host it inside a community."
+            idempotency_key: text? "Retry-safe key for the create."
+        | frequency_heartbeat as "frequency.heartbeat" -> frequencyHeartbeat since "2026-09-06" "Presence beat while in the room (the native stream beats for you).":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+        | frequency_leave as "frequency.leave" -> frequencyLeave since "2026-09-06" "Leave the room.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+        | frequency_lock as "frequency.lock" -> frequencyLock since "2026-09-06" "Lock or unlock the room to new listeners.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            locked: bool "Locked."
+        | frequency_mute as "frequency.mute" -> frequencyMute since "2026-09-06" "Mute a speaker.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_remove as "frequency.remove" -> frequencyRemove since "2026-09-06" "Remove a participant.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_report as "frequency.report" -> frequencyReport since "2026-09-06" "Report the room or a participant.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            reason: text "Why."
+            detail: text? "Detail, up to 500 characters."
+            target_handle: text? "The participant reported, when not the room."
+        | frequency_request_mic as "frequency.request_mic" -> frequencyRequestMic since "2026-09-06" "Ask for the mic.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            reason: text? "Why, up to 140 characters."
+        | frequency_requests_open as "frequency.requests_open" -> frequencyRequestsOpen since "2026-09-06" "Open or close requests for the mic.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            open: bool "Open."
+        | frequency_schedule as "frequency.schedule" -> frequencySchedule since "2026-09-06" "Move a scheduled Frequency.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            scheduled_at: text "RFC 3339 start."
+        | frequency_start as "frequency.start" -> frequencyStart since "2026-09-06" "Start a Frequency the caller hosts.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+        | frequency_tune_in as "frequency.tune_in" -> frequencyTuneIn since "2026-09-06" "Join as a listener.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+        | frequency_unblock as "frequency.unblock" -> frequencyUnblock since "2026-09-06" "Lift a room block.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_uncohost as "frequency.uncohost" -> frequencyUncohost since "2026-09-06" "Remove co-host.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_unmute as "frequency.unmute" -> frequencyUnmute since "2026-09-06" "Unmute a speaker.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            target_pial: text? "The participant, by PIAL."
+            target_handle: text? "The participant, by handle; `handle` is accepted too." also handle
+            reason: text? "Why, up to 140 characters."
+        | frequency_upvote as "frequency.upvote" -> frequencyUpvote since "2026-09-06" "Upvote a mic request.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            request_id: text "Mic request id."
+        | frequency_withdraw as "frequency.withdraw" -> frequencyWithdraw since "2026-09-06" "Withdraw a mic request.":
+            frequency_id: text "Frequency id; `id` is accepted too." also id
+            request_id: text "Mic request id."
+        | handle_change -> handleChange since "2026-09-06" "Rename the caller's own handle. Checked against the same format rule and reserved-word list as signup, then granted or refused by registry-brain — the handle authority — before this brain's own copy ever changes.":
+            handle: text "The new handle, 1-30 chars, letters/numbers/underscore/hyphen only."
+        | history_clear -> historyClear since "2026-09-06" "Clear viewing history."
+        | list_add_member -> listAddMember since "2026-09-06" "Add a person to a list.":
+            list_id: text "List id."
+            handle: text "The member, without the @."
+        | list_remove_member -> listRemoveMember since "2026-09-06" "Remove a person from a list.":
+            list_id: text "List id."
+            handle: text "The member, without the @."
+        | live_remind -> liveRemind since "2026-09-06" "Set or clear a reminder for a scheduled stream.":
+            stream_id: text "Scheduled stream id."
+            on: bool = true "Remind me; default true. `reminder` is accepted too." also reminder
+        | live_schedule -> liveSchedule since "2026-09-06" "Schedule a stream.":
+            title: text? "Title."
+            description: text? "Description."
+            is_nsfw: bool? "Adult content; `nsfw` is accepted too." also nsfw
+            scheduled_at: text "When, as the client's local date-time."
+            tz: text? "IANA time zone scheduled_at is in."
+        | live_schedule_cancel -> liveScheduleCancel since "2026-09-06" "Cancel a scheduled stream.":
+            stream_id: text "Scheduled stream id."
+        | live_schedule_update -> liveScheduleUpdate since "2026-09-06" "Change a scheduled stream.":
+            stream_id: text "Scheduled stream id."
+            title: text? "Title."
+            description: text? "Description."
+            is_nsfw: bool? "Adult content; `nsfw` is accepted too." also nsfw
+            scheduled_at: text "When, as the client's local date-time."
+            tz: text? "IANA time zone scheduled_at is in."
+        | marketplace_listing_create as "marketplace.listing.create" -> marketplaceListingCreate since "2026-09-06" "List encrypted content for sale. Requires identity verification.":
+            title: text "Title."
+            description: text? "Description."
+            price_sats: int "Price in satoshis."
+            content_url: text "The encrypted upload's URL."
+            content_hash: text "Hash of the plaintext."
+            cek_encrypted: text "The content key, wrapped for Themis."
+            visibility: text? "public or subscribers."
+        | marketplace_listing_delete as "marketplace.listing.delete" -> marketplaceListingDelete since "2026-09-06" "Delete a listing.":
+            listing_id: text "Listing id."
+        | marketplace_listing_edit as "marketplace.listing.edit" -> marketplaceListingEdit since "2026-09-06" "Change a listing, or toggle it active.":
+            listing_id: text "Listing id."
+            is_active: bool? "Whether the listing is for sale."
+            title: text? "Title."
+            description: text? "Description."
+            price_sats: int? "Price in satoshis."
+        | marketplace_purchase_initiate as "marketplace.purchase.initiate" -> marketplacePurchaseInitiate since "2026-09-06" "Begin buying a listing: Themis answers the address and amount to pay; the content key is delivered on confirmation.":
+            listing_id: text "Listing id."
+            payment_currency: text "Which rail." one of "btc", "xrp"
+        | marketplace_shop_close as "marketplace.shop.close" -> marketplaceShopClose since "2026-09-06" "Close the shop."
+        | marketplace_shop_open as "marketplace.shop.open" -> marketplaceShopOpen since "2026-09-06" "Open a shop: register the BTC address proceeds are paid to. Requires identity verification.":
+            btc_address: text "The seller's BTC address."
+        | marketplace_subscription_create as "marketplace.subscription.create" -> marketplaceSubscriptionCreate since "2026-09-06" "Subscribe to a seller.":
+            seller_pial: text "The seller."
+        | message_number -> messageNumber since "2026-09-06" "Message a person through a Number, or release a message held for one.":
+            number: text? "The Number typed."
+            handle: text? "The person, when the Number is a key to their door; `to` is accepted too." also to
+            body: text? "The message."
+            pending_id: text? "A held message to release instead; `p` is accepted too." also p
+        | message_read -> messageRead since "2026-09-06" "Mark a conversation read.":
+            conversation_id: text "Conversation id; `c` is accepted too." also c
+        | message_send -> messageSend since "2026-09-06" "Send a plaintext message into a conversation (sealed messages go to /api/gnosis/send-sealed).":
+            conversation_id: text "Conversation id; `c` is accepted too." also c
+            body: text "The message."
+            reply_to: text? "Message replied to; `reply_to_id` is accepted too." also reply_to_id
+        | message_start -> messageStart since "2026-09-06" "Start a conversation with a person by handle; the one answer shape whether or not it was delivered.":
+            handle: text "Who; `to` is accepted too." also to
+            body: text "The first message."
+        | mute -> mute since "2026-09-06" "Mute a person.":
+            target_handle: text "Handle without the @."
+        | mute_keyword -> muteKeyword since "2026-09-06" "Mute a keyword.":
+            keyword: text "The keyword."
+        | nexus_persona_link_confirmed as "nexus.persona.link.confirmed" -> nexusPersonaLinkConfirmed since "2026-09-06" "Confirm a link request.":
+            request_id: text "The link request."
+        | nexus_persona_link_declined as "nexus.persona.link.declined" -> nexusPersonaLinkDeclined since "2026-09-06" "Decline a link request.":
+            request_id: text "The link request."
+        | nexus_persona_link_initiated as "nexus.persona.link.initiated" -> nexusPersonaLinkInitiated since "2026-09-06" "Ask another persona to link into this nexus.":
+            target_pial_shard_id: text "The persona's PIAL shard."
+        | nexus_persona_switched as "nexus.persona.switched" -> nexusPersonaSwitched since "2026-09-06" "Switch the active persona.":
+            target_handle: text "The persona to switch to."
+        | nexus_unified_view_toggled as "nexus.unified_view.toggled" -> nexusUnifiedViewToggled since "2026-09-06" "Toggle a unified view across personas.":
+            mode: text "Which view." one of "notifications", "messages", "earnings"
+        | not_interested -> notInterested since "2026-09-06" "Show fewer works like this one.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+            surface: text? "The feed surface it was seen on."
+            session_id: text? "The browsing session."
+        | note_create -> noteCreate since "2026-09-06" "Write a Context Note on a work.":
+            work_id: text "The work."
+            note_type: text "The note's type."
+            body: text "The note."
+            evidence_url: text? "A source."
+        | note_rate -> noteRate since "2026-09-06" "Rate a Context Note.":
+            note_id: text "Note id."
+            rating: text "The rating."
+        | note_request_review -> noteRequestReview since "2026-09-06" "Ask for a note to be reviewed.":
+            note_id: text "Note id."
+            work_id: text "The work."
+        | notif_read -> notifRead since "2026-09-06" "Mark one notification read.":
+            notif_id: text "Notification id; `id` is accepted too." also id
+        | notif_read_all -> notifReadAll since "2026-09-06" "Mark every notification read."
+        | notification_prefs -> notificationPrefs since "2026-09-06" "Patch what Herald may send; only fields present change.":
+            push_enabled: bool? "Set when present."
+            messages_enabled: bool? "Set when present."
+            likes_enabled: bool? "Set when present."
+            reposts_enabled: bool? "Set when present."
+            replies_enabled: bool? "Set when present."
+            follows_enabled: bool? "Set when present."
+            achievements_enabled: bool? "Set when present."
+            mentions_enabled: bool? "Set when present."
+            frequencies_enabled: bool? "Set when present."
+            quiet_hours_enabled: bool? "Set when present."
+            quiet_hours_start: int? "Hour, 0–23."
+            quiet_hours_end: int? "Hour, 0–23."
+            timezone: text? "IANA time zone for quiet hours."
+        | number_mint -> numberMint since "2026-09-06" "Mint a F33D3R Number.":
+            policy: text "Who may reach this Number."
+        | number_policy -> numberPolicy since "2026-09-06" "Change a Number's policy.":
+            number_id: text "One of the caller's Numbers; `number` is accepted too." also number
+            policy: text "Who may reach this Number."
+        | number_revoke -> numberRevoke since "2026-09-06" "Retire a Number.":
+            number_id: text "One of the caller's Numbers; `number` is accepted too." also number
+        | org_accept_invite -> orgAcceptInvite since "2026-09-06" "Accept an invitation.":
+            membership_id: text "Membership id."
+        | org_apply -> orgApply since "2026-09-06" "Apply to join an organisation.":
+            org_handle: text "The organisation's handle."
+        | org_approve -> orgApprove since "2026-09-06" "Approve an application.":
+            membership_id: text "Membership id."
+        | org_invite -> orgInvite since "2026-09-06" "Invite a person into the organisation.":
+            target_handle: text "Who."
+        | org_leave -> orgLeave since "2026-09-06" "Leave an organisation.":
+            membership_id: text "Membership id."
+        | org_reject -> orgReject since "2026-09-06" "Reject an application or invitation.":
+            membership_id: text "Membership id."
+        | org_revoke -> orgRevoke since "2026-09-06" "Revoke a membership.":
+            membership_id: text "Membership id."
+        | org_set_primary -> orgSetPrimary since "2026-09-06" "Make an organisation the caller's primary.":
+            membership_id: text "Membership id."
+        | pack_follow_all -> packFollowAll since "2026-09-06" "Follow everyone in a starter pack.":
+            slug: text "Pack slug; `pack` is accepted too." also pack
+        | password_change -> passwordChange since "2026-09-06" "Change the password.":
+            current_password: text? "Required when the account has a password."
+            new_password: text "At least 8 characters."
+        | permission_push_granted as "permission.push.granted" -> permissionPushGranted since "2026-09-06" "Record that the person granted push permission."
+        | pin_post -> pinPost since "2026-09-06" "Pin a work to the profile; `pin_work` is the same event.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+        | pin_surface -> pinSurface since "2026-09-06" "Pin a feed surface to the home tabs.":
+            surface_id: text "The feed surface."
+            session_id: text? "The browsing session."
+        | pin_work -> pinWork since "2026-09-06" "Alias of pin_post.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+        | poll_vote -> pollVote since "2026-09-06" "Cast a ballot; idempotent per work and voter. Everyone with the ballot on screen sees it move.":
+            work_id: text "The poll; `post_id` is accepted too." also post_id
+            option_idx: int "The option's true index (PollResultDTO.index), not its shuffled position."
+        | post -> postSigned body envelope: WorkEnvelope since "2026-09-06" "Publish a signed work (Malkuth envelope). Any body carrying a `cid` of the form sha256:… is routed here whatever its event_type; payload.kind selects post, reply, quote, poll, video, voice, thread_post or react_video.":
+            is_nsfw: bool? "Adult content. Legacy toggle — content_class is now the source of truth; sending both is fine, content_class wins when it names a valid tier."
+            content_class: text? "The three-tier content classification. An explicit valid value wins; otherwise falls back to is_nsfw, then to the author's own account content_mode, then sfw — see work_event.go's InsertWork call." one of "sfw", "mature", "adult"
+            video_watermarked_url: text? "The watermarked rendition the transcoder answered."
+            video_width: int? "Video width in pixels."
+            video_height: int? "Video height in pixels."
+            quoted_work_id: text? "The work quoted, for quote."
+            react_layout: text? "Layout of a react_video."
+            poll_option_images: text? "JSON array of image URLs, one per poll option."
+            poll_shuffle: bool? "Shuffle poll options per viewer."
+            video_captions_url: text? "WebVTT sidecar /upload/captions answered."
+            video_poster_override_url: text? "Chosen poster /upload/poster-* answered."
+        | profile_update -> profileUpdate since "2026-09-06" "Patch the caller's profile.":
+            display_name: text? "Display name. Only fields present change."
+            bio: text? "Bio. Only fields present change."
+            pronouns: text? "Pronouns. Only fields present change."
+            location: text? "Location line. Only fields present change."
+            website: text? "Website URL. Only fields present change."
+            avatar_url: text? "Uploaded avatar URL. Only fields present change."
+            header_url: text? "Uploaded header URL. Only fields present change."
+            theme_id: text? "Theme id. Only fields present change."
+            accent_hex: text? "Accent colour, #rrggbb. Only fields present change."
+            country_code: text? "ISO 3166-1 alpha-2. Only fields present change."
+            is_adult_creator: bool? "Adult creator. Only fields present change."
+            birthday_md_visibility: text? "everyone | followers | mutual_followers | only_me. Only fields present change."
+            birthday_year_visibility: text? "everyone | followers | mutual_followers | only_me. Only fields present change."
+            social_links: text? "JSON object of network → URL (the web posts social_<network> fields). Only fields present change."
+            external_tip_links: text? "JSON object of service → URL (the web posts tip_<service> fields). Only fields present change."
+            tip_suggest_aet: int? "Suggested tip in whole AET shown on the Tip button of your cards; 0 clears it. Only fields present change."
+        | publish_article -> publishArticle since "2026-09-06" "Save or publish an article from the web editor (native clients use /api/v1/articles).":
+            id: text? "Existing article id, for an edit."
+            title: text "Title."
+            subtitle: text? "Subtitle."
+            body: text "Body."
+            status: text? "draft or published."
+            cover_url: text? "Cover image URL."
+            subscriber_only: bool? "Subscribers only when present."
+            tags: text? "Comma-separated tags."
+            community_id: text? "Post into a community."
+        | push_subscription_refreshed as "push.subscription.refreshed" -> pushSubscriptionRefreshed since "2026-09-06" "Refresh this device's push subscription.":
+            subscription: text "The push subscription object as the platform issued it (JSON)."
+            device_id: text? "This device's id."
+        | push_subscription_registered as "push.subscription.registered" -> pushSubscriptionRegistered since "2026-09-06" "Register this device's push subscription with Herald.":
+            subscription: text "The push subscription object as the platform issued it (JSON)."
+            device_id: text? "This device's id."
+        | push_subscription_removed as "push.subscription.removed" -> pushSubscriptionRemoved since "2026-09-06" "Drop this device's push subscription.":
+            device_id: text "This device's id."
+        | push_subscription_rotated as "push.subscription.rotated" -> pushSubscriptionRotated since "2026-09-06" "Replace this device's push subscription after a key rotation.":
+            subscription: text "The push subscription object as the platform issued it (JSON)."
+            device_id: text? "This device's id."
+        | rail_unpin_surface -> railUnpinSurface since "2026-09-06" "Unpin a surface from the algorithm rail.":
+            surface_id: text "The surface."
+        | report -> report since "2026-09-06" "Report a work or a person.":
+            reason: text "Why." one of "spam", "harassment", "hate", "nsfw", "violence", "illegal", "other"
+            post_id: text? "The work; `work_id` and `content_id` are accepted too. Absent when reporting a person." also work_id, content_id
+            target_handle: text? "The person, when no work is named."
+            detail: text? "Detail, up to 500 characters."
+        | sanctum_checkin as "sanctum.checkin" -> sanctumCheckin since "2026-09-06" "Prove you're still here: resets the deadman switch's clock."
+        | sanctum_close as "sanctum.close" -> sanctumClose since "2026-09-06" "Close the inbox: every thread, drop and file is deleted; the key is gone."
+        | sanctum_deadman as "sanctum.deadman" -> sanctumDeadman since "2026-09-06" "Set the deadman switch: what fires if you miss a check-in, and the interval and grace period.":
+            deadman_action: text "off | alert | burn | release." one of "off", "alert", "burn", "release"
+            deadman_interval_days: int? "Days between required check-ins, 1–90."
+            deadman_grace_days: int? "Extra days after a missed check-in before it fires, 1–30."
+        | sanctum_escrow_add as "sanctum.escrow.add" -> sanctumEscrowAdd since "2026-09-06" "Name a party who gets released material if a deadman switch fires.":
+            label: text "Your own note, e.g. \"my editor\" — never shown to a source."
+            x_pub_b64: text "Their X25519 public key."
+            email: text "Where a release notice is sent."
+        | sanctum_escrow_remove as "sanctum.escrow.remove" -> sanctumEscrowRemove since "2026-09-06" "Remove an escrow recipient.":
+            recipient_id: text "The recipient."
+        | sanctum_pause as "sanctum.pause" -> sanctumPause since "2026-09-06" "Pause (true) or resume (false) the drop page; the key and the drops held stay.":
+            value: bool "The new setting."
+        | sanctum_settings as "sanctum.settings" -> sanctumSettings since "2026-09-06" "Set the drop page's public note and the retention of drops.":
+            intro: text? "The note sources read on the drop page, up to 2000 characters."
+            retention_days: int? "Days a drop is kept, 1–365."
+        | sanctum_thread_delete as "sanctum.thread.delete" -> sanctumThreadDelete since "2026-09-06" "Delete one source's thread and every file in it.":
+            source_id: text "The thread."
+        | search_history_clear -> searchHistoryClear since "2026-09-14" "Forget every recent search."
+        | search_history_forget -> searchHistoryForget since "2026-09-14" "Forget one recent search.":
+            query: text "The search as typed."
+        | search_save -> searchSave since "2026-09-14" "Keep a search; its chip counts what arrives for it.":
+            query: text "The search as typed."
+            type: text? "The lane; default top." one of "top", "latest", "people", "posts", "media", "music", "live", "articles", "communities", "tags"
+            name: text? "An optional label for the chip (40 characters)."
+        | search_unsave -> searchUnsave since "2026-09-14" "Drop a saved search, by id or by query + type.":
+            id: text? "The saved search id; or pass query + type."
+            query: text? "The search as typed, when no id."
+            type: text? "The lane; default top." one of "top", "latest", "people", "posts", "media", "music", "live", "articles", "communities", "tags"
+        | session_dot_revoke as "session.revoke" -> sessionRevoke since "2026-09-06" "Alias of session_revoke.":
+            session_id: text "A session from GET /api/v2/sessions."
+        | session_revoke -> sessionRevoke since "2026-09-06" "Sign out one device.":
+            session_id: text "A session from GET /api/v2/sessions."
+        | sessions_revoke_others -> sessionsRevokeOthers since "2026-09-06" "Sign out every device but this one."
+        | set_discovery_pct -> setDiscoveryPct since "2026-09-06" "Set how much of the home feed is discovery, 0–100.":
+            value: int "Percent, 0–100."
+        | set_feed_density -> setFeedDensity since "2026-09-06" "Set the card spacing of the Playground.":
+            value: text "comfortable | compact."
+        | set_feed_rank_mode -> setFeedRankMode since "2026-09-06" "Order the ranked Home surfaces by AethyrRank or chronologically.":
+            value: text "ranked | chronological."
+        | set_mobile_feed_view -> setMobileFeedView since "2026-09-06" "Set the mobile feed view.":
+            value: text "The view name."
+        | set_mute_ai_works -> setMuteAiWorks since "2026-09-06" "Keep works declared made-with-AI out of the discovery surfaces.":
+            value: bool "The new setting."
+        | set_reply_restriction -> setReplyRestriction since "2026-09-06" "Restrict who may reply to a work.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+            restriction: text "Who may reply."
+        | set_streamer_mode -> setStreamerMode since "2026-09-06" "Toggle streamer mode.":
+            value: bool "The new setting."
+        | settings_account_based_in as "settings.account.based_in" -> settingsAccountBasedIn since "2026-09-06" "Set the self-declared location line.":
+            value: text "Up to 40 characters; empty clears. `based_in` is accepted too." also based_in
+        | settings_account_label as "settings.account.label" -> settingsAccountLabel since "2026-09-06" "Set the account's self-declared type.":
+            value: text "none | parody | fan | commentary | automated; `account_label` is accepted too." also account_label
+        | settings_ai_consent_ai_indexing as "settings.ai_consent.ai_indexing" -> settingsAiConsentAiIndexing since "2026-09-06" "Allow AI systems to search/index your works. Off by default.":
+            value: bool "The new setting."
+        | settings_ai_consent_ai_training as "settings.ai_consent.ai_training" -> settingsAiConsentAiTraining since "2026-09-06" "Allow AI systems to train on your works. Off by default.":
+            value: bool "The new setting."
+        | settings_ai_consent_ai_transformation as "settings.ai_consent.ai_transformation" -> settingsAiConsentAiTransformation since "2026-09-06" "Allow AI-driven transformation of your works (remixes, summaries, derivatives). Off by default.":
+            value: bool "The new setting."
+        | settings_ai_consent_commercial_ai_use as "settings.ai_consent.commercial_ai_use" -> settingsAiConsentCommercialAiUse since "2026-09-06" "Allow commercial AI use of your works. Off by default.":
+            value: bool "The new setting."
+        | settings_ai_consent_voice_likeness_transform as "settings.ai_consent.voice_likeness_transform" -> settingsAiConsentVoiceLikenessTransform since "2026-09-06" "Allow AI transformation of your voice or likeness specifically. Off by default.":
+            value: bool "The new setting."
+        | settings_messaging_dm_access_level as "settings.messaging.dm_access_level" -> settingsMessagingDmAccessLevel since "2026-09-06" "Set who may send this account a direct message, and — for paid_only — what it costs. Enforced by the Gnosis messaging brain at send time, not just shown here.":
+            access_level: text "Who may DM this account." one of "open", "followers_only", "subscribers_only", "paid_only", "vip_only"
+            price_aet: number? "AET charged per paid_only message. Required (>0) when access_level=paid_only."
+            charge_mode: text? "paid_only only: one_time unlocks the thread forever on first payment; per_message charges every message." one of "one_time", "per_message"
+            vip_min_price_aet: number? "vip_only only: the sender's active subscription plan must price at or above this AET floor."
+        | settings_privacy_account_private as "settings.privacy.account_private" -> settingsPrivacyAccountPrivate since "2026-09-06" "Make the account private.":
+            value: bool "The new setting."
+        | settings_privacy_celebrations as "settings.privacy.celebrations" -> settingsPrivacyCelebrations since "2026-09-06" "Enable celebration animations.":
+            value: bool "The new setting."
+        | settings_privacy_content_mode as "settings.privacy.content_mode" -> settingsPrivacyContentMode since "2026-09-06" "Set the creator's own publishing content mode (what your works default to). mixed/adult require Adult Creator status.":
+            mode: text "sfw | mixed | adult; `value` is accepted too." also value
+        | settings_privacy_content_setting as "settings.privacy.content_setting" -> settingsPrivacyContentSetting since "2026-09-06" "Set the content setting.":
+            setting: text "default | adult_enabled; `value` is accepted too." also value
+        | settings_privacy_show_sensitive as "settings.privacy.show_sensitive" -> settingsPrivacyShowSensitive since "2026-09-06" "Show sensitive media without a cover.":
+            value: bool "The new setting."
+        | snooze_topic -> snoozeTopic since "2026-09-06" "Snooze a topic or surface.":
+            tag: text? "The #tag, with or without #."
+            surface_id: text? "A feed surface, snoozed as a whole, instead of a tag."
+            days: int? "How long, in days."
+            answer: text? "list asks the web for the snooze list instead of the controls."
+        | step_up_verify as "step_up.verify" -> stepUpVerify since "2026-09-06" "Answer the second factor for a pending money action and perform it.":
+            then: text "wallet.send | payout.onboard."
+            code: text? "Authenticator code (accounts with TOTP)."
+            password: text? "Password (accounts without TOTP)."
+            then_<field>: text? "The pending action's fields, as the sheet carried them." into then_fields
+        | switch_account -> switchAccount since "2026-09-06" "Switch the session to another account of the same person.":
+            account_id: text "The account to switch to."
+        | tip -> tip since "2026-09-06" "Tip a person in AET, on a work or a live stream.":
+            target_handle: text "Who."
+            amount_aet: number? "Amount in AET; `amount` is accepted too." also amount
+            work_id: text? "The work tipped on."
+            stream_id: text? "The live stream tipped on."
+        | two_fa_backup_codes -> twoFaBackupCodes since "2026-09-06" "Issue a fresh set of backup codes, replacing the old."
+        | two_fa_disable -> twoFaDisable since "2026-09-06" "Turn off 2FA.":
+            code: text "A current TOTP code."
+        | two_fa_enable -> twoFaEnable since "2026-09-06" "Turn on 2FA with a code from the secret GET /api/v1/2fa/setup issued.":
+            code: text "A current TOTP code."
+        | unblock -> unblock since "2026-09-06" "Unblock a person.":
+            target_handle: text "Handle without the @."
+        | unfollow -> unfollow since "2026-09-06" "Unfollow a person.":
+            target_handle: text? "Who, by handle."
+            target_pial: text? "Who, by PIAL; one of the two is required."
+            source: text? "The surface the follow came from."
+        | unfollow_topic -> unfollowTopic since "2026-09-06" "Unfollow a #tag.":
+            tag: text "The tag, with or without #."
+        | unmute -> unmute since "2026-09-06" "Unmute a person.":
+            target_handle: text "Handle without the @."
+        | unmute_keyword -> unmuteKeyword since "2026-09-06" "Unmute a keyword.":
+            keyword: text "The keyword."
+        | unpin_post -> unpinPost since "2026-09-06" "Unpin the profile's pinned work; `unpin_work` is the same event.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+        | unpin_surface -> unpinSurface since "2026-09-06" "Unpin a feed surface.":
+            surface_id: text "The feed surface."
+            session_id: text? "The browsing session."
+        | unpin_work -> unpinWork since "2026-09-06" "Alias of unpin_post.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+        | unsnooze_topic -> unsnoozeTopic since "2026-09-06" "Lift a snooze.":
+            tag: text? "The #tag, with or without #."
+            surface_id: text? "A feed surface, snoozed as a whole, instead of a tag."
+            days: int? "How long, in days."
+            answer: text? "list asks the web for the snooze list instead of the controls."
+        | unwatch_post -> unwatchPost since "2026-09-06" "Stop receiving a work's engagement events.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+        | view_time -> viewTime since "2026-09-06" "Record dwell time on a work.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+            seconds: number "Seconds on screen."
+            session_id: text? "The browsing session."
+            surface: text? "The feed surface."
+        | wallet_send as "wallet.send" -> walletSend since "2026-09-06" "Send AET from your wallet to a handle. Asks for your second factor (TOTP, else password) unless this session answered it in the last 10 minutes.":
+            target_handle: text "The recipient."
+            amount: number "AET, e.g. 12.50."
+        | watch_post -> watchPost since "2026-09-06" "Receive engagement events for a work on the stream.":
+            post_id: text "The work; `work_id` is accepted too." also work_id
+        | work_bookmark -> workBookmark since "2026-09-06" "Save a work, optionally into a folder.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+            folder_id: text? "Folder to save into; absent means the default."
+        | work_delete -> workDelete since "2026-09-06" "Delete one of the caller's works.":
+            work_id: text "The work."
+        | work_dislike -> workDislike since "2026-09-06" "Dislike a work.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+        | work_edit -> workEdit since "2026-09-06" "Edit a work's body inside the edit window; the disclosure labels ride along when named. A JSON caller gets the work back.":
+            work_id: text "The work."
+            body: text "The new body."
+            made_with_ai: bool? "Set the AI-made label; absent leaves it as it is."
+            paid_partnership: bool? "Set the paid-partnership label; absent leaves it as it is."
+        | work_like -> workLike since "2026-09-06" "Like a work.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+        | work_purchase -> workPurchase since "2026-09-06" "Buy a priced work in AET. No work on this stack carries an AET price, so an existing work is refused 400 not for sale; paid content is the BTC/XRP marketplace.":
+            work_id: text "The work."
+        | work_repost -> workRepost since "2026-09-06" "Repost a work.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+        | work_set_labels -> workSetLabels since "2026-09-06" "Set a work's disclosure labels.":
+            work_id: text "The work."
+            made_with_ai: bool? "Made with AI."
+            paid_partnership: bool? "Paid partnership."
+        | work_unbookmark -> workUnbookmark since "2026-09-06" "Unsave a work.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+        | work_undislike -> workUndislike since "2026-09-06" "Remove a dislike.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+        | work_unlike -> workUnlike since "2026-09-06" "Remove a like.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+        | work_unrepost -> workUnrepost since "2026-09-06" "Remove a repost.":
+            work_id: text "The work; `post_id` is accepted too." also post_id
+
+    api POST "/events" -> Mutation rate write since "2026-09-06"

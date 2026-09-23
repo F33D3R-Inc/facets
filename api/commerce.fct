@@ -3,20 +3,25 @@ import "core.fct"
 import "live.fct"
 
 app F33D3RCommerce:
-    action library() -> [ThemisPurchaseDTO]:
+    # What the caller has bought: its delivered purchases, most recently
+    # delivered first, each joined to the listing's title and content.
+    action library() -> V2PageOfThemisPurchaseDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return list(ThemisPurchaseDTO{id: "" + p.id, listing_id: "" + p.listing, listing_title: Listing(p.listing).title, status: p.status, currency: Listing(p.listing).currency, expected_sats: p.expected_sats, content_hash: "", content_url: ""} in Purchase where p.buyer == me by id desc)
-    action marketplace(cursor: text?) -> [PublicListingDTO]:
+        return V2PageOfThemisPurchaseDTO{items: list(ThemisPurchaseDTO{id: "" + p.id, listing_id: "" + p.listing, listing_title: Listing(p.listing).title, status: p.status, currency: p.currency, expected_sats: p.expected_sats, cek_for_buyer: p.cek_for_buyer, expires_at: iso(p.expires), confirmed_at: iso(p.confirmed), delivered_at: iso(p.delivered), content_hash: Listing(p.listing).content_hash, content_url: Listing(p.listing).content_url} in Purchase where p.buyer == me && p.status == "delivered" by delivered desc), next_cursor: "", server_time: iso(now())}
+    # Active listings, newest first, 20 to a page.
+    action marketplace(cursor: text?) -> V2PageOfPublicListingDTO:
         requires member
         let n = do pageSize(0, 20, 50)
         let start = do cursorStart(cursor)
-        return list(PublicListingDTO{id: "" + l.id, title: l.title, description: l.description, price_sats: l.price_sats, price_xrp_drops: 0, payment_currency: l.currency, is_active: l.is_active, visibility: "public", created_at: "" + l.created} in Listing where l.is_active && l.id < start by id desc limit n)
+        let ids = list(l.id in Listing where l.is_active && l.id < start by id desc limit n)
+        let next = do nextCursor(ids, n)
+        return V2PageOfPublicListingDTO{items: list(PublicListingDTO{id: "" + l.id, title: l.title, description: l.description, price_sats: l.price_sats, price_xrp_drops: 0, payment_currency: l.currency, is_active: l.is_active, visibility: "public", created_at: "" + l.created} in Listing where l.id in ids by id desc), next_cursor: next, server_time: iso(now())}
     action createListing(title: text, description: text?, price_sats: int, content_url: text?, content_hash: text?, cek_encrypted: text?, visibility: text?):
         requires member
         check title != "" "a title is required"
         let me = max(a.id in Account where a.handle == actor)
-        add Listing { seller: me, title: title, description: description, price_sats: price_sats, currency: "sats", is_active: true, created: now() }
+        add Listing { seller: me, title: title, description: description, price_sats: price_sats, currency: "sats", is_active: true, content_url: content_url, content_hash: content_hash, cek_encrypted: cek_encrypted, created: now() }
     action editListing(listing_id: text, is_active: bool?, title: text?, description: text?, price_sats: int?):
         requires member
         let id = toInt(listing_id)
@@ -34,7 +39,7 @@ app F33D3RCommerce:
         let id = toInt(listing_id)
         check exists(l in Listing where l.id == id && l.is_active) "no such listing" status 404
         let me = max(a.id in Account where a.handle == actor)
-        add Purchase { listing: id, buyer: me, status: "pending", expected_sats: Listing(id).price_sats, created: now() }
+        add Purchase { listing: id, buyer: me, status: "pending", currency: payment_currency, expected_sats: Listing(id).price_sats, cek_for_buyer: "", expires: now() + 1800, confirmed: 0, delivered: 0, created: now() }
 
     action shopStatus() -> V2ShopStatusDTO:
         requires member
@@ -58,21 +63,21 @@ app F33D3RCommerce:
         set Shop(max(s.id in Shop where s.owner == me)).is_enabled = false
     action getShop(handle: text) -> V2ShopDTO:
         requires member
-        check exists(a in Account where a.handle == handle) "no such user" status 404
+        check exists(a in Account where a.handle == handle) "That user does not exist." status 404 code "user_not_found"
         let owner = max(a.id in Account where a.handle == handle)
         check exists(s in Shop where s.owner == owner) "no such shop" status 404
         let sid = max(s.id in Shop where s.owner == owner)
         let me = max(a.id in Account where a.handle == actor)
-        return V2ShopDTO{handle: handle, is_enabled: Shop(sid).is_enabled, is_owner: owner == me, is_subscribed: exists(x in ShopSubscription where x.shop == sid && x.account == me), listings: list(PublicListingDTO{id: "" + l.id, title: l.title, description: l.description, price_sats: l.price_sats, price_xrp_drops: 0, payment_currency: l.currency, is_active: l.is_active, visibility: "public", created_at: "" + l.created} in Listing where l.seller == owner && l.is_active), plans: list(V2ShopPlanDTO{id: "" + p.id, name: p.name, description: p.description, price_aet: p.price_aet, price_display: "" + p.price_aet} in ShopPlan where p.shop == sid)}
+        return V2ShopDTO{handle: handle, is_enabled: Shop(sid).is_enabled, is_owner: owner == me, is_subscribed: exists(x in ShopSubscription where x.shop == sid && x.account == me && x.status == "active" && x.period_end > now()), listings: list(PublicListingDTO{id: "" + l.id, title: l.title, description: l.description, price_sats: l.price_sats, price_xrp_drops: 0, payment_currency: l.currency, is_active: l.is_active, visibility: "public", created_at: "" + l.created} in Listing where l.seller == owner && l.is_active), plans: list(V2ShopPlanDTO{id: "" + p.id, name: p.name, description: p.description, price_aet: p.price_aet, price_display: "" + p.price_aet} in ShopPlan where p.shop == sid && p.is_active)}
 
     action transparencyNotes(limit: int?, offset: int?) -> V2TransparencyNotesDTO:
         let n = do pageSize(limit, 20, 100)
         let off = do offsetOrM(offset)
-        return V2TransparencyNotesDTO{total: count(t in TransparencyNote where t.id > 0), limit: n, offset: off, items: list(V2TransparencyNoteDTO{id: "" + t.id, work_id: "" + t.work, author_token: t.author_token, note_type: t.note_type, body: t.body, factor: 0, intercept: 0, helpful_count: t.helpful_count, not_helpful_count: t.not_helpful_count, status: t.status, created_at: "" + t.created} in TransparencyNote where t.id > off by id limit n)}
+        return V2TransparencyNotesDTO{total: count(t in TransparencyNote where t.id > 0), limit: n, offset: off, items: list(V2TransparencyNoteDTO{id: "" + t.id, work_id: "" + t.work, author_token: t.author_token, note_type: t.note_type, body: t.body, factor: 0, intercept: 0, helpful_count: t.helpful_count, not_helpful_count: t.not_helpful_count, status: t.status, created_at: iso(t.created)} in TransparencyNote where t.id > off by id limit n)}
     action transparencyRatings(limit: int?, offset: int?) -> V2TransparencyRatingsDTO:
         let n = do pageSize(limit, 20, 100)
         let off = do offsetOrM(offset)
-        return V2TransparencyRatingsDTO{total: count(r in TransparencyRating where r.id > 0), limit: n, offset: off, items: list(V2TransparencyRatingDTO{note_id: "" + r.note, rater_token: r.rater_token, rating: r.rating, created_at: "" + r.created} in TransparencyRating where r.id > off by id limit n)}
+        return V2TransparencyRatingsDTO{total: count(r in TransparencyRating where r.id > 0), limit: n, offset: off, items: list(V2TransparencyRatingDTO{note_id: "" + r.note, rater_token: r.rater_token, rating: r.rating, created_at: iso(r.created)} in TransparencyRating where r.id > off by id limit n)}
     proc orTextCom(v: text, fallback: text) -> text:
         if v == "":
             return fallback
@@ -82,13 +87,18 @@ app F33D3RCommerce:
             return 0
         return v
 
-    action frequencyTicket(id: text, price_aet: text?):
+    # Host-only: set (price > 0) or clear (absent/0) the one-time ticket a
+    # listener buys to Tune In; answers the room as it now stands.
+    action frequencyTicket(id: text, price_aet: int?) -> V2FrequencyRoomDTO:
         requires member
         let fid = toInt(id)
         check exists(f in Frequency where f.id == fid) "no such frequency" status 404
-        check Frequency(fid).host == max(a.id in Account where a.handle == actor) "not your frequency" status 403
-        let priceText = do orTextCom(price_aet, "0")
-        add FrequencyTicketOffer { frequency: fid, price_aet: toInt(priceText), created: now() }
+        let me = max(a.id in Account where a.handle == actor)
+        check Frequency(fid).host == me "not your frequency" status 403
+        check price_aet >= 0 "price_aet must not be negative" status 400
+        set Frequency(fid).ticket_price_aet = price_aet
+        add FrequencyTicketOffer { frequency: fid, price_aet: price_aet, created: now() }
+        return frequencyRoomDTO(Frequency(fid), me)
     action frequencyTicketPurchase(id: text) -> V2FrequencyTicketPurchaseDTO:
         requires member
         let fid = toInt(id)
@@ -104,10 +114,30 @@ app F33D3RCommerce:
         let amt = toInt(amount_aet)
         add WalletEntry { account: me, kind: "frequency_tip", amount_uaet: 0 - amt, counterparty: Frequency(fid).host, created: now() }
         add WalletEntry { account: Frequency(fid).host, kind: "frequency_tip_received", amount_uaet: amt, counterparty: me, created: now() }
+        emit balance balanceDTO(me) to actor
+        emit balance balanceDTO(Frequency(fid).host) to Account(Frequency(fid).host).handle
         return V2FrequencyTipReceiptDTO{tip_id: "" + fid, ain_soph_tx_id: "" + fid, amount_aet: 0}
-    action frequencyVipTier(id: text, required_plan_id: text?):
+    # Host-only: require one of the host's own shop plans to Tune In as a
+    # listener (absent/"" clears it); answers the room as it now stands.
+    action frequencyVipTier(id: text, required_plan_id: text?) -> V2FrequencyRoomDTO:
         requires member
         let fid = toInt(id)
         check exists(f in Frequency where f.id == fid) "no such frequency" status 404
-        check Frequency(fid).host == max(a.id in Account where a.handle == actor) "not your frequency" status 403
-        set Frequency(fid).description = Frequency(fid).description
+        let me = max(a.id in Account where a.handle == actor)
+        check Frequency(fid).host == me "not your frequency" status 403
+        let plan = toInt(required_plan_id)
+        check plan == 0 || exists(p in ShopPlan where p.id == plan && exists(s in Shop where s.id == p.shop && s.owner == me)) "no such plan in your shop" status 400
+        set Frequency(fid).vip_plan = plan
+        return frequencyRoomDTO(Frequency(fid), me)
+
+    # This module's HTTP surface (merged into the app with the rest of it).
+    api GET "/api/v2/library" -> library rate read since "2026-09-18"
+    api GET "/api/v2/marketplace" -> marketplace rate read since "2026-09-18"
+    api GET "/api/v2/shop/status" -> shopStatus rate read since "2026-09-18"
+    api GET "/api/v2/shop/{handle}" -> getShop rate read since "2026-09-18"
+    api GET "/api/v2/transparency/notes" -> transparencyNotes rate read since "2026-09-18"
+    api GET "/api/v2/transparency/ratings" -> transparencyRatings rate read since "2026-09-18"
+    api POST "/api/v2/frequencies/{id}/ticket" -> frequencyTicket rate write since "2026-09-18"
+    api POST "/api/v2/frequencies/{id}/ticket/purchase" -> frequencyTicketPurchase rate write since "2026-09-18"
+    api POST "/api/v2/frequencies/{id}/tip" -> frequencyTip rate write since "2026-09-18"
+    api POST "/api/v2/frequencies/{id}/vip_tier" -> frequencyVipTier rate write since "2026-09-18"

@@ -1,0 +1,277 @@
+import "entities.fct"
+import "core.fct"
+import "dealings.fct"
+import "live.fct"
+import "markets.fct"
+
+# The operator paths: how an account comes to hold a documented identity
+# (eKYC's verdict, or an admin's review of a borderline pass), an
+# organisation badge (an application an admin approves, or a manual grant),
+# a platform role, and the brand posture. Every operator action requires
+# the `operator` policy (session role "admin"): an account whose platform
+# role is admin or founder signs in with that role (core.fct sessionRole),
+# and the runtime's system authority — a signed webhook delivery, a job, the
+# console — carries it too. Each operator decision is written to AdminAction
+# (legacy LogAdminAction).
+app F33D3ROperator:
+    # One operator decision, for the audit trail (legacy admin_actions).
+    entity AdminAction:
+        id: int
+        actor: text
+        action: text
+        target_type: text
+        target_id: text
+        detail: text
+        created: int
+    # An application for an organisation badge (legacy
+    # org_verification_applications). status: pending, approved, rejected.
+    entity OrgVerificationApplication:
+        id: int
+        account: int
+        org_type: text
+        org_name: text
+        org_website: text
+        description: text
+        evidence_url: text
+        status: text
+        admin_notes: text
+        reviewed_by: text
+        created: int
+        reviewed: int
+
+    # A "YYYY-MM-DD" date of birth at least 18 years before now.
+    proc adultOnDob(dob: text) -> bool:
+        let d = toInt(replace(trim(dob), "-", ""))
+        let today = toInt(formatIn(now(), "UTC", "20060102"))
+        return d > 0 && d <= today - 180000
+    proc dobReadable(dob: text) -> bool:
+        let t = trim(dob)
+        return len(t) == 10 && fromLocal(t + "T00:00", "UTC") != 0
+    proc orgTypeOk(t: text) -> bool:
+        return t == "business" || t == "government"
+    # Only user, admin and founder are platform roles; anything else is user.
+    proc platformRoleOf(r: text) -> text:
+        let t = trim(r)
+        if t == "admin" || t == "founder":
+            return t
+        return "user"
+    # The organisation badge: business, government, or none.
+    proc badgeOf(b: text) -> text:
+        let t = trim(b)
+        if orgTypeOk(t):
+            return t
+        return ""
+
+    # ── Identity: eKYC's verdict and the review queue ──────────────────────
+
+    # eKYC's verdict on one submission (POST /hooks/kyc/verdict, signed with
+    # EKYC_WEBHOOK_KEY), the ported kycSubmitCore after its /v1/verify call:
+    # a refusal records eKYC's reason; a documented date of birth is recorded
+    # (and decides adult/minor); a confirmed minor is never granted nor
+    # queued; a pass under 0.70 confidence waits for an admin; any other pass
+    # grants the full tier (Verity's gov_id attestation: tier 2, adult access).
+    action kycVerdict(liveness_session_id: text, pass: bool, confidence: float?, age_band: text?, date_of_birth: text?, reason: text?, liveness_score: float?, face_match_score: float?, antispoof_score: float?):
+        requires operator
+        let sid = trim(liveness_session_id)
+        check sid != "" "liveness_session_id required" status 400
+        check exists(r in IdentityVerificationRequest where r.liveness_session_id == sid && r.status == "submitted") "No submission awaits a verdict for that session." status 404
+        let rid = max(r.id in IdentityVerificationRequest where r.liveness_session_id == sid && r.status == "submitted")
+        let acct = IdentityVerificationRequest(rid).account
+        let t = now()
+        set IdentityVerificationRequest(rid).confidence = confidence
+        set IdentityVerificationRequest(rid).liveness_score = liveness_score
+        set IdentityVerificationRequest(rid).face_match_score = face_match_score
+        set IdentityVerificationRequest(rid).antispoof_score = antispoof_score
+        set IdentityVerificationRequest(rid).decided = t
+        if !pass:
+            set IdentityVerificationRequest(rid).status = "failed"
+            set IdentityVerificationRequest(rid).reason = orText(trim(reason), "ekyc_rejected")
+        else:
+            let band = trim(age_band)
+            if band != "" && band != "unknown":
+                set IdentityVerificationRequest(rid).age_band = band
+                set Account(acct).age_band = band
+            let dob = trim(date_of_birth)
+            if dob != "":
+                check dobReadable(dob) "date_of_birth must be YYYY-MM-DD" status 400
+                set Account(acct).date_of_birth = dob
+                set Account(acct).is_adult = adultOnDob(dob)
+                set Account(acct).is_minor = !adultOnDob(dob)
+            if band == "minor":
+                set IdentityVerificationRequest(rid).status = "minor"
+                set Account(acct).is_minor = true
+                set Account(acct).is_adult = false
+            else:
+                if confidence < 0.70:
+                    set IdentityVerificationRequest(rid).status = "pending_review"
+                    set IdentityVerificationRequest(rid).reason = "low_confidence:" + fixed2(confidence)
+                else:
+                    set IdentityVerificationRequest(rid).status = "approved"
+                    set IdentityVerificationRequest(rid).reviewed_by = "ekyc"
+                    set Account(acct).kyc_status = "full"
+                    set Account(acct).kyc_verified_at = t
+                    set Account(acct).kyc_granted_by = "ekyc"
+                    set Account(acct).is_verified = true
+                    set Account(acct).is_age_verified = true
+                    set Account(acct).is_adult = true
+                    set Account(acct).is_minor = false
+                    set Account(acct).nsfw_access = true
+                    if Account(acct).identity_tier < 2:
+                        set Account(acct).identity_tier = 2
+
+    # Approve a queued (borderline) submission: the full tier is granted
+    # with the admin's provenance. Only a still-pending row can be decided.
+    action identityVerificationApprove(request_id: text):
+        requires operator
+        let rid = toInt(request_id)
+        check exists(r in IdentityVerificationRequest where r.id == rid && r.status == "pending_review") "Could not approve — already decided, or no such request." status 404
+        let acct = IdentityVerificationRequest(rid).account
+        let t = now()
+        set IdentityVerificationRequest(rid).status = "approved"
+        set IdentityVerificationRequest(rid).reviewed_by = actor
+        set IdentityVerificationRequest(rid).decided = t
+        set Account(acct).kyc_status = "full"
+        set Account(acct).kyc_verified_at = t
+        set Account(acct).kyc_granted_by = "admin:" + actor
+        set Account(acct).is_verified = true
+        set Account(acct).is_age_verified = true
+        set Account(acct).is_adult = true
+        set Account(acct).is_minor = false
+        add AdminAction { actor: actor, action: "identity_verification_approve", target_type: "identity_verification_request", target_id: "" + rid, detail: Account(acct).handle, created: t }
+    # Deny a queued submission: the row is marked; nothing was granted, so
+    # the account is untouched.
+    action identityVerificationReject(request_id: text, notes: text?):
+        requires operator
+        let rid = toInt(request_id)
+        check exists(r in IdentityVerificationRequest where r.id == rid && r.status == "pending_review") "Could not deny — already decided, or no such request." status 404
+        let t = now()
+        set IdentityVerificationRequest(rid).status = "denied"
+        set IdentityVerificationRequest(rid).admin_notes = trim(notes)
+        set IdentityVerificationRequest(rid).reviewed_by = actor
+        set IdentityVerificationRequest(rid).decided = t
+        add AdminAction { actor: actor, action: "identity_verification_reject", target_type: "identity_verification_request", target_id: "" + rid, detail: trim(notes), created: t }
+
+    # ── Platform role, verified badge, creator permission ──────────────────
+
+    # The admin role editor (legacy adminSetRole): platform role (user,
+    # admin, founder — anything else is user; founder only on the founding
+    # account), the organisation badge (business, government or none), the
+    # manual identity override, and the creator permission, all written at
+    # once. Also the deployment's bootstrap door (/hooks/operator/role).
+    action adminSetRole(target_handle: text, platform_role: text?, badge_type: text?, is_verified: bool?, is_creator: bool?):
+        requires operator
+        let h = bareHandle(target_handle)
+        check h != "" && exists(a in Account where a.handle == h) "User not found." status 404
+        let target = max(a.id in Account where a.handle == h)
+        let pr = platformRoleOf(platform_role)
+        check pr != "founder" || h == "tehanibentley" "Founder role cannot be assigned to this account." status 403
+        let badge = badgeOf(badge_type)
+        let t = now()
+        set Account(target).platform_role = pr
+        # The new role reaches the account's live sessions at once, on every
+        # instance (legacy: sessions re-read the role each request).
+        restate actor h role sessionRole(pr)
+        if is_verified:
+            set Account(target).kyc_status = "full"
+            set Account(target).kyc_verified_at = t
+            set Account(target).kyc_granted_by = "admin:" + actor
+            set Account(target).is_verified = true
+            set Account(target).is_age_verified = true
+            set Account(target).is_adult = true
+            set Account(target).is_minor = false
+        else:
+            if Account(target).kyc_status == "full":
+                set Account(target).kyc_status = "basic"
+            set Account(target).is_verified = false
+            set Account(target).is_age_verified = false
+        set Account(target).is_creator = is_creator
+        set Account(target).official_type = badge
+        add AdminAction { actor: actor, action: "set_role", target_type: "account", target_id: h, detail: "platform_role=" + pr + " badge=" + badge + " verified=" + is_verified + " creator=" + is_creator, created: t }
+
+    # Mark or unmark a brand account (user_profiles.is_brand, migration
+    # 0088): the one posture that may propose and pay out sponsorships.
+    action adminSetBrand(target_handle: text, is_brand: bool):
+        requires operator
+        let h = bareHandle(target_handle)
+        check h != "" && exists(a in Account where a.handle == h) "User not found." status 404
+        let target = max(a.id in Account where a.handle == h)
+        set Account(target).is_brand = is_brand
+        add AdminAction { actor: actor, action: "set_brand", target_type: "account", target_id: h, detail: "is_brand=" + is_brand, created: now() }
+
+    # ── Organisation badges ────────────────────────────────────────────────
+
+    # Apply for a business or government badge (POST /api/org/verify/apply).
+    action orgVerifyApply(org_type: text, org_name: text, org_website: text?, description: text?, evidence_url: text?):
+        requires member
+        let ot = trim(org_type)
+        check orgTypeOk(ot) "invalid org_type" status 400
+        let name = trim(org_name)
+        check name != "" "org_name required" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        add OrgVerificationApplication { account: me, org_type: ot, org_name: name, org_website: trim(org_website), description: trim(description), evidence_url: trim(evidence_url), status: "pending", admin_notes: "", reviewed_by: "", created: now(), reviewed: 0 }
+    # Approve an application: the account gets the badge (the application's
+    # type unless the admin names another) and, since an approved
+    # organisation is a deliberate identity confirmation, the full tier.
+    action orgVerificationApprove(app_id: text, org_type: text?):
+        requires operator
+        let aid = toInt(app_id)
+        check exists(o in OrgVerificationApplication where o.id == aid) "could not approve: no such application" status 404
+        let ot = orText(trim(org_type), OrgVerificationApplication(aid).org_type)
+        check orgTypeOk(ot) "org_type must be business or government" status 400
+        let acct = OrgVerificationApplication(aid).account
+        let t = now()
+        set OrgVerificationApplication(aid).status = "approved"
+        set OrgVerificationApplication(aid).reviewed_by = actor
+        set OrgVerificationApplication(aid).reviewed = t
+        set Account(acct).official_type = ot
+        set Account(acct).kyc_status = "full"
+        set Account(acct).kyc_verified_at = t
+        set Account(acct).kyc_granted_by = "org:" + actor
+        set Account(acct).is_verified = true
+        set Account(acct).is_age_verified = true
+        set Account(acct).is_adult = true
+        set Account(acct).is_minor = false
+        add AdminAction { actor: actor, action: "org_verification_approve", target_type: "org_verification_application", target_id: "" + aid, detail: ot, created: t }
+    action orgVerificationReject(app_id: text, notes: text?):
+        requires operator
+        let aid = toInt(app_id)
+        check exists(o in OrgVerificationApplication where o.id == aid) "could not reject: no such application" status 404
+        let t = now()
+        set OrgVerificationApplication(aid).status = "rejected"
+        set OrgVerificationApplication(aid).admin_notes = trim(notes)
+        set OrgVerificationApplication(aid).reviewed_by = actor
+        set OrgVerificationApplication(aid).reviewed = t
+        add AdminAction { actor: actor, action: "org_verification_reject", target_type: "org_verification_application", target_id: "" + aid, detail: trim(notes), created: t }
+    # Grant a badge directly to any account (POST /api/admin/org/grant).
+    action orgBadgeGrant(handle: text, org_type: text):
+        requires operator
+        let h = bareHandle(handle)
+        let ot = trim(org_type)
+        check h != "" && orgTypeOk(ot) "handle and org_type (business|government) required" status 400
+        check exists(a in Account where a.handle == h) "could not grant badge: no such account" status 404
+        let acct = max(a.id in Account where a.handle == h)
+        let t = now()
+        set Account(acct).official_type = ot
+        set Account(acct).kyc_status = "full"
+        set Account(acct).kyc_verified_at = t
+        set Account(acct).kyc_granted_by = "org:" + actor
+        set Account(acct).is_verified = true
+        set Account(acct).is_age_verified = true
+        set Account(acct).is_adult = true
+        set Account(acct).is_minor = false
+        add AdminAction { actor: actor, action: "org_badge_grant", target_type: "account", target_id: h, detail: ot, created: t }
+    # Remove the badge (POST /api/admin/org/revoke); the identity stays.
+    action orgBadgeRevoke(handle: text):
+        requires operator
+        let h = bareHandle(handle)
+        check h != "" "handle required" status 400
+        check exists(a in Account where a.handle == h) "no such account" status 404
+        let acct = max(a.id in Account where a.handle == h)
+        set Account(acct).official_type = ""
+        add AdminAction { actor: actor, action: "org_badge_revoke", target_type: "account", target_id: h, detail: "", created: now() }
+
+    # eKYC's verdicts arrive signed with EKYC_WEBHOOK_KEY; the deployment's
+    # first admin is named through the operator key (after that, admins name
+    # admins through adminSetRole). Both run with system authority.
+    webhook "/hooks/kyc/verdict" -> kycVerdict secret EKYC_WEBHOOK_KEY
+    webhook "/hooks/operator/role" -> adminSetRole secret F33D3R_OPERATOR_KEY

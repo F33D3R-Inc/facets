@@ -1,0 +1,226 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+import "dealings.fct"
+
+# Who an account belongs with: organisation memberships (an employee applies
+# or an organisation invites; the other side answers) and the nexus — the
+# set of personas (accounts) one person has linked, which they may switch
+# between.
+app F33D3RAffiliations:
+    # An account's membership of an organisation (an Account whose
+    # official_type is business or government). status: pending_employee
+    # (the account applied), pending_org (the org invited), approved,
+    # rejected, revoked. An account holds at most three approved ones, and
+    # may mark one of those primary.
+    entity OrgMembership:
+        id: int
+        account: int
+        org: int
+        status: text
+        initiated_by: text
+        is_primary: bool
+        created: int
+        updated: int
+    # One person's linked personas. A persona belongs to at most one nexus;
+    # the first account to link another becomes its primary.
+    entity Nexus:
+        id: int
+        created: int
+    entity NexusPersona:
+        id: int
+        nexus: int
+        account: int
+        is_primary: bool
+        linked: int
+    # A request from a nexus to take in another account; only that account
+    # may confirm it, within seven days. status: pending, confirmed,
+    # declined.
+    entity NexusLinkRequest:
+        id: int
+        nexus: int
+        source: int
+        target: int
+        status: text
+        created: int
+        expires: int
+        responded: int
+    # The unified view (notifications, messages or earnings across every
+    # persona) an account last chose.
+    entity NexusView:
+        id: int
+        account: int
+        mode: text
+        updated: int
+
+    # ── Organisations ──────────────────────────────────────────────────────
+
+    action orgApply(org_handle: text):
+        requires member
+        let h = bareHandle(org_handle)
+        check h != "" "org_handle required" status 400
+        check exists(a in Account where a.handle == h && (a.official_type == "business" || a.official_type == "government")) "Organization not found" status 404
+        let org = max(a.id in Account where a.handle == h)
+        let me = max(a.id in Account where a.handle == actor)
+        check org != me "You can't apply to your own organization" status 400
+        check count(m in OrgMembership where m.account == me && m.status == "approved") < 3 "You've reached the 3-organization limit" status 400
+        check !exists(m in OrgMembership where m.account == me && m.org == org) "Application already exists" status 409
+        let mid = add OrgMembership { account: me, org: org, status: "pending_employee", initiated_by: "employee", is_primary: false, created: now(), updated: now() }
+        let note = add Notification { account: org, actor: me, kind: "org_apply", target_type: "org", target_id: mid, preview: "", amount_uaet: 0, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), org) to Account(org).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == org && !n.is_read)} to Account(org).handle
+    action orgInvite(target_handle: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).official_type != "" "Only verified organizations can invite members" status 403
+        let h = bareHandle(target_handle)
+        check h != "" "target_handle required" status 400
+        check exists(a in Account where a.handle == h) "User not found" status 404
+        let target = max(a.id in Account where a.handle == h)
+        check target != me "Cannot invite yourself" status 400
+        check count(m in OrgMembership where m.account == target && m.status == "approved") < 3 "That user has reached the 3-organization limit" status 400
+        check !exists(m in OrgMembership where m.account == target && m.org == me) "Invite already sent" status 409
+        let mid = add OrgMembership { account: target, org: me, status: "pending_org", initiated_by: "org", is_primary: false, created: now(), updated: now() }
+        let note = add Notification { account: target, actor: me, kind: "org_invite", target_type: "org", target_id: mid, preview: "", amount_uaet: 0, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), target) to Account(target).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == target && !n.is_read)} to Account(target).handle
+    # The organisation approves an application made to it.
+    action orgApprove(membership_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).official_type != "" "Only org accounts can approve applications" status 403
+        let mid = toInt(membership_id)
+        check exists(m in OrgMembership where m.id == mid && m.org == me && m.status == "pending_employee") "Not found or not authorized" status 404
+        let joiner = OrgMembership(mid).account
+        check count(m in OrgMembership where m.account == joiner && m.status == "approved") < 3 "That user has reached the 3-organization limit" status 400
+        set OrgMembership(mid).status = "approved"
+        set OrgMembership(mid).updated = now()
+    # The invited account accepts an organisation's invitation.
+    action orgAcceptInvite(membership_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let mid = toInt(membership_id)
+        check exists(m in OrgMembership where m.id == mid && m.account == me && m.status == "pending_org") "Invite not found" status 404
+        check count(m in OrgMembership where m.account == me && m.status == "approved") < 3 "You've reached the 3-organization limit" status 400
+        set OrgMembership(mid).status = "approved"
+        set OrgMembership(mid).updated = now()
+    # The organisation turns down an application, or the invited account
+    # declines an invitation.
+    action orgReject(membership_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let mid = toInt(membership_id)
+        check exists(m in OrgMembership where m.id == mid) "Not found" status 404
+        check OrgMembership(mid).org == me || (OrgMembership(mid).account == me && OrgMembership(mid).status == "pending_org") "Not authorized" status 403
+        set OrgMembership(mid).status = "rejected"
+        set OrgMembership(mid).is_primary = false
+        set OrgMembership(mid).updated = now()
+    # The organisation ends a membership, or withdraws an invitation.
+    action orgRevoke(membership_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let mid = toInt(membership_id)
+        check exists(m in OrgMembership where m.id == mid) "Not found" status 404
+        check OrgMembership(mid).org == me "Not authorized" status 403
+        set OrgMembership(mid).status = "revoked"
+        set OrgMembership(mid).is_primary = false
+        set OrgMembership(mid).updated = now()
+    # The member leaves (or withdraws an application).
+    action orgLeave(membership_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let mid = toInt(membership_id)
+        check exists(m in OrgMembership where m.id == mid) "Not found" status 404
+        check OrgMembership(mid).account == me "Not authorized" status 403
+        set OrgMembership(mid).status = "revoked"
+        set OrgMembership(mid).is_primary = false
+        set OrgMembership(mid).updated = now()
+    # Mark one of the caller's approved memberships primary (and no other).
+    action orgSetPrimary(membership_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let mid = toInt(membership_id)
+        check exists(m in OrgMembership where m.id == mid && m.account == me && m.status == "approved") "Could not set primary org" status 404
+        for m in OrgMembership where m.account == me && m.is_primary:
+            set OrgMembership(m.id).is_primary = false
+        set OrgMembership(mid).is_primary = true
+        set OrgMembership(mid).updated = now()
+
+    # ── Nexus ──────────────────────────────────────────────────────────────
+
+    # Ask another account to join the caller's nexus (one is made, with the
+    # caller as its primary persona, when they have none). The target is
+    # named by its pial id (this stack's account id) or by handle; it is
+    # told through a notification carrying the request id it confirms.
+    action nexusPersonaLinkInitiated(target_pial_shard_id: text):
+        requires member
+        let raw = trim(target_pial_shard_id)
+        check raw != "" "target_pial_shard_id required" status 400
+        let byId = toInt(raw)
+        let h = bareHandle(raw)
+        check exists(a in Account where a.id == byId || a.handle == h) "Account not found" status 404
+        let target = max(a.id in Account where a.id == byId || a.handle == h)
+        let me = max(a.id in Account where a.handle == actor)
+        check target != me "cannot link an account to itself" status 400
+        check !exists(p in NexusPersona where p.account == target) "target account is already linked to a nexus" status 409
+        if !exists(p in NexusPersona where p.account == me):
+            let nid = add Nexus { created: now() }
+            add NexusPersona { nexus: nid, account: me, is_primary: true, linked: now() }
+        let nexus = max(p.nexus in NexusPersona where p.account == me)
+        let t = now()
+        if !exists(r in NexusLinkRequest where r.nexus == nexus && r.target == target && r.status == "pending" && r.expires > t):
+            let rid = add NexusLinkRequest { nexus: nexus, source: me, target: target, status: "pending", created: t, expires: t + 604800, responded: 0 }
+            let note = add Notification { account: target, actor: me, kind: "nexus_link_request", target_type: "nexus_link", target_id: rid, preview: "", amount_uaet: 0, is_read: false, created: t }
+            emit notification notificationV1(Notification(note), target) to Account(target).handle
+            emit notify NotifyEventDTO{unread: count(n in Notification where n.account == target && !n.is_read)} to Account(target).handle
+    # The invited account confirms: it joins the requesting nexus.
+    action nexusPersonaLinkConfirmed(request_id: text):
+        requires member
+        check request_id != "" "request_id required" status 400
+        let rid = toInt(request_id)
+        let t = now()
+        check exists(r in NexusLinkRequest where r.id == rid && r.status == "pending" && r.expires > t) "request not found or expired" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        check NexusLinkRequest(rid).target == me "only the target account can confirm this link" status 403
+        check !exists(p in NexusPersona where p.account == me) "target account is already linked to a nexus" status 409
+        add NexusPersona { nexus: NexusLinkRequest(rid).nexus, account: me, is_primary: false, linked: t }
+        set NexusLinkRequest(rid).status = "confirmed"
+        set NexusLinkRequest(rid).responded = t
+    action nexusPersonaLinkDeclined(request_id: text):
+        requires member
+        check request_id != "" "request_id required" status 400
+        let rid = toInt(request_id)
+        let t = now()
+        check exists(r in NexusLinkRequest where r.id == rid && r.status == "pending" && r.expires > t) "request not found or expired" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        check NexusLinkRequest(rid).target == me "only the target account can decline this link" status 403
+        set NexusLinkRequest(rid).status = "declined"
+        set NexusLinkRequest(rid).responded = t
+    # Become another persona of the caller's own nexus: the session is
+    # re-established as that account (switching to oneself is a no-op).
+    action nexusPersonaSwitched(target_handle: text):
+        requires member
+        let h = bareHandle(target_handle)
+        check h != "" "target_handle required" status 400
+        check exists(a in Account where a.handle == h) "no such persona" status 404
+        let target = max(a.id in Account where a.handle == h)
+        let me = max(a.id in Account where a.handle == actor)
+        if target != me:
+            check exists(p in NexusPersona where p.account == me) "not in a nexus" status 403
+            let nexus = max(p.nexus in NexusPersona where p.account == me)
+            check exists(p in NexusPersona where p.account == target && p.nexus == nexus) "target persona not in your nexus" status 403
+            check !Account(target).deactivated "account is deactivated" status 403
+            establish actor h role sessionRole(Account(target).platform_role)
+            set Account(target).last_seen = now()
+            for s in Session where s.sid == session:
+                set Session(s.id).account = target
+    # Choose the unified view across personas.
+    action nexusUnifiedViewToggled(mode: text):
+        requires member
+        check mode == "notifications" || mode == "messages" || mode == "earnings" "mode must be notifications, messages or earnings" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        if exists(v in NexusView where v.account == me):
+            set NexusView(max(v.id in NexusView where v.account == me)).mode = mode
+            set NexusView(max(v.id in NexusView where v.account == me)).updated = now()
+        else:
+            add NexusView { account: me, mode: mode, updated: now() }

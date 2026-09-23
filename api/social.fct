@@ -1,5 +1,6 @@
 import "entities.fct"
 import "core.fct"
+import "polls.fct"
 
 # Feed, works, the social graph, notifications, search and tags — the core
 # timeline surface layered on the Work/Follow/Like/Notification rows from
@@ -15,36 +16,166 @@ app F33D3RSocial:
             return fallback
         return v
 
+    # A work as every surface answers with it — the feed, a thread, a profile's
+    # works, search, bookmarks, history — for the viewer `me` (0 for a guest).
+    # purchased_by_viewer is a WorkPurchase of a priced work (dealings.fct's
+    # workPurchase); none is gated to subscribers, and no media scanner runs, so every work reads
+    # scan_state "clean" (the legacy default for an unscanned work).
+    # cid is the content id a signed work was published under (sha256:…),
+    # else, for a work made unsigned, its id.
+    derive workDTO(w: Work, me: int): V2WorkDTO = V2WorkDTO{
+        id: "" + w.id,
+        cid: first(list(x.cid in Work where x.id == w.id && x.cid != "") + ["" + w.id]),
+        author: accountDTO(Account(w.author), me),
+        body: w.body,
+        kind: w.kind,
+        content_class: w.content_class,
+        content_type: w.kind,
+        created_at: iso(w.created),
+        is_nsfw: w.is_nsfw,
+        is_gore: w.is_gore,
+        is_sensitive: w.is_sensitive,
+        is_pinned: w.is_pinned,
+        is_edited: w.edited,
+        made_with_ai: w.made_with_ai,
+        paid_partnership: w.paid_partnership,
+        comment_gating: w.comment_gating,
+        like_count: count(l in Like where l.work == w.id),
+        dislike_count: count(l in Dislike where l.work == w.id),
+        liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me),
+        disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me),
+        bookmark_count: count(b in Bookmark where b.work == w.id),
+        bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me),
+        quote_count: count(q in Work where q.quoted == w.id && !q.deleted),
+        repost_count: count(r in Repost where r.work == w.id),
+        reposted_by_viewer: exists(r in Repost where r.work == w.id && r.account == me),
+        reply_count: count(r in Work where r.parent_cid == w.id && !r.deleted),
+        view_count: count(v in ViewEvent where v.work == w.id),
+        viewer_follows_author: exists(f in Follow where f.follower == me && f.followee == w.author),
+        purchased_by_viewer: exists(p in WorkPurchase where p.work == w.id && p.buyer == me),
+        subscriber_only: false,
+        scan_state: "clean",
+        poll: first(list(pollV2(p, me) in Poll where p.work == w.id))
+        }
+
+    # The v1 notification the /api/v2/events stream carries (notification),
+    # as the recipient `me` sees it.
+    derive notificationV1(x: Notification, me: int): NotificationDTO = NotificationDTO{
+        id: "" + x.id,
+        kind: x.kind,
+        target_type: x.target_type,
+        target_id: "" + x.target_id,
+        preview: x.preview,
+        amount_uaet: x.amount_uaet,
+        is_read: x.is_read,
+        created_at: iso(x.created),
+        actor_count: 1,
+        actors: [workAuthorDTO(Account(x.actor), me)]
+        }
+
+    # The v1 work card the /api/v2/events stream carries (new_post, work_edited):
+    # the same facts as workDTO for the viewer `me`, WorkAuthorDTO author.
+    derive workCardDTO(w: Work, me: int): WorkDTO = WorkDTO{
+        id: "" + w.id,
+        cid: first(list(x.cid in Work where x.id == w.id && x.cid != "") + ["" + w.id]),
+        author: workAuthorDTO(Account(w.author), me),
+        body: w.body,
+        kind: w.kind,
+        content_type: w.kind,
+        created_at: iso(w.created),
+        is_nsfw: w.is_nsfw,
+        is_gore: w.is_gore,
+        is_sensitive: w.is_sensitive,
+        is_pinned: w.is_pinned,
+        is_edited: w.edited,
+        made_with_ai: w.made_with_ai,
+        paid_partnership: w.paid_partnership,
+        comment_gating: w.comment_gating,
+        like_count: count(l in Like where l.work == w.id),
+        dislike_count: count(l in Dislike where l.work == w.id),
+        liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me),
+        disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me),
+        bookmark_count: count(b in Bookmark where b.work == w.id),
+        bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me),
+        quote_count: count(q in Work where q.quoted == w.id && !q.deleted),
+        repost_count: count(r in Repost where r.work == w.id),
+        reposted_by_viewer: exists(r in Repost where r.work == w.id && r.account == me),
+        reply_count: count(r in Work where r.parent_cid == w.id && !r.deleted),
+        view_count: count(v in ViewEvent where v.work == w.id),
+        viewer_follows_author: exists(f in Follow where f.follower == me && f.followee == w.author),
+        work_purchased_by_viewer: exists(p in WorkPurchase where p.work == w.id && p.buyer == me),
+        subscriber_only: false,
+        scan_state: "clean",
+        poll: first(list(pollV1(p, me) in Poll where p.work == w.id))
+        }
+
 
     action getWork(id: int) -> V2WorkThreadDTO:
+        requires member
         check exists(w in Work where w.id == id && !w.deleted) "no such work" status 404
         let me = max(a.id in Account where a.handle == actor)
-        return V2WorkThreadDTO{work: V2WorkDTO{id: "" + id, cid: "" + id, author: WorkAuthorDTO{handle: Account(Work(id).author).handle, display_name: Account(Work(id).author).display_name, avatar_url: Account(Work(id).author).avatar_url, is_creator: Account(Work(id).author).is_creator, is_verified: Account(Work(id).author).is_verified, official_type: Account(Work(id).author).official_type, realm: Account(Work(id).author).realm, role: Account(Work(id).author).role_type, is_mutual: false}, body: Work(id).body, kind: Work(id).kind, content_class: Work(id).content_class, content_type: Work(id).kind, created_at: "" + Work(id).created, is_nsfw: Work(id).is_nsfw, is_gore: Work(id).is_gore, is_sensitive: Work(id).is_sensitive, is_pinned: Work(id).is_pinned, is_edited: Work(id).edited, made_with_ai: Work(id).made_with_ai, paid_partnership: Work(id).paid_partnership, comment_gating: Work(id).comment_gating, like_count: count(l in Like where l.work == id), dislike_count: count(l in Dislike where l.work == id), liked_by_viewer: exists(l in Like where l.work == id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == id && l.account == me), bookmark_count: count(b in Bookmark where b.work == id), bookmarked_by_viewer: exists(b in Bookmark where b.work == id && b.account == me), quote_count: count(w2 in Work where w2.quoted == id && !w2.deleted), repost_count: count(r in Repost where r.work == id), reply_count: count(w2 in Work where w2.parent_cid == id && !w2.deleted), purchased_by_viewer: false}, ancestors: list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where w.id == Work(id).parent_cid), replies: list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where w.parent_cid == id && !w.deleted by created desc limit 50)}
-    action getWorks(ids: text) -> [V2WorkDTO]:
+        let replyIds = list(w.id in Work where w.parent_cid == id && !w.deleted by id desc limit 20)
+        let next = do nextCursor(replyIds, 20)
+        return V2WorkThreadDTO{work: workDTO(Work(id), me), ancestors: list(workDTO(w, me) in Work where w.id == Work(id).parent_cid), replies: V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in replyIds by id desc), next_cursor: next, server_time: iso(now())}}
+    action getWorks(ids: [int]) -> V2PageOfV2WorkDTO:
+        requires member
+        check len(ids) >= 1 && len(ids) <= 100 "between 1 and 100 ids are required" status 400 code "ids_required"
         let me = max(a.id in Account where a.handle == actor)
-        return list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where w.id > 0 && !w.deleted && contains(ids, "" + w.id) by id)
-    action getWorkReplies(id: int, cursor: text?, limit: int?) -> [V2WorkDTO]:
+        return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in ids && !w.deleted by id), next_cursor: "", server_time: iso(now())}
+    # Replies and quotes, newest first: a work id is its creation order, so the
+    # id cursor pages them exactly as cursorStart/nextCursor page every feed.
+    action getWorkReplies(id: int, cursor: text?, limit: int?) -> V2PageOfV2WorkDTO:
+        requires member
+        check exists(w in Work where w.id == id && !w.deleted) "no such work" status 404
         let me = max(a.id in Account where a.handle == actor)
-        return list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where w.parent_cid == id && !w.deleted by created desc limit 50)
-    action getWorkQuotes(id: int, cursor: text?, limit: int?) -> [V2WorkDTO]:
+        let n = do pageSize(limit, 20, 50)
+        let start = do cursorStart(cursor)
+        let ids = list(w.id in Work where w.parent_cid == id && !w.deleted && w.id < start by id desc limit n)
+        let next = do nextCursor(ids, n)
+        return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in ids by id desc), next_cursor: next, server_time: iso(now())}
+    action getWorkQuotes(id: int, cursor: text?, limit: int?) -> V2PageOfV2WorkDTO:
+        requires member
+        check exists(w in Work where w.id == id && !w.deleted) "no such work" status 404
         let me = max(a.id in Account where a.handle == actor)
-        return list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where w.quoted == id && !w.deleted by created desc limit 50)
+        let n = do pageSize(limit, 20, 50)
+        let start = do cursorStart(cursor)
+        let ids = list(w.id in Work where w.quoted == id && !w.deleted && w.id < start by id desc limit n)
+        let next = do nextCursor(ids, n)
+        return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in ids by id desc), next_cursor: next, server_time: iso(now())}
 
-    action post(body: text, is_nsfw: bool?, content_class: text?, made_with_ai: bool?, paid_partnership: bool?, comment_gating: text?, parent_cid: text?, quoted_work_id: text?) -> WorkCreatedDTO:
+    action post(body: text, is_nsfw: bool?, content_class: text?, made_with_ai: bool?, paid_partnership: bool?, comment_gating: text?, parent_cid: text?, quoted_work_id: text?, poll_options: [text]?, poll_ends_at: text?, poll_option_images: [text]?, poll_shuffle: bool?) -> WorkCreatedDTO:
         requires member
         check body != "" "say something"
         let me = max(a.id in Account where a.handle == actor)
         let parent = toInt(parent_cid)
         let quoted = toInt(quoted_work_id)
         let _h1 = do orText(comment_gating, "everyone")
-        let wid = add Work { author: me, body: body, kind: "text", content_class: content_class, media_urls: "", is_nsfw: is_nsfw, is_gore: false, is_sensitive: false, is_pinned: false, made_with_ai: made_with_ai, paid_partnership: paid_partnership, parent_cid: parent, quoted: quoted, price_uaet: 0, comment_gating: _h1, deleted: false, edited: false, created: now(), edited_at: 0 }
+        let wid = add Work { legacy_id: "", author: me, body: body, kind: "text", content_class: content_class, media_urls: "", is_nsfw: is_nsfw, is_gore: false, is_sensitive: false, is_pinned: false, made_with_ai: made_with_ai, paid_partnership: paid_partnership, parent_cid: parent, quoted: quoted, price_uaet: 0, comment_gating: _h1, deleted: false, edited: false, created: now(), edited_at: 0 }
+        let tags = hashtags(body)
+        for ht in tags:
+            add WorkTag { work: wid, tag: ht, created: now() }
+        # A ballot, when the work carries poll_options: one option per label,
+        # index-aligned images (all or none), an optional end time.
+        check len(poll_option_images) == 0 || len(poll_option_images) == len(poll_options) "poll_option_images must have one entry per option" status 400
+        if len(poll_options) > 0:
+            let pid = add Poll { work: wid, ends_at: fromIso(poll_ends_at), shuffle: poll_shuffle, created: now() }
+            for label in poll_options:
+                let at = count(o in PollOption where o.poll == pid)
+                add PollOption { poll: pid, idx: at, label: label, image_url: pollImage(poll_option_images, at) }
         if parent > 0:
-            add Notification { account: Work(parent).author, actor: me, kind: "reply", target_type: "work", target_id: wid, preview: body, amount_uaet: 0, is_read: false, created: now() }
+            let note4 = add Notification { account: Work(parent).author, actor: me, kind: "reply", target_type: "work", target_id: wid, preview: body, amount_uaet: 0, is_read: false, created: now() }
+            emit notification notificationV1(Notification(note4), Work(parent).author) to Account(Work(parent).author).handle
+            emit notify NotifyEventDTO{unread: count(n in Notification where n.account == Work(parent).author && !n.is_read)} to Account(Work(parent).author).handle
+        for f in Follow where f.followee == me:
+            emit new_post NewPostEventDTO{work_id: "" + wid, author_handle: actor, work: workCardDTO(Work(wid), f.follower)} to Account(f.follower).handle
         return WorkCreatedDTO{work_id: "" + wid, cid: "" + wid}
     action deleteWork(id: int):
         requires member
         requires ownsWork(id)
         set Work(id).deleted = true
+        emit post_deleted WorkRemovedEventDTO{work_id: "" + id}
+        for ww in WorkWatch where ww.work == id:
+            emit work_removed WorkRemovedEventDTO{work_id: "" + id} to Account(ww.account).handle
     action editWork(id: int, body: text, made_with_ai: bool?, paid_partnership: bool?) -> V2WorkDTO:
         requires member
         requires ownsWork(id)
@@ -52,10 +183,14 @@ app F33D3RSocial:
         set Work(id).body = body
         set Work(id).made_with_ai = made_with_ai
         set Work(id).paid_partnership = paid_partnership
+        if exists(d in BrandDeal where d.work == id && (d.status == "live" || d.status == "paid")):
+            set Work(id).paid_partnership = true
         set Work(id).edited = true
         set Work(id).edited_at = now()
         let me = max(a.id in Account where a.handle == actor)
-        return V2WorkDTO{id: "" + id, cid: "" + id, author: WorkAuthorDTO{handle: Account(Work(id).author).handle, display_name: Account(Work(id).author).display_name, avatar_url: Account(Work(id).author).avatar_url, is_creator: Account(Work(id).author).is_creator, is_verified: Account(Work(id).author).is_verified, official_type: Account(Work(id).author).official_type, realm: Account(Work(id).author).realm, role: Account(Work(id).author).role_type, is_mutual: false}, body: Work(id).body, kind: Work(id).kind, content_class: Work(id).content_class, content_type: Work(id).kind, created_at: "" + Work(id).created, is_nsfw: Work(id).is_nsfw, is_gore: Work(id).is_gore, is_sensitive: Work(id).is_sensitive, is_pinned: Work(id).is_pinned, is_edited: Work(id).edited, made_with_ai: Work(id).made_with_ai, paid_partnership: Work(id).paid_partnership, comment_gating: Work(id).comment_gating, like_count: count(l in Like where l.work == id), dislike_count: count(l in Dislike where l.work == id), liked_by_viewer: exists(l in Like where l.work == id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == id && l.account == me), bookmark_count: count(b in Bookmark where b.work == id), bookmarked_by_viewer: exists(b in Bookmark where b.work == id && b.account == me), quote_count: count(w2 in Work where w2.quoted == id && !w2.deleted), repost_count: count(r in Repost where r.work == id), reply_count: count(w2 in Work where w2.parent_cid == id && !w2.deleted), purchased_by_viewer: false}
+        for ww in WorkWatch where ww.work == id:
+            emit work_edited WorkEventDTO{work_id: "" + id, work: workCardDTO(Work(id), ww.account)} to Account(ww.account).handle
+        return workDTO(Work(id), me)
     action setWorkLabels(work_id: text, made_with_ai: bool?, paid_partnership: bool?):
         requires member
         let id = toInt(work_id)
@@ -63,6 +198,8 @@ app F33D3RSocial:
         check Work(id).author == me "not your work" status 403
         set Work(id).made_with_ai = made_with_ai
         set Work(id).paid_partnership = paid_partnership
+        if exists(d in BrandDeal where d.work == id && (d.status == "live" || d.status == "paid")):
+            set Work(id).paid_partnership = true
     action pinWork(post_id: text):
         requires member
         let id = toInt(post_id)
@@ -86,7 +223,9 @@ app F33D3RSocial:
         if !exists(l in Like where l.work == id && l.account == me):
             add Like { work: id, account: me }
             if Work(id).author != me:
-                add Notification { account: Work(id).author, actor: me, kind: "like", target_type: "work", target_id: id, preview: Work(id).body, amount_uaet: 0, is_read: false, created: now() }
+                let note5 = add Notification { account: Work(id).author, actor: me, kind: "like", target_type: "work", target_id: id, preview: Work(id).body, amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(note5), Work(id).author) to Account(Work(id).author).handle
+                emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == Work(id).author && !nn.is_read)} to Account(Work(id).author).handle
     action unlikeWork(work_id: text):
         requires member
         let id = toInt(work_id)
@@ -111,7 +250,9 @@ app F33D3RSocial:
         if !exists(r in Repost where r.work == id && r.account == me):
             add Repost { work: id, account: me }
             if Work(id).author != me:
-                add Notification { account: Work(id).author, actor: me, kind: "repost", target_type: "work", target_id: id, preview: Work(id).body, amount_uaet: 0, is_read: false, created: now() }
+                let note6 = add Notification { account: Work(id).author, actor: me, kind: "repost", target_type: "work", target_id: id, preview: Work(id).body, amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(note6), Work(id).author) to Account(Work(id).author).handle
+                emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == Work(id).author && !nn.is_read)} to Account(Work(id).author).handle
     action unrepostWork(work_id: text):
         requires member
         let id = toInt(work_id)
@@ -193,15 +334,15 @@ app F33D3RSocial:
         let start = do cursorStart(cursor)
         let ids = list(b.work in Bookmark where b.account == me && b.work < start by work desc limit n)
         let _h2 = do nextCursor(ids, n)
-        return V2BookmarkPageDTO{items: list(V2WorkDTO{id: "" + w, cid: "" + w, author: WorkAuthorDTO{handle: Account(Work(w).author).handle, display_name: Account(Work(w).author).display_name, avatar_url: Account(Work(w).author).avatar_url, is_creator: Account(Work(w).author).is_creator, is_verified: Account(Work(w).author).is_verified, official_type: Account(Work(w).author).official_type, realm: Account(Work(w).author).realm, role: Account(Work(w).author).role_type, is_mutual: false}, body: Work(w).body, kind: Work(w).kind, content_class: Work(w).content_class, content_type: Work(w).kind, created_at: "" + Work(w).created, is_nsfw: Work(w).is_nsfw, is_gore: Work(w).is_gore, is_sensitive: Work(w).is_sensitive, is_pinned: Work(w).is_pinned, is_edited: Work(w).edited, made_with_ai: Work(w).made_with_ai, paid_partnership: Work(w).paid_partnership, comment_gating: Work(w).comment_gating, like_count: count(l in Like where l.work == w), dislike_count: count(l in Dislike where l.work == w), liked_by_viewer: exists(l in Like where l.work == w && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w && l.account == me), bookmark_count: count(b in Bookmark where b.work == w), bookmarked_by_viewer: exists(b in Bookmark where b.work == w && b.account == me), quote_count: count(w2 in Work where w2.quoted == w && !w2.deleted), repost_count: count(r in Repost where r.work == w), reply_count: count(w2 in Work where w2.parent_cid == w && !w2.deleted), purchased_by_viewer: false} in Work where w.id > 0 && contains("" + ids, "" + w.id) by id), all_count: count(b in Bookmark where b.account == me), folder: folder, folders: list(V2BookmarkFolderDTO{id: "" + f.id, name: f.name, position: f.position, count: count(b in Bookmark where b.folder == f.id), created_at: ""} in BookmarkFolder where f.account == me by position), next_cursor: _h2, server_time: "" + now()}
+        return V2BookmarkPageDTO{items: list(workDTO(w, me) in Work where w.id in ids by id), all_count: count(b in Bookmark where b.account == me), folder: folder, folders: list(V2BookmarkFolderDTO{id: "" + f.id, name: f.name, position: f.position, count: count(b in Bookmark where b.folder == f.id), created_at: iso(f.created)} in BookmarkFolder where f.account == me by position), next_cursor: _h2, server_time: iso(now())}
     action bookmarkFolders() -> V2BookmarkFolderListDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return V2BookmarkFolderListDTO{all_count: count(b in Bookmark where b.account == me), folders: list(V2BookmarkFolderDTO{id: "" + f.id, name: f.name, position: f.position, count: count(b in Bookmark where b.folder == f.id), created_at: ""} in BookmarkFolder where f.account == me by position)}
+        return V2BookmarkFolderListDTO{all_count: count(b in Bookmark where b.account == me), folders: list(V2BookmarkFolderDTO{id: "" + f.id, name: f.name, position: f.position, count: count(b in Bookmark where b.folder == f.id), created_at: iso(f.created)} in BookmarkFolder where f.account == me by position)}
     action createBookmarkFolder(name: text, work_id: text?, filter: text?):
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        let fid = add BookmarkFolder { account: me, name: name, position: count(f in BookmarkFolder where f.account == me) }
+        let fid = add BookmarkFolder { account: me, name: name, position: count(f in BookmarkFolder where f.account == me), created: now() }
         let wid = toInt(work_id)
         if wid > 0:
             add Bookmark { work: wid, account: me, folder: fid }
@@ -222,7 +363,9 @@ app F33D3RSocial:
         check target > 0 "no such account" status 404
         if !exists(f in Follow where f.follower == me && f.followee == target):
             add Follow { follower: me, followee: target, created: now() }
-            add Notification { account: target, actor: me, kind: "follow", target_type: "account", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
+            let note7 = add Notification { account: target, actor: me, kind: "follow", target_type: "account", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
+            emit notification notificationV1(Notification(note7), target) to Account(target).handle
+            emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == target && !nn.is_read)} to Account(target).handle
     action unfollow(target_handle: text?, target_pial: text?, source: text?):
         requires member
         let me = max(a.id in Account where a.handle == actor)
@@ -267,16 +410,17 @@ app F33D3RSocial:
         let target = max(a.id in Account where a.handle == target_handle)
         remove c in Circle where c.account == me && c.target == target
 
-    action getUsers(handles: text) -> [V2AccountDTO]:
+    action getUsers(handles: [text]) -> V2PageOfV2AccountDTO:
+        check len(handles) >= 1 && len(handles) <= 100 "between 1 and 100 handles are required" status 400 code "handles_required"
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return list(V2AccountDTO{handle: Account(a.id).handle, display_name: Account(a.id).display_name, avatar_url: Account(a.id).avatar_url, header_url: Account(a.id).header_url, bio: Account(a.id).bio, location: Account(a.id).location, location_label: Account(a.id).location, website: Account(a.id).website, pronouns: Account(a.id).pronouns, accent_hex: Account(a.id).accent_hex, theme_id: Account(a.id).theme_id, official_type: Account(a.id).official_type, account_label: Account(a.id).account_label, is_private: Account(a.id).is_private, is_creator: Account(a.id).is_creator, is_verified: Account(a.id).is_verified, realm: Account(a.id).realm, realm_name: "aethyr", role: Account(a.id).role_type, xp: Account(a.id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == a.id && !w.deleted), follower_count: count(f in Follow where f.followee == a.id), following_count: count(f in Follow where f.follower == a.id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == a.id)} in Account where contains(handles, a.handle) by id)
+        return V2PageOfV2AccountDTO{items: list(accountDTO(a, me) in Account where a.handle in handles && !a.deactivated by id), next_cursor: "", server_time: iso(now())}
     action getProfile(handle: text) -> V2ProfileDTO:
         requires member
         check exists(a in Account where a.handle == handle) "no such user" status 404
         let id = max(a.id in Account where a.handle == handle)
         let me = max(a.id in Account where a.handle == actor)
-        return V2ProfileDTO{account: V2AccountDTO{handle: Account(id).handle, display_name: Account(id).display_name, avatar_url: Account(id).avatar_url, header_url: Account(id).header_url, bio: Account(id).bio, location: Account(id).location, location_label: Account(id).location, website: Account(id).website, pronouns: Account(id).pronouns, accent_hex: Account(id).accent_hex, theme_id: Account(id).theme_id, official_type: Account(id).official_type, account_label: Account(id).account_label, is_private: Account(id).is_private, is_creator: Account(id).is_creator, is_verified: Account(id).is_verified, realm: Account(id).realm, realm_name: "aethyr", role: Account(id).role_type, xp: Account(id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == id && !w.deleted), follower_count: count(f in Follow where f.followee == id), following_count: count(f in Follow where f.follower == id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == id)}, viewer_follows: exists(f in Follow where f.follower == me && f.followee == id), follows_viewer: exists(f in Follow where f.follower == id && f.followee == me), viewer_is_blocked: exists(b in Block where b.account == id && b.target == me)}
+        return V2ProfileDTO{account: accountDTO(Account(id), me), viewer_follows: exists(f in Follow where f.follower == me && f.followee == id), follows_viewer: exists(f in Follow where f.follower == id && f.followee == me), viewer_is_blocked: exists(b in Block where b.account == id && b.target == me)}
     action getFollowers(handle: text, cursor: text?, limit: int?, active: text?) -> V2AccountsPageDTO:
         requires member
         check exists(a in Account where a.handle == handle) "no such user" status 404
@@ -286,7 +430,7 @@ app F33D3RSocial:
         let start = do cursorStart(cursor)
         let ids = list(f.follower in Follow where f.followee == id && f.follower < start by follower desc limit n)
         let _h5 = do nextCursor(ids, n)
-        return V2AccountsPageDTO{items: list(V2AccountDTO{handle: Account(a.id).handle, display_name: Account(a.id).display_name, avatar_url: Account(a.id).avatar_url, header_url: Account(a.id).header_url, bio: Account(a.id).bio, location: Account(a.id).location, location_label: Account(a.id).location, website: Account(a.id).website, pronouns: Account(a.id).pronouns, accent_hex: Account(a.id).accent_hex, theme_id: Account(a.id).theme_id, official_type: Account(a.id).official_type, account_label: Account(a.id).account_label, is_private: Account(a.id).is_private, is_creator: Account(a.id).is_creator, is_verified: Account(a.id).is_verified, realm: Account(a.id).realm, realm_name: "aethyr", role: Account(a.id).role_type, xp: Account(a.id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == a.id && !w.deleted), follower_count: count(f in Follow where f.followee == a.id), following_count: count(f in Follow where f.follower == a.id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == a.id)} in Account where contains("" + ids, "" + a.id) by id), active_count: 0, active_only: false, next_cursor: _h5, server_time: "" + now()}
+        return V2AccountsPageDTO{items: list(accountDTO(a, me) in Account where a.id in ids by id), active_count: 0, active_only: false, next_cursor: _h5, server_time: iso(now())}
     action getFollowing(handle: text, cursor: text?, limit: int?, active: text?) -> V2AccountsPageDTO:
         requires member
         check exists(a in Account where a.handle == handle) "no such user" status 404
@@ -296,23 +440,40 @@ app F33D3RSocial:
         let start = do cursorStart(cursor)
         let ids = list(f.followee in Follow where f.follower == id && f.followee < start by followee desc limit n)
         let _h6 = do nextCursor(ids, n)
-        return V2AccountsPageDTO{items: list(V2AccountDTO{handle: Account(a.id).handle, display_name: Account(a.id).display_name, avatar_url: Account(a.id).avatar_url, header_url: Account(a.id).header_url, bio: Account(a.id).bio, location: Account(a.id).location, location_label: Account(a.id).location, website: Account(a.id).website, pronouns: Account(a.id).pronouns, accent_hex: Account(a.id).accent_hex, theme_id: Account(a.id).theme_id, official_type: Account(a.id).official_type, account_label: Account(a.id).account_label, is_private: Account(a.id).is_private, is_creator: Account(a.id).is_creator, is_verified: Account(a.id).is_verified, realm: Account(a.id).realm, realm_name: "aethyr", role: Account(a.id).role_type, xp: Account(a.id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == a.id && !w.deleted), follower_count: count(f in Follow where f.followee == a.id), following_count: count(f in Follow where f.follower == a.id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == a.id)} in Account where contains("" + ids, "" + a.id) by id), active_count: 0, active_only: false, next_cursor: _h6, server_time: "" + now()}
-    action getUserWorks(handle: text, tab: text?, sort: text?, limit: int?, cursor: text?) -> [V2WorkDTO]:
+        return V2AccountsPageDTO{items: list(accountDTO(a, me) in Account where a.id in ids by id), active_count: 0, active_only: false, next_cursor: _h6, server_time: iso(now())}
+    # A profile's works by tab, newest first: works (top-level posts), replies,
+    # media, and the owner-only likes/saves. Every tab pages by work id.
+    action getUserWorks(handle: text, tab: text?, sort: text?, limit: int?, cursor: text?) -> V2PageOfV2WorkDTO:
         requires member
         check exists(a in Account where a.handle == handle) "no such user" status 404
         let id = max(a.id in Account where a.handle == handle)
         let me = max(a.id in Account where a.handle == actor)
+        let t = do orText(tab, "works")
+        check t == "works" || t == "replies" || t == "media" || t == "likes" || t == "saves" "no such tab" status 400 code "unknown_tab"
+        check t != "likes" || id == me "Nobody but @{handle} can see what they have liked." status 403 code "likes_private"
+        check t != "saves" || id == me "Saves are private." status 403 code "saves_private"
+        check !Account(id).is_private || id == me || exists(f in Follow where f.follower == me && f.followee == id) "This account is private." status 403 code "private_account"
         let n = do pageSize(limit, 20, 50)
         let start = do cursorStart(cursor)
-        return list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where w.author == id && !w.deleted && w.id < start by id desc limit n)
-    action getBlocks() -> [V2AccountDTO]:
+        if t == "likes":
+            let liked = list(l.work in Like where l.account == id && l.work < start by work desc limit n)
+            let likedNext = do nextCursor(liked, n)
+            return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in liked && !w.deleted by id desc), next_cursor: likedNext, server_time: iso(now())}
+        if t == "saves":
+            let saved = list(b.work in Bookmark where b.account == id && b.work < start by work desc limit n)
+            let savedNext = do nextCursor(saved, n)
+            return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in saved && !w.deleted by id desc), next_cursor: savedNext, server_time: iso(now())}
+        let own = list(w.id in Work where w.author == id && !w.deleted && w.id < start && ((t == "works" && w.parent_cid == 0) || (t == "replies" && w.parent_cid > 0) || (t == "media" && w.media_urls != "")) by id desc limit n)
+        let next = do nextCursor(own, n)
+        return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in own by id desc), next_cursor: next, server_time: iso(now())}
+    action getBlocks() -> V2PageOfV2AccountDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return list(V2AccountDTO{handle: Account(a.id).handle, display_name: Account(a.id).display_name, avatar_url: Account(a.id).avatar_url, header_url: Account(a.id).header_url, bio: Account(a.id).bio, location: Account(a.id).location, location_label: Account(a.id).location, website: Account(a.id).website, pronouns: Account(a.id).pronouns, accent_hex: Account(a.id).accent_hex, theme_id: Account(a.id).theme_id, official_type: Account(a.id).official_type, account_label: Account(a.id).account_label, is_private: Account(a.id).is_private, is_creator: Account(a.id).is_creator, is_verified: Account(a.id).is_verified, realm: Account(a.id).realm, realm_name: "aethyr", role: Account(a.id).role_type, xp: Account(a.id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == a.id && !w.deleted), follower_count: count(f in Follow where f.followee == a.id), following_count: count(f in Follow where f.follower == a.id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == a.id)} in Account where exists(b in Block where b.account == me && b.target == a.id) by id)
-    action getMutes() -> [V2AccountDTO]:
+        return V2PageOfV2AccountDTO{items: list(accountDTO(a, me) in Account where exists(b in Block where b.account == me && b.target == a.id) by id), next_cursor: "", server_time: iso(now())}
+    action getMutes() -> V2PageOfV2AccountDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return list(V2AccountDTO{handle: Account(a.id).handle, display_name: Account(a.id).display_name, avatar_url: Account(a.id).avatar_url, header_url: Account(a.id).header_url, bio: Account(a.id).bio, location: Account(a.id).location, location_label: Account(a.id).location, website: Account(a.id).website, pronouns: Account(a.id).pronouns, accent_hex: Account(a.id).accent_hex, theme_id: Account(a.id).theme_id, official_type: Account(a.id).official_type, account_label: Account(a.id).account_label, is_private: Account(a.id).is_private, is_creator: Account(a.id).is_creator, is_verified: Account(a.id).is_verified, realm: Account(a.id).realm, realm_name: "aethyr", role: Account(a.id).role_type, xp: Account(a.id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == a.id && !w.deleted), follower_count: count(f in Follow where f.followee == a.id), following_count: count(f in Follow where f.follower == a.id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == a.id)} in Account where exists(m in Mute where m.account == me && m.target == a.id) by id)
+        return V2PageOfV2AccountDTO{items: list(accountDTO(a, me) in Account where exists(m in Mute where m.account == me && m.target == a.id) by id), next_cursor: "", server_time: iso(now())}
 
     action feed(surface: text?, tag: text?, session_id: text?, limit: int?, cursor: text?) -> V2FeedPageDTO:
         requires member
@@ -321,13 +482,13 @@ app F33D3RSocial:
         let start = do cursorStart(cursor)
         let ids = list(w.id in Work where w.id < start && !w.deleted by id desc limit n)
         let _h7 = do nextCursor(ids, n)
-        return V2FeedPageDTO{items: list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where contains("" + ids, "" + w.id) by id desc), next_cursor: _h7, server_time: "" + now(), live_count: 0}
+        return V2FeedPageDTO{items: list(workDTO(w, me) in Work where w.id in ids by id desc), next_cursor: _h7, server_time: iso(now()), live_count: 0}
     action feedChanges(surface: text?, since: text, limit: int?) -> V2FeedPageDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         let sinceId = toInt(since)
         let n = do pageSize(limit, 20, 50)
-        return V2FeedPageDTO{items: list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where w.id > sinceId && !w.deleted by id desc limit n), next_cursor: "", server_time: "" + now()}
+        return V2FeedPageDTO{items: list(workDTO(w, me) in Work where w.id > sinceId && !w.deleted by id desc limit n), next_cursor: "", server_time: iso(now())}
 
     action notifications(tab: text?, limit: int?, cursor: text?) -> V2NotificationsPageDTO:
         requires member
@@ -337,25 +498,64 @@ app F33D3RSocial:
         let ids = list(x.id in Notification where x.account == me && x.id < start by id desc limit n)
         let _h8 = do nextCursor(ids, n)
         let _h9 = do orText(tab, "all")
-        return V2NotificationsPageDTO{items: list(V2NotificationDTO{id: "" + x.id, kind: x.kind, target_type: x.target_type, target_id: "" + x.target_id, preview: x.preview, amount_uaet: x.amount_uaet, is_read: x.is_read, created_at: "" + x.created, actor_count: 1, actors: [WorkAuthorDTO{handle: Account(x.actor).handle, display_name: Account(x.actor).display_name, avatar_url: Account(x.actor).avatar_url, is_creator: Account(x.actor).is_creator, is_verified: Account(x.actor).is_verified, official_type: Account(x.actor).official_type, realm: Account(x.actor).realm, role: Account(x.actor).role_type, is_mutual: false}]} in Notification where contains("" + ids, "" + x.id) by id desc), next_cursor: _h8, server_time: "" + now(), tab: _h9, unread_count: count(x in Notification where x.account == me && !x.is_read)}
+        return V2NotificationsPageDTO{items: list(V2NotificationDTO{id: "" + x.id, kind: x.kind, target_type: x.target_type, target_id: "" + x.target_id, preview: x.preview, amount_uaet: x.amount_uaet, is_read: x.is_read, created_at: iso(x.created), actor_count: 1, actors: [accountDTO(Account(x.actor), me)]} in Notification where x.id in ids by id desc), next_cursor: _h8, server_time: iso(now()), tab: _h9, unread_count: count(x in Notification where x.account == me && !x.is_read)}
     action notificationsChanges(since: text, tab: text?, limit: int?) -> V2NotificationsPageDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         let sinceId = toInt(since)
         let n = do pageSize(limit, 20, 50)
         let _h10 = do orText(tab, "all")
-        return V2NotificationsPageDTO{items: list(V2NotificationDTO{id: "" + x.id, kind: x.kind, target_type: x.target_type, target_id: "" + x.target_id, preview: x.preview, amount_uaet: x.amount_uaet, is_read: x.is_read, created_at: "" + x.created, actor_count: 1, actors: [WorkAuthorDTO{handle: Account(x.actor).handle, display_name: Account(x.actor).display_name, avatar_url: Account(x.actor).avatar_url, is_creator: Account(x.actor).is_creator, is_verified: Account(x.actor).is_verified, official_type: Account(x.actor).official_type, realm: Account(x.actor).realm, role: Account(x.actor).role_type, is_mutual: false}]} in Notification where x.account == me && x.id > sinceId by id desc limit n), next_cursor: "", server_time: "" + now(), tab: _h10, unread_count: count(x in Notification where x.account == me && !x.is_read)}
+        return V2NotificationsPageDTO{items: list(V2NotificationDTO{id: "" + x.id, kind: x.kind, target_type: x.target_type, target_id: "" + x.target_id, preview: x.preview, amount_uaet: x.amount_uaet, is_read: x.is_read, created_at: iso(x.created), actor_count: 1, actors: [accountDTO(Account(x.actor), me)]} in Notification where x.account == me && x.id > sinceId by id desc limit n), next_cursor: "", server_time: iso(now()), tab: _h10, unread_count: count(x in Notification where x.account == me && !x.is_read)}
+    # Only the caller's own row is marked; their badge follows on every
+    # connection they have open.
     action notifRead(notif_id: text):
         requires member
-        set Notification(toInt(notif_id)).is_read = true
+        let me = max(a.id in Account where a.handle == actor)
+        let nid = toInt(notif_id)
+        check notif_id != "" "notif_id required" status 400
+        check exists(x in Notification where x.id == nid && x.account == me) "notification not found" status 404
+        set Notification(nid).is_read = true
+        emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == me && !nn.is_read)} to actor
     action notifReadAll():
         requires member
         let me = max(a.id in Account where a.handle == actor)
         for x in Notification where x.account == me && !x.is_read:
             set Notification(x.id).is_read = true
+        emit notify NotifyEventDTO{unread: 0} to actor
 
-    action tagsTrending() -> [TagDTO]:
-        return []
+    # A body's #hashtags: each `#` followed by letters, digits or `_`,
+    # lowercased, without the `#`, each once, in order of first use.
+    proc hashtags(body: text) -> [text]:
+        let mut out = []
+        let mut i = 0
+        let n = len(body)
+        loop i < n:
+            if charAt(body, i) == "#":
+                let mut j = i + 1
+                loop j < n && contains("abcdefghijklmnopqrstuvwxyz0123456789_", lower(charAt(body, j))):
+                    j = j + 1
+                if j > i + 1:
+                    let tag = lower(slice(body, i + 1, j))
+                    let mut seen = false
+                    let mut k = 0
+                    loop k < len(out):
+                        if out[k] == tag:
+                            seen = true
+                        k = k + 1
+                    if !seen:
+                        out = append(out, tag)
+                i = j
+            else:
+                i = i + 1
+        return out
+
+    # GET /api/v2/tags/trending — the 12 tags on the most live works of the
+    # last 7 days, most used first (the legacy query, over WorkTag rows).
+    action tagsTrending() -> V2PageOfTagDTO:
+        requires member
+        let since = now() - 604800
+        let items = list(TagDTO{tag: t.tag, count: count(x in WorkTag where x.tag == t.tag && x.created > since && !Work(x.work).deleted)} in WorkTag where t.created > since && !Work(t.work).deleted && t.id == min(y.id in WorkTag where y.tag == t.tag && y.created > since && !Work(y.work).deleted) by count(x in WorkTag where x.tag == t.tag && x.created > since && !Work(x.work).deleted) desc limit 12)
+        return V2PageOfTagDTO{items: items, next_cursor: "", server_time: iso(now())}
     action followTopic(tag: text):
         requires member
         let me = max(a.id in Account where a.handle == actor)
@@ -365,63 +565,113 @@ app F33D3RSocial:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         remove t in TopicFollow where t.account == me && t.tag == tag
+    # The caller's snoozes in force, soonest to expire first; expired rows
+    # are dropped as they are found.
     action topicSnoozes() -> TopicSnoozesDTO:
         requires member
-        return TopicSnoozesDTO{snoozes: []}
-    action snoozeTopic(tag: text?, surface_id: text?, days: int?, answer: text?):
+        let me = max(a.id in Account where a.handle == actor)
+        let at = now()
+        remove t in TopicSnooze where t.account == me && t.until <= at
+        return topicSnoozesV1(me, at)
+    # A #tag, or a feed surface as a whole (its tags and its own id), hidden
+    # for 7 or 30 days; snoozing again extends, never stacks.
+    action snoozeTopic(tag: text?, surface_id: text?, days: int?, answer: text?) -> TopicSnoozesDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        let d = do daysOr(days, 7)
-        let t = now() + d * 86400
-        add TopicSnooze { account: me, tag: tag, surface_id: surface_id, until: t }
-    action unsnoozeTopic(tag: text?, surface_id: text?, days: int?, answer: text?):
+        let sid = lower(trim(surface_id))
+        let one = seTag(tag)
+        check sid != "" || seValidTag(one) "tag required" status 400
+        check sid == "" || exists(s in FeedSurface where s.slug == sid && s.is_active && s.surface_type == "interest") "unknown surface" status 404
+        check days == 7 || days == 30 "days must be 7 or 30" status 400
+        let covered = seSurfaceTags(max(s.tags in FeedSurface where sid != "" && s.slug == sid), sid)
+        let tags = seTopicSet(sid, covered, one)
+        let at = now()
+        let until = at + days * 86400
+        for t in tags:
+            remove x in TopicSnooze where x.account == me && x.tag == t
+            add TopicSnooze { account: me, tag: t, surface_id: sid, until: until }
+        remove t in TopicSnooze where t.account == me && t.until <= at
+        return topicSnoozesV1(me, at)
+    action unsnoozeTopic(tag: text?, surface_id: text?, days: int?, answer: text?) -> TopicSnoozesDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        remove t in TopicSnooze where t.account == me && t.tag == tag
+        let sid = lower(trim(surface_id))
+        let one = seTag(tag)
+        check sid != "" || seValidTag(one) "tag required" status 400
+        check sid == "" || exists(s in FeedSurface where s.slug == sid && s.is_active && s.surface_type == "interest") "unknown surface" status 404
+        let covered = seSurfaceTags(max(s.tags in FeedSurface where sid != "" && s.slug == sid), sid)
+        let tags = seTopicSet(sid, covered, one)
+        let at = now()
+        for t in tags:
+            remove x in TopicSnooze where x.account == me && x.tag == t
+        remove t in TopicSnooze where t.account == me && t.until <= at
+        return topicSnoozesV1(me, at)
 
     action search(q: text, type: text?, sort: text?, page: int?) -> V2SearchDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return V2SearchDTO{works: list(V2WorkDTO{id: "" + w.id, cid: "" + w.id, author: WorkAuthorDTO{handle: Account(Work(w.id).author).handle, display_name: Account(Work(w.id).author).display_name, avatar_url: Account(Work(w.id).author).avatar_url, is_creator: Account(Work(w.id).author).is_creator, is_verified: Account(Work(w.id).author).is_verified, official_type: Account(Work(w.id).author).official_type, realm: Account(Work(w.id).author).realm, role: Account(Work(w.id).author).role_type, is_mutual: false}, body: Work(w.id).body, kind: Work(w.id).kind, content_class: Work(w.id).content_class, content_type: Work(w.id).kind, created_at: "" + Work(w.id).created, is_nsfw: Work(w.id).is_nsfw, is_gore: Work(w.id).is_gore, is_sensitive: Work(w.id).is_sensitive, is_pinned: Work(w.id).is_pinned, is_edited: Work(w.id).edited, made_with_ai: Work(w.id).made_with_ai, paid_partnership: Work(w.id).paid_partnership, comment_gating: Work(w.id).comment_gating, like_count: count(l in Like where l.work == w.id), dislike_count: count(l in Dislike where l.work == w.id), liked_by_viewer: exists(l in Like where l.work == w.id && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == w.id && l.account == me), bookmark_count: count(b in Bookmark where b.work == w.id), bookmarked_by_viewer: exists(b in Bookmark where b.work == w.id && b.account == me), quote_count: count(w2 in Work where w2.quoted == w.id && !w2.deleted), repost_count: count(r in Repost where r.work == w.id), reply_count: count(w2 in Work where w2.parent_cid == w.id && !w2.deleted), purchased_by_viewer: false} in Work where contains(lower(w.body), lower(q)) && !w.deleted by id desc limit 20), people: list(V2AccountDTO{handle: Account(a.id).handle, display_name: Account(a.id).display_name, avatar_url: Account(a.id).avatar_url, header_url: Account(a.id).header_url, bio: Account(a.id).bio, location: Account(a.id).location, location_label: Account(a.id).location, website: Account(a.id).website, pronouns: Account(a.id).pronouns, accent_hex: Account(a.id).accent_hex, theme_id: Account(a.id).theme_id, official_type: Account(a.id).official_type, account_label: Account(a.id).account_label, is_private: Account(a.id).is_private, is_creator: Account(a.id).is_creator, is_verified: Account(a.id).is_verified, realm: Account(a.id).realm, realm_name: "aethyr", role: Account(a.id).role_type, xp: Account(a.id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == a.id && !w.deleted), follower_count: count(f in Follow where f.followee == a.id), following_count: count(f in Follow where f.follower == a.id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == a.id)} in Account where contains(lower(a.handle), lower(q)) by id limit 20), tags: [], articles: [], communities: [], music: [], live: [], total: count(w in Work where contains(lower(w.body), lower(q)) && !w.deleted), did_you_mean: "", typo: false}
+        return V2SearchDTO{works: list(workDTO(w, me) in Work where contains(lower(w.body), lower(q)) && !w.deleted by id desc limit 20), people: list(accountDTO(a, me) in Account where contains(lower(a.handle), lower(q)) by id limit 20), tags: [], articles: [], communities: [], music: [], live: [], total: count(w in Work where contains(lower(w.body), lower(q)) && !w.deleted), did_you_mean: "", typo: false}
     action searchHistory() -> SearchHistoryDTO:
         requires member
-        return SearchHistoryDTO{recent: []}
+        let me = max(a.id in Account where a.handle == actor)
+        return searchHistoryV1(me)
     action searchSaved() -> SavedSearchListDTO:
         requires member
-        return SavedSearchListDTO{max: 20, saved: []}
+        let me = max(a.id in Account where a.handle == actor)
+        return savedSearchListV1(me)
     action searchSuggest(q: text?, type: text?) -> V2SearchSuggestDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         let _h11 = do orText(q, "")
         let _h12 = do orText(q, "")
-        return V2SearchSuggestDTO{query: _h11, people: list(V2AccountDTO{handle: Account(a.id).handle, display_name: Account(a.id).display_name, avatar_url: Account(a.id).avatar_url, header_url: Account(a.id).header_url, bio: Account(a.id).bio, location: Account(a.id).location, location_label: Account(a.id).location, website: Account(a.id).website, pronouns: Account(a.id).pronouns, accent_hex: Account(a.id).accent_hex, theme_id: Account(a.id).theme_id, official_type: Account(a.id).official_type, account_label: Account(a.id).account_label, is_private: Account(a.id).is_private, is_creator: Account(a.id).is_creator, is_verified: Account(a.id).is_verified, realm: Account(a.id).realm, realm_name: "aethyr", role: Account(a.id).role_type, xp: Account(a.id).xp, online: false, active_recently: true, post_count: count(w in Work where w.author == a.id && !w.deleted), follower_count: count(f in Follow where f.followee == a.id), following_count: count(f in Follow where f.follower == a.id), viewer_follows: exists(f in Follow where f.follower == me && f.followee == a.id)} in Account where contains(lower(a.handle), lower(_h12)) by id limit 5), tags: [], suggestions: []}
-    action searchHistoryClear():
+        return V2SearchSuggestDTO{query: _h11, people: list(accountDTO(a, me) in Account where contains(lower(a.handle), lower(_h12)) by id limit 5), tags: [], suggestions: []}
+    # Searches are keyed case-folded with their whitespace collapsed: "NFL
+    # Draft" and " nfl  draft" are one search. Each answers the list re-read.
+    action searchHistoryClear() -> SearchHistoryDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         remove h in SearchHistoryEntry where h.account == me
-    action searchHistoryForget(query: text):
+        return searchHistoryV1(me)
+    action searchHistoryForget(query: text) -> SearchHistoryDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        remove h in SearchHistoryEntry where h.account == me && h.query == query
-    action searchSave(query: text, type: text?, name: text?):
+        let key = lower(seSearchNorm(query))
+        remove h in SearchHistoryEntry where h.account == me && lower(h.query) == key
+        return searchHistoryV1(me)
+    # Keep a search (at most 50); keeping one already kept for that lane
+    # answers the list as it stands. A name keeps 40 characters.
+    action searchSave(query: text, type: text?, name: text?) -> SavedSearchListDTO:
         requires member
-        check query != "" "a query is required"
         let me = max(a.id in Account where a.handle == actor)
-        add SavedSearch { account: me, query: query, lane: type, name: name, created: now() }
-    action searchUnsave(id: text?, query: text?, type: text?):
+        let q = seSearchNorm(query)
+        check q != "" "type something to save" status 400
+        let lane = seLane(type)
+        if !exists(s in SavedSearch where s.account == me && lower(s.query) == lower(q) && s.lane == lane):
+            check count(s in SavedSearch where s.account == me) < 50 "you can keep up to 50 saved searches" status 400
+            add SavedSearch { account: me, query: q, lane: lane, name: seTruncate(trim(name), 40), created: now(), last_seen: now() }
+        return savedSearchListV1(me)
+    # Drop one of the caller's saved searches, by id or by query + lane.
+    action searchUnsave(id: text?, query: text?, type: text?) -> SavedSearchListDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
+        let key = lower(seSearchNorm(query))
+        let lane = seLane(type)
         let sid = toInt(id)
-        if sid > 0:
-            remove SavedSearch(sid)
-        else:
-            remove s in SavedSearch where s.account == me && s.query == query
+        let found = max(s.id in SavedSearch where s.account == me && ((id != "" && s.id == sid) || (id == "" && lower(s.query) == key && s.lane == lane)))
+        check found > 0 "saved search not found" status 404
+        remove SavedSearch(found)
+        return savedSearchListV1(me)
 
-    action history(limit: int?, cursor: text?) -> [V2HistoryEntryDTO]:
+    # Most recently viewed first; the cursor is the viewed instant of the last
+    # entry on the previous page.
+    action history(limit: int?, cursor: text?) -> V2PageOfV2HistoryEntryDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         let n = do pageSize(limit, 20, 50)
-        return list(V2HistoryEntryDTO{viewed_at: "" + h.viewed, work: V2WorkDTO{id: "" + h.work, cid: "" + h.work, author: WorkAuthorDTO{handle: Account(Work(h.work).author).handle, display_name: Account(Work(h.work).author).display_name, avatar_url: Account(Work(h.work).author).avatar_url, is_creator: Account(Work(h.work).author).is_creator, is_verified: Account(Work(h.work).author).is_verified, official_type: Account(Work(h.work).author).official_type, realm: Account(Work(h.work).author).realm, role: Account(Work(h.work).author).role_type, is_mutual: false}, body: Work(h.work).body, kind: Work(h.work).kind, content_class: Work(h.work).content_class, content_type: Work(h.work).kind, created_at: "" + Work(h.work).created, is_nsfw: Work(h.work).is_nsfw, is_gore: Work(h.work).is_gore, is_sensitive: Work(h.work).is_sensitive, is_pinned: Work(h.work).is_pinned, is_edited: Work(h.work).edited, made_with_ai: Work(h.work).made_with_ai, paid_partnership: Work(h.work).paid_partnership, comment_gating: Work(h.work).comment_gating, like_count: count(l in Like where l.work == h.work), dislike_count: count(l in Dislike where l.work == h.work), liked_by_viewer: exists(l in Like where l.work == h.work && l.account == me), disliked_by_viewer: exists(l in Dislike where l.work == h.work && l.account == me), bookmark_count: count(b in Bookmark where b.work == h.work), bookmarked_by_viewer: exists(b in Bookmark where b.work == h.work && b.account == me), quote_count: count(w2 in Work where w2.quoted == h.work && !w2.deleted), repost_count: count(r in Repost where r.work == h.work), reply_count: count(w2 in Work where w2.parent_cid == h.work && !w2.deleted), purchased_by_viewer: false}} in History where h.account == me by viewed desc limit n)
+        let start = do cursorStart(cursor)
+        let seen = list(h.viewed in History where h.account == me && h.viewed < start by viewed desc limit n)
+        let next = do nextCursor(seen, n)
+        return V2PageOfV2HistoryEntryDTO{items: list(V2HistoryEntryDTO{viewed_at: iso(h.viewed), work: workDTO(Work(h.work), me)} in History where h.account == me && h.viewed < start && !Work(h.work).deleted by viewed desc limit n), next_cursor: next, server_time: iso(now())}
     action historyClear():
         requires member
         let me = max(a.id in Account where a.handle == actor)
@@ -433,3 +683,29 @@ app F33D3RSocial:
         add ViewEvent { work: wid, account: me, seconds: round(seconds), created: now() }
         if !exists(h in History where h.account == me && h.work == wid):
             add History { account: me, work: wid, viewed: now() }
+
+    # This module's HTTP surface (merged into the app with the rest of it).
+    api GET "/api/v2/works/{id}" -> getWork rate read since "2026-09-18"
+    api GET "/api/v2/works" -> getWorks rate read since "2026-09-18"
+    api GET "/api/v2/works/{id}/replies" -> getWorkReplies rate read since "2026-09-18"
+    api GET "/api/v2/works/{id}/quotes" -> getWorkQuotes rate read since "2026-09-18"
+    api GET "/api/v2/feed" -> feed rate read since "2026-09-18"
+    api GET "/api/v2/feed/changes" -> feedChanges rate read since "2026-09-18"
+    api GET "/api/v2/notifications" -> notifications rate read since "2026-09-18"
+    api GET "/api/v2/notifications/changes" -> notificationsChanges rate read since "2026-09-18"
+    api GET "/api/v2/tags/trending" -> tagsTrending rate read since "2026-09-18"
+    api GET "/api/v2/topics/snoozes" -> topicSnoozes rate read since "2026-09-18"
+    api GET "/api/v2/search" -> search rate read since "2026-09-18"
+    api GET "/api/v2/search/history" -> searchHistory rate read since "2026-09-18"
+    api GET "/api/v2/search/saved" -> searchSaved rate read since "2026-09-18"
+    api GET "/api/v2/search/suggest" -> searchSuggest rate read since "2026-09-18"
+    api GET "/api/v2/history" -> history rate read since "2026-09-18"
+    api GET "/api/v2/me/blocks" -> getBlocks rate read since "2026-09-18"
+    api GET "/api/v2/me/mutes" -> getMutes rate read since "2026-09-18"
+    api GET "/api/v2/users" -> getUsers rate read since "2026-09-18"
+    api GET "/api/v2/users/{handle}" -> getProfile rate read since "2026-09-20"
+    api GET "/api/v2/users/{handle}/followers" -> getFollowers rate read since "2026-09-18"
+    api GET "/api/v2/users/{handle}/following" -> getFollowing rate read since "2026-09-18"
+    api GET "/api/v2/users/{handle}/works" -> getUserWorks rate read since "2026-09-18"
+    api GET "/api/v2/bookmarks" -> bookmarksPage rate read since "2026-09-18"
+    api GET "/api/v2/bookmarks/folders" -> bookmarkFolders rate read since "2026-09-18"

@@ -44,7 +44,8 @@ app F33D3RLive:
         id: int
         stream: Stream
         owner: text
-        key: text @secret
+        key: text @secret @requires(member)
+        read: owner == actor
     entity Chat:
         id: int
         stream: Stream

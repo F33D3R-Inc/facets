@@ -1,0 +1,1131 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+import "messaging.fct"
+import "misc.fct"
+# The account's own lane on POST /events: lifecycle (delete, deactivate,
+# rename, password), the settings toggles, the security events (2FA, sessions,
+# step-up, switching accounts), Numbers and contact, the plaintext messaging
+# vocabulary, and this device's push subscription.
+app F33D3RAccount:
+    # A queued deletion: the deletion itself is deferred (2257 records outlive
+    # the account), so what the request writes is the pending instruction.
+    entity DeletionRequest:
+        id: int
+        account: int
+        reason: text
+        status: text
+        requested: int
+    # One device's Web Push subscription, as the platform issued it.
+    entity PushSubscription:
+        id: int
+        account: int
+        device_id: text
+        endpoint: text
+        p256dh: text
+        auth: text
+        created: int
+        updated: int
+    # A standing permission to contact: `peer` may open conversations with
+    # `owner` whatever the owner's policy says (an accepted request writes one).
+    entity ContactGrant:
+        id: int
+        owner: int
+        peer: int
+        source: text
+        created: int
+    # A message written to someone who has not (yet) let the sender in: held
+    # until a contact request is accepted or a Number opens the door.
+    # decision: request | deny | unavailable.
+    entity HeldMessage:
+        id: int
+        sender: int
+        target: int
+        body: text
+        decision: text
+        created: int
+    # A paid_only DM unlock: `payer` paid `creator` once (charge_mode one_time).
+    entity DmUnlock:
+        id: int
+        creator: int
+        payer: int
+        created: int
+    # An account bound to a person's identity (their PIAL, named by the id of
+    # the account that holds it): the accounts a session may switch between.
+    entity AccountBinding:
+        id: int
+        pial: int
+        account: int
+        status: text
+        created: int
+    # A PIAL's Stripe Connect payout account as Themis reports it: the last
+    # onboarding link Themis handed out (step_up.verify then=payout.onboard)
+    # and whether Stripe has enabled payouts on it (Themis's account.updated
+    # relay, payoutStatusChanged) — legacy user_profiles.stripe_payouts_enabled,
+    # the "Stripe Connect account with payouts enabled" behind HasPayoutMethod.
+    entity PayoutAccount:
+        id: int
+        pial: int
+        onboarding_url: text
+        onboarding_requested: int
+        payouts_enabled: bool
+        status_updated: int
+
+    # Themis, the payments brain: it owns the Stripe Connect accounts. Legacy
+    # walletPayoutOnboardStart posts {pial_id} to
+    # $THEMIS_URL/v1/payouts/connect/onboard and follows the onboarding_url
+    # it answers (a Stripe-hosted account link). THEMIS_PAYOUTS_URL points a
+    # deployment at its Themis; the call carries X-Internal-Key as legacy's did.
+    service Themis at "http://themis:8100/v1/payouts/connect" env THEMIS_PAYOUTS_URL header "X-Internal-Key" env INTERNAL_API_KEY:
+        onboard(pial_id: text) -> ThemisOnboarding
+    record ThemisOnboarding:
+        onboarding_url: text
+
+    # ── Rules, one definition each ───────────────────────────────────────────
+
+    # Signup's handle rule: 1–30 of letters, digits, underscore, hyphen.
+    proc handleOk(h: text) -> bool:
+        let n = len(h)
+        if n < 1 || n > 30:
+            return false
+        let mut i = 0
+        loop i < n:
+            if !contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", charAt(h, i)):
+                return false
+            i = i + 1
+        return true
+    # Top-level path segments owned by real routes (profiles live at /{handle}).
+    proc reservedHandle(h: text) -> bool:
+        return contains("|onboard|login|logout|signin|signup|register|auth|oauth|deactivated|forgot-password|backup-codes|kyc|verity|explore|music|create|nsfw|video|visions|works|work|communities|lists|spheres|spaces|marketplace|buyer-library|notifications|messages|bookmarks|profile|settings|search|wallet|post|feed|shop|stocks|events|library|ledger|upload|react-video|tag|org|achievements|analytics|leaderboard|ainsoph|thessalon|api|static|media|facets|partials|_atlas|u|admin|article|articles|sw|robots|sitemap|favicon|assets|app|www|legal|privacy|terms|dmca|about|help|support|home|root|", "|" + lower(h) + "|")
+    proc charsIn(s: text, alphabet: text) -> bool:
+        let mut i = 0
+        loop i < len(s):
+            if !contains(alphabet, charAt(s, i)):
+                return false
+            i = i + 1
+        return true
+    proc isTheme(id: text) -> bool:
+        return id == "void" || id == "aurora" || id == "sakura" || id == "obsidian" || id == "moss" || id == "dusk"
+    proc isAccentHex(v: text) -> bool:
+        return len(v) == 7 && charAt(v, 0) == "#" && charsIn(slice(v, 1, 7), "0123456789abcdefABCDEF")
+    # An uploaded image the profile may point at: a path this platform serves.
+    proc isPlatformPath(v: text) -> bool:
+        if v == "":
+            return true
+        return charAt(v, 0) == "/" && charAt(v, 1) != "/" && !contains(v, "..")
+    proc isVisibility(v: text) -> bool:
+        return v == "everyone" || v == "followers" || v == "mutual_followers" || v == "only_me"
+    proc visibilityOr(v: text, fallback: text) -> text:
+        if isVisibility(v):
+            return v
+        return fallback
+    proc labelOr(v: text) -> text:
+        if v == "":
+            return "none"
+        return v
+    proc idText(n: int) -> text:
+        if n <= 0:
+            return ""
+        return "" + n
+    proc expiresAt(created: int, ttl: int) -> int:
+        if ttl <= 0:
+            return 0
+        return created + ttl
+    # A handle as typed into a composer: "@ada" and " ada " are ada.
+    proc messageHandle(h: text) -> text:
+        let t = lower(trim(h))
+        if charAt(t, 0) == "@":
+            return slice(t, 1, len(t))
+        return t
+
+    # A flag sent as json (a JSON bool, or form text): true, 1, on, yes.
+    proc truthy(v: json) -> bool:
+        let s = lower("" + v)
+        return s == "true" || s == "1" || s == "on" || s == "yes"
+    proc wholeText(s: text) -> bool:
+        return s != "" && charsIn(s, "0123456789")
+    # A present hour, 0–23 ("" when absent or not an hour: leave it as it is).
+    proc hourText(v: json) -> text:
+        let s = trim("" + v)
+        if !wholeText(s) || toInt(s) > 23:
+            return ""
+        return "" + toInt(s)
+
+    # The profile's link maps, built as JSON text with blank values dropped.
+    proc linkEntry(acc: text, k: text, v: text) -> text:
+        let t = trim(v)
+        if t == "":
+            return acc
+        let pair = canonicalJson(k) + ":" + canonicalJson(t)
+        if acc == "":
+            return pair
+        return acc + "," + pair
+    proc stripPrefix(v: text, p: text) -> text:
+        if p != "" && lower(slice(v, 0, len(p))) == lower(p):
+            return slice(v, len(p), len(v))
+        return v
+    # A tip handle in its stored form: known URL and sigil prefixes removed,
+    # then held to the tip-handle alphabet; anything else is dropped.
+    proc tipHandle(raw: text, p1: text, p2: text, p3: text) -> text:
+        let h0 = trim(raw)
+        let s1 = stripPrefix(h0, p1)
+        let s2 = stripPrefix(h0, p2)
+        let s3 = stripPrefix(h0, p3)
+        let mut h = h0
+        if s3 != h0:
+            h = s3
+        else:
+            if s2 != h0:
+                h = s2
+            else:
+                h = s1
+        h = trim(h)
+        if len(h) < 1 || len(h) > 50 || !charsIn(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."):
+            return ""
+        return h
+    proc btcAddress(raw: text) -> text:
+        let h = trim(raw)
+        let alnum = charsIn(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        if (charAt(h, 0) == "1" || charAt(h, 0) == "3") && len(h) >= 26 && len(h) <= 34 && alnum:
+            return h
+        if slice(h, 0, 3) == "bc1" && len(h) >= 9 && len(h) <= 93 && alnum:
+            return h
+        return ""
+    proc xrpAddress(raw: text) -> text:
+        let h = trim(raw)
+        if charAt(h, 0) == "r" && len(h) >= 25 && len(h) <= 34 && charsIn(slice(h, 1, len(h)), "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"):
+            return h
+        return ""
+
+    # Contact policy: the six words the contact authority knows (elohim-veni
+    # contact::POLICIES); an account that never chose is open.
+    proc isContactPolicy(p: text) -> bool:
+        return p == "open" || p == "followers" || p == "mutuals" || p == "number_only" || p == "capability_only" || p == "closed"
+    # allow opens a conversation; request permits one contact request (the
+    # message is held); deny yields nothing — as does a word that is not a
+    # policy (elohim-veni contact::decide).
+    proc contactVerdict(policy: text, viaNumber: bool, follows: bool, mutual: bool, granted: bool) -> text:
+        if granted:
+            return "allow"
+        let p = policy
+        if p == "open":
+            return "allow"
+        if p == "followers":
+            if follows:
+                return "allow"
+            return "request"
+        if p == "mutuals":
+            if mutual:
+                return "allow"
+            return "request"
+        if p == "number_only":
+            if viaNumber:
+                return "allow"
+            return "request"
+        return "deny"
+
+    # A F33D3R Number: twelve digits, the last a Luhn check digit, written
+    # 0412-8837-2919. numberCanonical folds what a person typed (spaces,
+    # hyphens, underscores, full stops, a number: prefix) into that form, or
+    # answers "" for anything that is not a Number.
+    proc luhnOk(digits: text) -> bool:
+        let mut sum = 0
+        let mut i = len(digits) - 1
+        let mut dbl = false
+        loop i >= 0:
+            let mut d = toInt(charAt(digits, i))
+            if dbl:
+                d = d * 2
+                if d > 9:
+                    d = d - 9
+            sum = sum + d
+            dbl = !dbl
+            i = i - 1
+        return sum % 10 == 0
+    proc numberCanonical(input: text) -> text:
+        let t0 = trim(input)
+        let mut t = t0
+        if lower(slice(t0, 0, 7)) == "number:":
+            t = slice(t0, 7, len(t0))
+        let bare = replace(replace(replace(replace(t, " ", ""), "-", ""), "_", ""), ".", "")
+        if len(bare) != 12 || !charsIn(bare, "0123456789") || !luhnOk(bare):
+            return ""
+        return slice(bare, 0, 4) + "-" + slice(bare, 4, 8) + "-" + slice(bare, 8, 12)
+    proc numberDisplay(canonical: text) -> text:
+        return replace(canonical, "-", " ")
+    proc newNumber() -> text:
+        let mut payload = ""
+        let mut i = 0
+        loop i < 11:
+            payload = payload + rand(10)
+            i = i + 1
+        let mut digit = 0
+        loop digit < 10:
+            if luhnOk(payload + digit):
+                return slice(payload, 0, 4) + "-" + slice(payload, 4, 8) + "-" + slice(payload, 8, 11) + digit
+            digit = digit + 1
+        return ""
+    # Backup codes: XXXX-XXXX-XXXX from the base32 alphabet, eight at a time.
+    proc backupCode() -> text:
+        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        let mut out = ""
+        let mut i = 0
+        loop i < 12:
+            if i == 4 || i == 8:
+                out = out + "-"
+            out = out + charAt(alphabet, rand(32))
+            i = i + 1
+        return out
+    proc freshBackupCodes(n: int) -> [text]:
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            let c = backupCode()
+            out = out + [c]
+            i = i + 1
+        return out
+    # An amount of AET as typed ("12.50") in uAET; -1 when it is not one.
+    proc aetToUaet(v: text) -> int:
+        let s = trim(v)
+        let numeric = charsIn(s, "0123456789.")
+        if s == "" || !numeric || len(split(s, ".")) > 2:
+            return -1
+        return round(toFloat(s) * 1000000.0)
+
+    # ── Response shapes ──────────────────────────────────────────────────────
+
+    # The signed-in account as the v1 lane answers with it.
+    derive meDTO(a: Account): MeDTO = MeDTO{
+        account_id: "" + a.id,
+        pial_id: "" + a.id,
+        handle: a.handle,
+        display_name: a.display_name,
+        bio: a.bio,
+        avatar_url: a.avatar_url,
+        header_url: a.header_url,
+        location: a.location,
+        based_in: a.based_in,
+        website: a.website,
+        pronouns: a.pronouns,
+        accent_hex: a.accent_hex,
+        theme_id: a.theme_id,
+        country_code: a.country_code,
+        official_type: a.official_type,
+        account_label: labelOr(a.account_label),
+        role: a.role_type,
+        is_private: a.is_private,
+        is_creator: a.is_creator,
+        is_adult_creator: a.is_adult_creator,
+        is_verified: a.is_verified,
+        is_adult: a.is_adult,
+        is_age_verified: a.is_age_verified,
+        is_minor: a.is_minor,
+        content_setting: a.content_setting,
+        show_sensitive: a.show_sensitive,
+        celebrations_enabled: a.celebrations_enabled,
+        birthday_md_visibility: visibilityOr(a.birthday_md_visibility, "everyone"),
+        birthday_year_visibility: visibilityOr(a.birthday_year_visibility, "only_me"),
+        has_password: a.has_password,
+        two_fa_enabled: a.two_factor_enabled,
+        kyc_status: a.kyc_status,
+        kyc_submitted_at: iso(a.kyc_submitted_at),
+        payout_enabled: a.payout_enabled,
+        live_frequency_id: idText(max(f.id in Frequency where f.host == a.id && f.state == "live")),
+        xp: a.xp,
+        realm: a.realm,
+        realm_name: "aethyr",
+        online: true,
+        active_recently: true,
+        post_count: count(w in Work where w.author == a.id && !w.deleted),
+        follower_count: count(f in Follow where f.followee == a.id),
+        following_count: count(f in Follow where f.follower == a.id),
+        unread_count: count(n in Notification where n.account == a.id && !n.is_read),
+        tier: a.tier,
+        social_links: fromJson(a.social_links),
+        external_tip_links: fromJson(a.external_tip_links)
+        }
+    # A 1:1 conversation as the v1 lane answers with it, for the member `me`.
+    derive directConversationV1(c: Conversation, me: int): ConversationDTO = ConversationDTO{
+        id: "" + c.id,
+        is_group: c.is_group,
+        title: c.title,
+        mode: c.mode,
+        message_ttl_seconds: c.message_ttl_seconds,
+        last_at: iso(c.last_at),
+        preview: max(x.body in Message where x.id == max(y.id in Message where y.conversation == c.id && !y.deleted)),
+        unread: max(m.unread in ConversationMember where m.conversation == c.id && m.account == me),
+        other_handle: Account(max(m.account in ConversationMember where m.conversation == c.id && m.account != me)).handle,
+        other_display: Account(max(m.account in ConversationMember where m.conversation == c.id && m.account != me)).display_name,
+        other_avatar: Account(max(m.account in ConversationMember where m.conversation == c.id && m.account != me)).avatar_url
+        }
+    # A plaintext message as the v1 lane answers with it, for the viewer `me`.
+    derive messageV1(x: Message, me: int): MessageDTO = MessageDTO{
+        id: "" + x.id,
+        conversation_id: "" + x.conversation,
+        body: x.body,
+        kind: x.kind,
+        mode: Conversation(x.conversation).mode,
+        created_at: iso(x.created),
+        edited_at: iso(x.edited_at),
+        expires_at: iso(expiresAt(x.created, Conversation(x.conversation).message_ttl_seconds)),
+        deleted: x.deleted,
+        is_mine: x.sender == me,
+        sender_account: "" + x.sender,
+        sender_handle: Account(x.sender).handle,
+        sender_display: Account(x.sender).display_name,
+        sender_avatar: Account(x.sender).avatar_url,
+        reply_to_id: idText(x.reply_to),
+        reply_preview: max(r.body in Message where r.id == x.reply_to && !r.deleted),
+        reply_sender_handle: Account(max(r.sender in Message where r.id == x.reply_to)).handle
+        }
+    # Whether `sender` may write to `creator` under the creator's DM access
+    # level, without a payment (paid_only is settled in the send itself).
+    derive dmLevel(owner: int): text = max(d.access_level in DMSettings where d.account == owner)
+    derive dmSubscribed(sender: int, owner: int, floor: float): bool = exists(s in ShopSubscription where s.account == sender && Shop(s.shop).owner == owner && ShopPlan(s.plan).price_aet >= floor)
+
+    # ── Lifecycle ────────────────────────────────────────────────────────────
+
+    # Queues the account's deletion and signs every device out.
+    action accountDelete(reason: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let why = slice(reason, 0, 500)
+        if exists(d in DeletionRequest where d.account == me):
+            for d in DeletionRequest where d.account == me:
+                set DeletionRequest(d.id).status = "pending"
+                set DeletionRequest(d.id).reason = why
+                set DeletionRequest(d.id).requested = now()
+        else:
+            add DeletionRequest { account: me, reason: why, status: "pending", requested: now() }
+        for s in Session where s.account == me:
+            revoke s.sid
+        remove s in Session where s.account == me
+        revoke session
+    # Hides the account until its owner signs in again (signing in reactivates).
+    action deactivateAccount(reason: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).deactivated = true
+        set Account(me).deactivated_reason = reason
+        for s in Session where s.account == me:
+            revoke s.sid
+        remove s in Session where s.account == me
+        revoke session
+    # Renames the caller's own handle, under signup's rules. This session
+    # carries the new handle; the account's other sessions are signed out,
+    # since a session names its account by handle.
+    action handleChange(handle: text) -> MeDTO:
+        requires member
+        let next = trim(handle)
+        check next != "" "handle required" status 400
+        check handleOk(next) "Handle must be 1-30 characters, letters/numbers/underscore/hyphen only." status 400
+        check !reservedHandle(next) "That handle is reserved. Try another." status 400
+        check lower(next) != actor "That's already your handle." status 400
+        check !exists(a in Account where a.handle == lower(next)) "That handle is already taken. Try another." status 409
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).handle = lower(next)
+        for s in Session where s.account == me && s.sid != session:
+            revoke s.sid
+        remove s in Session where s.account == me && s.sid != session
+        establish actor lower(next)
+        return meDTO(Account(me))
+    # Changes the password; every session the old one opened ends, this one too.
+    action passwordChange(current_password: text?, new_password: text):
+        requires member
+        check len(new_password) >= 8 "New password must be at least 8 characters." status 400
+        let me = max(a.id in Account where a.handle == actor)
+        if Account(me).has_password:
+            check current_password != "" "Please enter your current password." status 400
+            check verifyPassword(Account(me).password, current_password) "Current password is incorrect." status 403
+        set Account(me).password = new_password
+        set Account(me).has_password = true
+        for s in Session where s.account == me:
+            revoke s.sid
+        remove s in Session where s.account == me
+        revoke session
+    # Patches the profile: only the fields that arrive change. A text field
+    # sent empty is indistinguishable from one left out, so it leaves the
+    # field as it is. is_adult_creator is deliberately not settable here (the
+    # creator-statement acceptance is its one writer).
+    action profileUpdate(display_name: text?, bio: text?, pronouns: text?, location: text?, website: text?, avatar_url: text?, header_url: text?, theme_id: text?, accent_hex: text?, country_code: text?, is_adult_creator: bool?, birthday_md_visibility: text?, birthday_year_visibility: text?, social_links: json?, external_tip_links: json?, tip_suggest_aet: json?) -> MeDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check accent_hex == "" || isAccentHex(accent_hex) "accent_hex must be #RRGGBB" status 400
+        check theme_id == "" || isTheme(theme_id) "unknown theme_id" status 400
+        check isPlatformPath(avatar_url) "avatar_url must be a path served by this platform" status 400
+        check isPlatformPath(header_url) "header_url must be a path served by this platform" status 400
+        let tipGiven = given(tip_suggest_aet)
+        let tipRaw = trim("" + tip_suggest_aet)
+        check !tipGiven || tipRaw == "" || (wholeText(tipRaw) && toInt(tipRaw) <= 10000) "tip_suggest_aet must be a whole number of AET, 0–10000" status 400
+        if display_name != "":
+            set Account(me).display_name = slice(display_name, 0, 100)
+        if bio != "":
+            set Account(me).bio = slice(bio, 0, 160)
+        if pronouns != "":
+            set Account(me).pronouns = slice(pronouns, 0, 50)
+        if location != "":
+            set Account(me).location = slice(location, 0, 100)
+        if website != "":
+            set Account(me).website = slice(website, 0, 200)
+        if accent_hex != "":
+            set Account(me).accent_hex = accent_hex
+        if theme_id != "":
+            set Account(me).theme_id = theme_id
+        if avatar_url != "":
+            set Account(me).avatar_url = avatar_url
+        if header_url != "":
+            set Account(me).header_url = header_url
+        if country_code != "":
+            set Account(me).country_code = upper(slice(trim(country_code), 0, 2))
+        if tipGiven:
+            set Account(me).tip_suggest_aet = toInt(tipRaw)
+        if birthday_md_visibility != "":
+            set Account(me).birthday_md_visibility = visibilityOr(birthday_md_visibility, "everyone")
+        if birthday_year_visibility != "":
+            set Account(me).birthday_year_visibility = visibilityOr(birthday_year_visibility, "only_me")
+        if given(social_links):
+            set Account(me).social_links = "{" + linkEntry(linkEntry(linkEntry(linkEntry(linkEntry(linkEntry(linkEntry("", "soundcloud", "" + social_links.soundcloud), "spotify", "" + social_links.spotify), "kick", "" + social_links.kick), "twitch", "" + social_links.twitch), "onlyfans", "" + social_links.onlyfans), "youtube", "" + social_links.youtube), "other", "" + social_links.other) + "}"
+        if given(external_tip_links):
+            set Account(me).external_tip_links = "{" + linkEntry(linkEntry(linkEntry(linkEntry(linkEntry(linkEntry(linkEntry("", "cashapp", tipHandle("" + external_tip_links.cashapp, "$", "cash.app/", "https://cash.app/")), "venmo", tipHandle("" + external_tip_links.venmo, "@", "venmo.com/", "https://venmo.com/")), "paypal", tipHandle("" + external_tip_links.paypal, "paypal.me/", "https://paypal.me/", "https://www.paypal.me/")), "kofi", tipHandle("" + external_tip_links.kofi, "ko-fi.com/", "https://ko-fi.com/", "")), "buymeacoffee", tipHandle("" + external_tip_links.buymeacoffee, "buymeacoffee.com/", "https://www.buymeacoffee.com/", "https://buymeacoffee.com/")), "bitcoin", btcAddress("" + external_tip_links.bitcoin)), "xrp", xrpAddress("" + external_tip_links.xrp)) + "}"
+        return meDTO(Account(me))
+
+    # ── Settings toggles ─────────────────────────────────────────────────────
+
+    action setStreamerMode(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).streamer_mode = value
+        emit balance balanceDTO(me) to actor
+    action setDiscoveryPct(value: int):
+        requires member
+        check value >= 0 && value <= 100 "value must be 0–100" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).discovery_pct = value
+    action setFeedRankMode(value: text):
+        requires member
+        check value == "ranked" || value == "chronological" "unknown value" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).feed_rank_mode = value
+    action setFeedDensity(value: text):
+        requires member
+        check value == "comfortable" || value == "compact" "unknown value" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).feed_density = value
+    action setMobileFeedView(value: text):
+        requires member
+        check value == "standard" || value == "reels" "invalid value" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).mobile_feed_view = value
+    action setMuteAiWorks(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).mute_ai_works = value
+    # Who may reply to one of the caller's own works.
+    action setReplyRestriction(post_id: text, restriction: text):
+        requires member
+        check restriction == "everyone" || restriction == "open" || restriction == "followers" || restriction == "verified" || restriction == "none" "invalid restriction value" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        let wid = toInt(post_id)
+        check exists(w in Work where w.id == wid && w.author == me && !w.deleted) "Could not update reply restriction" status 403
+        let gating = do policyGating(restriction)
+        set Work(wid).comment_gating = gating
+    proc policyGating(r: text) -> text:
+        if r == "everyone":
+            return "open"
+        return r
+    action settingsAccountLabel(value: text):
+        requires member
+        let label = do labelOr(lower(trim(value)))
+        check label == "none" || label == "parody" || label == "fan" || label == "commentary" || label == "automated" "unknown account label" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).account_label = label
+    action settingsAccountBasedIn(value: text):
+        requires member
+        let v = trim(value)
+        check len(v) <= 40 "Based in is at most 40 characters." status 400
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).based_in = v
+    action settingsPrivacyShowSensitive(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).show_sensitive = value
+    action settingsPrivacyCelebrations(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).celebrations_enabled = value
+    action settingsPrivacyAccountPrivate(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        set Account(me).is_private = value
+    # The porn-axis content setting: adult_enabled only for an age-verified
+    # adult; an unknown word is the default.
+    action settingsPrivacyContentSetting(setting: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let s = do contentSettingFor(setting, Account(me).is_minor, Account(me).is_age_verified || Account(me).is_verified)
+        set Account(me).content_setting = s
+    proc contentSettingFor(s: text, minor: bool, verified: bool) -> text:
+        if s == "adult_enabled":
+            if minor || !verified:
+                return "default"
+            return s
+        if s == "safe_mode":
+            return s
+        return "default"
+    # The creator-axis publishing posture: mixed/adult only for an adult creator.
+    action settingsPrivacyContentMode(mode: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let m = do contentModeFor(mode, Account(me).is_adult_creator)
+        set Account(me).content_mode = m
+    proc contentModeFor(m: text, adultCreator: bool) -> text:
+        if adultCreator && (m == "mixed" || m == "adult"):
+            return m
+        return "sfw"
+    action settingsAiConsentAiTraining(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(c in AiConsent where c.account == me):
+            add AiConsent { account: me, ai_indexing: false, ai_training: false, ai_transformation: false, commercial_ai_use: false, voice_likeness_transform: false }
+        for c in AiConsent where c.account == me:
+            set AiConsent(c.id).ai_training = value
+    action settingsAiConsentAiIndexing(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(c in AiConsent where c.account == me):
+            add AiConsent { account: me, ai_indexing: false, ai_training: false, ai_transformation: false, commercial_ai_use: false, voice_likeness_transform: false }
+        for c in AiConsent where c.account == me:
+            set AiConsent(c.id).ai_indexing = value
+    action settingsAiConsentAiTransformation(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(c in AiConsent where c.account == me):
+            add AiConsent { account: me, ai_indexing: false, ai_training: false, ai_transformation: false, commercial_ai_use: false, voice_likeness_transform: false }
+        for c in AiConsent where c.account == me:
+            set AiConsent(c.id).ai_transformation = value
+    action settingsAiConsentCommercialAiUse(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(c in AiConsent where c.account == me):
+            add AiConsent { account: me, ai_indexing: false, ai_training: false, ai_transformation: false, commercial_ai_use: false, voice_likeness_transform: false }
+        for c in AiConsent where c.account == me:
+            set AiConsent(c.id).commercial_ai_use = value
+    action settingsAiConsentVoiceLikenessTransform(value: bool):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(c in AiConsent where c.account == me):
+            add AiConsent { account: me, ai_indexing: false, ai_training: false, ai_transformation: false, commercial_ai_use: false, voice_likeness_transform: false }
+        for c in AiConsent where c.account == me:
+            set AiConsent(c.id).voice_likeness_transform = value
+    # Who may DM this account, and for paid_only what it costs; enforced at
+    # send time (messageSend).
+    action settingsMessagingDmAccessLevel(access_level: text, price_aet: float?, charge_mode: text?, vip_min_price_aet: float?):
+        requires member
+        let mode = do orText(charge_mode, "per_message")
+        check access_level == "open" || access_level == "followers_only" || access_level == "subscribers_only" || access_level == "paid_only" || access_level == "vip_only" "Couldn't save your messaging settings: unknown access level." status 400
+        check mode == "one_time" || mode == "per_message" "Couldn't save your messaging settings: unknown charge mode." status 400
+        check price_aet >= 0.0 && vip_min_price_aet >= 0.0 "Couldn't save your messaging settings. Prices cannot be negative." status 400
+        check access_level != "paid_only" || price_aet > 0.0 "Couldn't save your messaging settings. Paid-only needs a price above 0 AET." status 400
+        let me = max(a.id in Account where a.handle == actor)
+        if exists(d in DMSettings where d.account == me):
+            for d in DMSettings where d.account == me:
+                set DMSettings(d.id).access_level = access_level
+                set DMSettings(d.id).charge_mode = mode
+                set DMSettings(d.id).price_aet = price_aet
+                set DMSettings(d.id).vip_min_price_aet = vip_min_price_aet
+        else:
+            add DMSettings { account: me, access_level: access_level, charge_mode: mode, price_aet: price_aet, vip_min_price_aet: vip_min_price_aet }
+    # What Herald may send; only the fields that arrive change.
+    action notificationPrefs(push_enabled: json?, messages_enabled: json?, likes_enabled: json?, reposts_enabled: json?, replies_enabled: json?, follows_enabled: json?, achievements_enabled: json?, mentions_enabled: json?, frequencies_enabled: json?, quiet_hours_enabled: json?, quiet_hours_start: json?, quiet_hours_end: json?, timezone: text?) -> NotificationPrefsDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(n in NotificationPrefs where n.account == me):
+            add NotificationPrefs { account: me, push_enabled: true, messages_enabled: true, likes_enabled: true, reposts_enabled: true, replies_enabled: true, follows_enabled: true, achievements_enabled: true, mentions_enabled: true, frequencies_enabled: true, quiet_hours_enabled: false, quiet_hours_start: "", quiet_hours_end: "", timezone: "" }
+        let p = max(n.id in NotificationPrefs where n.account == me)
+        if given(push_enabled):
+            set NotificationPrefs(p).push_enabled = truthy(push_enabled)
+        if given(messages_enabled):
+            set NotificationPrefs(p).messages_enabled = truthy(messages_enabled)
+        if given(likes_enabled):
+            set NotificationPrefs(p).likes_enabled = truthy(likes_enabled)
+        if given(reposts_enabled):
+            set NotificationPrefs(p).reposts_enabled = truthy(reposts_enabled)
+        if given(replies_enabled):
+            set NotificationPrefs(p).replies_enabled = truthy(replies_enabled)
+        if given(follows_enabled):
+            set NotificationPrefs(p).follows_enabled = truthy(follows_enabled)
+        if given(achievements_enabled):
+            set NotificationPrefs(p).achievements_enabled = truthy(achievements_enabled)
+        if given(mentions_enabled):
+            set NotificationPrefs(p).mentions_enabled = truthy(mentions_enabled)
+        if given(frequencies_enabled):
+            set NotificationPrefs(p).frequencies_enabled = truthy(frequencies_enabled)
+        if given(quiet_hours_enabled):
+            set NotificationPrefs(p).quiet_hours_enabled = truthy(quiet_hours_enabled)
+        let qs = do hourText(quiet_hours_start)
+        let qe = do hourText(quiet_hours_end)
+        if qs != "":
+            set NotificationPrefs(p).quiet_hours_start = qs
+        if qe != "":
+            set NotificationPrefs(p).quiet_hours_end = qe
+        if timezone != "":
+            set NotificationPrefs(p).timezone = timezone
+        return NotificationPrefsDTO{push_enabled: NotificationPrefs(p).push_enabled, messages_enabled: NotificationPrefs(p).messages_enabled, likes_enabled: NotificationPrefs(p).likes_enabled, reposts_enabled: NotificationPrefs(p).reposts_enabled, replies_enabled: NotificationPrefs(p).replies_enabled, follows_enabled: NotificationPrefs(p).follows_enabled, achievements_enabled: NotificationPrefs(p).achievements_enabled, mentions_enabled: NotificationPrefs(p).mentions_enabled, frequencies_enabled: NotificationPrefs(p).frequencies_enabled, quiet_hours_enabled: NotificationPrefs(p).quiet_hours_enabled, quiet_hours_start: NotificationPrefs(p).quiet_hours_start, quiet_hours_end: NotificationPrefs(p).quiet_hours_end}
+
+    # ── Security ─────────────────────────────────────────────────────────────
+
+    # Turns 2FA on with a code from the secret enrollment issued.
+    action twoFaEnable(code: text) -> MeDTO:
+        requires member
+        let c = replace(trim(code), " ", "")
+        check c != "" "Enter the 6-digit code." status 400
+        check len(c) == 6 && charsIn(c, "0123456789") "Enter a 6-digit code." status 400
+        let me = max(a.id in Account where a.handle == actor)
+        check !Account(me).two_factor_enabled "2FA is already enabled." status 409
+        check Account(me).two_factor_pending != "" "Set up 2FA first." status 400
+        check totpValid(Account(me).two_factor_pending, c) "Invalid code." status 401
+        set Account(me).two_factor_secret = Account(me).two_factor_pending
+        set Account(me).two_factor_pending = ""
+        set Account(me).two_factor_enabled = true
+        return meDTO(Account(me))
+    action twoFaDisable(code: text) -> MeDTO:
+        requires member
+        let c = replace(trim(code), " ", "")
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).two_factor_enabled "2FA is not enabled." status 400
+        check totpValid(Account(me).two_factor_secret, c) "Invalid code." status 401
+        set Account(me).two_factor_enabled = false
+        set Account(me).two_factor_secret = ""
+        remove b in BackupCode where b.account == me
+        return meDTO(Account(me))
+    # A fresh set of backup codes, replacing the old; only here in the clear.
+    action twoFaBackupCodes() -> BackupCodesDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let codes = do freshBackupCodes(8)
+        remove b in BackupCode where b.account == me
+        for c in codes:
+            add BackupCode { account: me, code: c, used: false }
+        return BackupCodesDTO{codes: codes}
+    action sessionRevoke(session_id: text):
+        requires member
+        check session_id != "" "session_id required" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        let sid = toInt(session_id)
+        check exists(s in Session where s.id == sid && s.account == me) "session not found" status 404
+        revoke Session(sid).sid
+        remove Session(sid)
+    action sessionsRevokeOthers():
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        for s in Session where s.account == me && s.sid != session:
+            revoke s.sid
+        remove s in Session where s.account == me && s.sid != session
+    # The second factor for a pending money action: the account's TOTP when it
+    # has one, its password otherwise. A pass marks this session fresh and
+    # performs the pending action with the fields the sheet carried.
+    action stepUpVerify(then: text, code: text?, password: text?, then_fields: json?):
+        requires member
+        let act = trim(then)
+        check act == "wallet.send" || act == "payout.onboard" || act == "tip" "unknown step-up action" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        if Account(me).two_factor_enabled:
+            check totpValid(Account(me).two_factor_secret, trim(code)) "That didn't match. Try again." status 403
+        else:
+            check trim(password) != "" && verifyPassword(Account(me).password, password) "That didn't match. Try again." status 403
+        for s in Session where s.sid == session:
+            set Session(s.id).stepup_at = now()
+        # Payout onboarding (legacy walletPayoutOnboardStart): a creator's
+        # PIAL asks Themis for a Stripe Connect onboarding link; the link is
+        # kept on the PIAL's payout account and sent back as HX-Redirect.
+        # Themis failing, or answering no link, is onboarding_unavailable (502).
+        if act == "payout.onboard":
+            check Account(me).is_creator "payout_not_available" status 503 code "payout_not_available"
+            let bound = max(b.pial in AccountBinding where b.account == me && b.status == "active")
+            let pial = max(x.id in Account where x.id == me && bound == 0) + bound
+            let link = call Themis.onboard("" + pial)
+            let url = trim(link.onboarding_url)
+            check url != "" "onboarding_unavailable" status 502 code "onboarding_unavailable"
+            if exists(p in PayoutAccount where p.pial == pial):
+                for p in PayoutAccount where p.pial == pial:
+                    set PayoutAccount(p.id).onboarding_url = url
+                    set PayoutAccount(p.id).onboarding_requested = now()
+            else:
+                add PayoutAccount { pial: pial, onboarding_url: url, onboarding_requested: now(), payouts_enabled: false, status_updated: 0 }
+            # The browser goes to Stripe's hosted page — a full navigation,
+            # as legacy sent it (HX-Redirect).
+            header "HX-Redirect" url
+        if act == "wallet.send" || act == "tip":
+            let th = do messageHandle("" + then_fields.target_handle)
+            check exists(a in Account where a.handle == th) "no such account" status 404
+            let target = max(a.id in Account where a.handle == th)
+            let amt = do aetToUaet("" + then_fields.amount)
+            check amt > 0 "amount must be a positive number of AET" status 400
+            check sum(w.amount_uaet in WalletEntry where w.account == me) >= amt "insufficient balance" status 400
+            if act == "wallet.send":
+                add WalletEntry { account: me, kind: "send", amount_uaet: 0 - amt, counterparty: target, created: now() }
+                add WalletEntry { account: target, kind: "receive", amount_uaet: amt, counterparty: me, created: now() }
+            else:
+                add WalletEntry { account: me, kind: "tip_sent", amount_uaet: 0 - amt, counterparty: target, created: now() }
+                add WalletEntry { account: target, kind: "tip_received", amount_uaet: amt, counterparty: me, created: now() }
+                let wid = toInt("" + then_fields.work_id)
+                if wid > 0:
+                    let tn = add Notification { account: target, actor: me, kind: "tip", target_type: "work", target_id: wid, preview: "", amount_uaet: amt, is_read: false, created: now() }
+                    emit notification notificationV1(Notification(tn), target) to Account(target).handle
+                    emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == target && !nn.is_read)} to Account(target).handle
+                let lsid = toInt("" + then_fields.stream_id)
+                if lsid > 0 && exists(ls in LiveStream where ls.id == lsid):
+                    set LiveStream(lsid).tip_total_uaet = LiveStream(lsid).tip_total_uaet + amt
+                    emit tips LiveTipsEventDTO{goal_uaet: LiveStream(lsid).tip_goal_uaet, total_uaet: LiveStream(lsid).tip_total_uaet} on lsid
+            emit balance balanceDTO(me) to actor
+            emit balance balanceDTO(target) to Account(target).handle
+    # Themis relays Stripe's account.updated for a PIAL's Connect account
+    # (legacy POST /api/internal/themis/payout-status, X-Internal-Key,
+    # handler/internal_webhooks.go themisPayoutStatusWebhook): payouts on or
+    # off. It is a wallet state change, so the identity's open wallets are
+    # re-read. System authority only (its signed webhook in main.fct).
+    action payoutStatusChanged(pial_id: text, payouts_enabled: bool):
+        requires operator
+        check trim(pial_id) != "" "bad request" status 400
+        let pial = toInt(trim(pial_id))
+        if exists(p in PayoutAccount where p.pial == pial):
+            for p in PayoutAccount where p.pial == pial:
+                set PayoutAccount(p.id).payouts_enabled = payouts_enabled
+                set PayoutAccount(p.id).status_updated = now()
+        else:
+            add PayoutAccount { pial: pial, onboarding_url: "", onboarding_requested: 0, payouts_enabled: payouts_enabled, status_updated: now() }
+        for a in Account where a.id == pial || exists(b in AccountBinding where b.pial == pial && b.account == a.id && b.status == "active"):
+            emit balance balanceDTO(a.id) to a.handle
+    # Themis's door (legacy: /api/internal/themis/payout-status, a path the
+    # runtime reserves); each delivery HMAC-signed
+    # with INTERNAL_API_KEY (the master-derived key when unset).
+    webhook "/hooks/themis/payout-status" -> payoutStatusChanged secret INTERNAL_API_KEY
+    # Create another account for the same person (legacy handleAamCreate):
+    # it is bound to the caller's identity, so the session may switch to it,
+    # inherits the caller's theme and age facts, and answers its first
+    # backup codes — its way in on its own.
+    action accountAdd(handle: text, password: text, confirm_password: text, display_name: text?) -> V2BackupCodesDTO:
+        requires member
+        check handleOk(handle) "Handle must be 1–30 characters, letters/numbers/underscore only." status 400
+        check !reservedHandle(handle) "That handle is reserved. Try another." status 400
+        check len(password) >= 8 "Password must be at least 8 characters." status 400
+        check password == confirm_password "Passwords don't match." status 400
+        let h = lower(handle)
+        check !exists(a in Account where a.handle == h) "That handle is already taken." status 409
+        let me = max(a.id in Account where a.handle == actor)
+        let pial = max(b.pial in AccountBinding where b.account == me && b.status == "active")
+        let mine = max(x.id in Account where x.id == me && pial == 0) + pial
+        let dn = orText(take(trim(display_name), 100), h)
+        let id = add Account { handle: h, display_name: dn, bio: "", avatar_url: "", header_url: "", location: "", website: "", pronouns: "", accent_hex: "", theme_id: Account(me).theme_id, country_code: "", official_type: "", account_label: "", is_private: false, is_creator: false, is_adult_creator: false, is_verified: false, is_adult: Account(me).is_adult, is_age_verified: false, is_minor: Account(me).is_minor, content_setting: Account(me).content_setting, content_mode: "standard", creator_type: "", role_type: "user", date_of_birth: "", celebrations_enabled: true, birthday_md_visibility: "private", birthday_year_visibility: "private", contact_policy: "open", streamer_mode: false, feed_density: "comfortable", feed_rank_mode: "algo", mute_ai_works: false, discovery_pct: 50, show_sensitive: false, xp: 0, realm: 1, password: password, has_password: true, two_factor_enabled: false, two_factor_secret: "", two_factor_pending: "", kyc_status: "", kyc_submitted_at: 0, age_band: "", identity_tier: 0, legacy_id: "", tier: "free", social_links: "{}", external_tip_links: "{}", has_2257: false, nsfw_access: false, payout_enabled: false, creator_statement_accepted: false, deactivated: false, last_seen: now(), created: now(), is_brand: false, platform_role: "user" }
+        add NotificationPrefs { account: id, push_enabled: true, messages_enabled: true, likes_enabled: true, reposts_enabled: true, replies_enabled: true, follows_enabled: true, achievements_enabled: true, mentions_enabled: true, frequencies_enabled: true, quiet_hours_enabled: false, quiet_hours_start: "", quiet_hours_end: "", timezone: "" }
+        add SanctumState { account: id, is_open: false, paused: false, intro: "", retention_days: 30, deadman_action: "", deadman_interval_days: 0, deadman_grace_days: 0, deadman_warned: false, deadman_fired: false, last_checkin_at: 0 }
+        add AiConsent { account: id, ai_indexing: false, ai_training: false, ai_transformation: false, commercial_ai_use: false, voice_likeness_transform: false }
+        add AccountBinding { pial: mine, account: id, status: "active", created: now() }
+        let codes = freshBackupCodes(8)
+        for c in codes:
+            add BackupCode { account: id, code: c, used: false }
+        return V2BackupCodesDTO{codes: codes}
+    # Bring an independently created account into the caller's identity
+    # (legacy handleLinkAccount): ownership is proved by one of its backup
+    # codes, which is spent; an account that already holds other accounts
+    # cannot be moved. Its codes are rotated and answered.
+    action accountLink(handle: text, backup_code: text) -> V2BackupCodesDTO:
+        requires member
+        let h = bareHandle(handle)
+        let code = trim(backup_code)
+        check h != "" && code != "" "Enter the account handle and a backup code." status 400
+        check exists(a in Account where a.handle == h) "Invalid handle or backup code." status 401 code "invalid_code"
+        let target = max(a.id in Account where a.handle == h)
+        let me = max(a.id in Account where a.handle == actor)
+        check target != me "That's your current account." status 400
+        let pial = max(b.pial in AccountBinding where b.account == me && b.status == "active")
+        let mine = max(x.id in Account where x.id == me && pial == 0) + pial
+        let tpial = max(b.pial in AccountBinding where b.account == target && b.status == "active")
+        let theirs = max(x.id in Account where x.id == target && tpial == 0) + tpial
+        check theirs != mine "That account is already linked to yours." status 409
+        check !exists(b in AccountBinding where b.pial == theirs && b.account != target && b.status == "active") "That account already has linked accounts." status 409
+        let unused = count(b in BackupCode where b.account == target && !b.used)
+        for b in BackupCode where b.account == target && !b.used:
+            if verifyPassword(b.code, code):
+                set BackupCode(b.id).used = true
+        check count(b in BackupCode where b.account == target && !b.used) < unused "Invalid backup code." status 401
+        remove b in AccountBinding where b.account == target
+        add AccountBinding { pial: mine, account: target, status: "active", created: now() }
+        let codes = freshBackupCodes(8)
+        remove b in BackupCode where b.account == target
+        for c in codes:
+            add BackupCode { account: target, code: c, used: false }
+        return V2BackupCodesDTO{codes: codes}
+    # Moves this session to another account of the same person: one bound to
+    # the caller's identity.
+    action switchAccount(account_id: text):
+        requires member
+        check account_id != "" "account_id required" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        let target = toInt(account_id)
+        let pial = max(b.pial in AccountBinding where b.account == me && b.status == "active")
+        let mine = max(x.id in Account where x.id == me && pial == 0) + pial
+        check target > 0 && exists(a in Account where a.id == target && !a.deactivated) && (target == mine || exists(b in AccountBinding where b.pial == mine && b.account == target && b.status == "active")) "Could not switch account" status 403
+        for s in Session where s.sid == session:
+            set Session(s.id).account = target
+        establish actor Account(target).handle role sessionRole(Account(target).platform_role)
+
+    # ── Push ─────────────────────────────────────────────────────────────────
+
+    # This device's push subscription: {endpoint, keys: {p256dh, auth}}, kept
+    # per device (a device without an id is the account's default device).
+    action pushSubscriptionRegistered(subscription: json, device_id: text?) -> EventOKDTO:
+        if actor != "guest" && "" + subscription.endpoint != "":
+            let me = max(a.id in Account where a.handle == actor)
+            let dev = do orText(device_id, "" + me + "-default")
+            remove p in PushSubscription where p.device_id == dev
+            add PushSubscription { account: me, device_id: dev, endpoint: "" + subscription.endpoint, p256dh: "" + subscription.keys.p256dh, auth: "" + subscription.keys.auth, created: now(), updated: now() }
+        return EventOKDTO{ok: true}
+    action pushSubscriptionRefreshed(subscription: json, device_id: text?) -> EventOKDTO:
+        if actor != "guest" && "" + subscription.endpoint != "":
+            let me = max(a.id in Account where a.handle == actor)
+            let dev = do orText(device_id, "" + me + "-default")
+            remove p in PushSubscription where p.device_id == dev
+            add PushSubscription { account: me, device_id: dev, endpoint: "" + subscription.endpoint, p256dh: "" + subscription.keys.p256dh, auth: "" + subscription.keys.auth, created: now(), updated: now() }
+        return EventOKDTO{ok: true}
+    action pushSubscriptionRotated(subscription: json, device_id: text?) -> EventOKDTO:
+        if actor != "guest" && "" + subscription.endpoint != "":
+            let me = max(a.id in Account where a.handle == actor)
+            let dev = do orText(device_id, "" + me + "-default")
+            remove p in PushSubscription where p.device_id == dev
+            add PushSubscription { account: me, device_id: dev, endpoint: "" + subscription.endpoint, p256dh: "" + subscription.keys.p256dh, auth: "" + subscription.keys.auth, created: now(), updated: now() }
+        return EventOKDTO{ok: true}
+    action pushSubscriptionRemoved(device_id: text) -> EventOKDTO:
+        if device_id != "":
+            remove p in PushSubscription where p.device_id == device_id
+        return EventOKDTO{ok: true}
+    # The person granted push permission; the subscription that follows is
+    # what the platform records.
+    action permissionPushGranted() -> EventOKDTO:
+        return EventOKDTO{ok: true}
+
+    # ── Numbers and contact ──────────────────────────────────────────────────
+
+    # Mints a Number: five live at once per account.
+    action numberMint(policy: text) -> NumberDTO:
+        requires member
+        let p = do orText(trim(policy), "number_only")
+        check isContactPolicy(p) "That is not a contact policy." status 400 code "unknown_policy"
+        let me = max(a.id in Account where a.handle == actor)
+        check count(n in Number where n.account == me && !n.revoked) < 5 "You are already holding as many Numbers as one account may hold at once. Retire one you have finished with — retiring is instant and never limited — and this will work." status 409
+        let num = do newNumber()
+        check num != "" && !exists(n in Number where n.number == num) "Could not allocate a Number right now." status 503 code "mint_unavailable"
+        let nid = add Number { account: me, number: num, policy: p, revoked: false, created: now() }
+        return NumberDTO{id: num, number: numberDisplay(num), policy: p, revoked: false, created_at: iso(now())} status 201
+    # Retires one of the caller's Numbers (by the Number, or its row id).
+    # Every way this can fail is one answer.
+    action numberRevoke(number_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let canon = do numberCanonical(number_id)
+        let rid = toInt(number_id)
+        check exists(n in Number where n.account == me && !n.revoked && ((canon != "" && n.number == canon) || (canon == "" && n.id == rid))) "Could not retire that Number right now." status 409
+        for n in Number where n.account == me && !n.revoked && ((canon != "" && n.number == canon) || (canon == "" && n.id == rid)):
+            set Number(n.id).revoked = true
+    action numberPolicy(number_id: text, policy: text):
+        requires member
+        let p = trim(policy)
+        check isContactPolicy(p) "That is not a contact policy." status 400 code "unknown_policy"
+        let me = max(a.id in Account where a.handle == actor)
+        let canon = do numberCanonical(number_id)
+        let rid = toInt(number_id)
+        check exists(n in Number where n.account == me && !n.revoked && ((canon != "" && n.number == canon) || (canon == "" && n.id == rid))) "Could not change that Number's policy right now." status 409
+        for n in Number where n.account == me && !n.revoked && ((canon != "" && n.number == canon) || (canon == "" && n.id == rid)):
+            set Number(n.id).policy = p
+    # Answers one knock. Accepting writes the standing grant, delivers the
+    # message held behind the request and tells the requester; declining tells
+    # them nothing.
+    action contactDecide(request_id: text, decision: text):
+        requires member
+        check request_id != "" "Which request?" status 400 code "request_required"
+        let d = lower(trim(decision))
+        check d == "accept" || d == "decline" "A request is answered with \"accept\" or \"decline\"." status 400
+        let me = max(a.id in Account where a.handle == actor)
+        let rid = toInt(request_id)
+        check exists(r in ContactRequest where r.id == rid && r.account == me) "Could not answer that request right now." status 409 code "request_undecided"
+        let requester = ContactRequest(rid).requester
+        remove ContactRequest(rid)
+        if d == "accept":
+            remove g in ContactGrant where g.owner == me && g.peer == requester
+            add ContactGrant { owner: me, peer: requester, source: "request", created: now() }
+            if exists(h in HeldMessage where h.sender == requester && h.target == me):
+                let hid = max(h.id in HeldMessage where h.sender == requester && h.target == me)
+                let found = max(c.id in Conversation where !c.is_group && exists(m in ConversationMember where m.conversation == c.id && m.account == me) && exists(m in ConversationMember where m.conversation == c.id && m.account == requester))
+                if found == 0:
+                    let nc = add Conversation { is_group: false, title: "", mode: "direct", message_ttl_seconds: 0, created: now(), last_at: now() }
+                    add ConversationMember { conversation: nc, account: requester, unread: 0, joined: now() }
+                    add ConversationMember { conversation: nc, account: me, unread: 0, joined: now() }
+                let cid = max(c.id in Conversation where !c.is_group && exists(m in ConversationMember where m.conversation == c.id && m.account == me) && exists(m in ConversationMember where m.conversation == c.id && m.account == requester))
+                let mid = add Message { conversation: cid, sender: requester, body: HeldMessage(hid).body, kind: "text", reply_to: 0, deleted: false, edited_at: 0, created: now() }
+                set Conversation(cid).last_at = now()
+                for m in ConversationMember where m.conversation == cid && m.account == me:
+                    set ConversationMember(m.id).unread = m.unread + 1
+                emit gnosis_message MessagePushDTO{conversation_id: "" + cid, message_id: "" + mid, mode: Conversation(cid).mode, created_at: iso(now()), sender_account: "" + requester, sender_handle: Account(requester).handle} to actor
+                remove HeldMessage(hid)
+            let an = add Notification { account: requester, actor: me, kind: "contact_accepted", target_type: "user", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
+            emit notification notificationV1(Notification(an), requester) to Account(requester).handle
+            emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == requester && !nn.is_read)} to Account(requester).handle
+
+    # Writes to a PERSON by handle: into the conversation already open with
+    # them, or — when there is none — under their contact policy: allow opens
+    # one, request holds the message and knocks, deny delivers nothing. Every
+    # outcome that is not an allow answers in one shape.
+    action messageStart(handle: text, body: text) -> ConversationStartDTO:
+        requires member
+        let words = trim(body)
+        check words != "" "message required" status 400
+        check byteLen(words) <= 8000 "message too long" status 413
+        let h = do messageHandle(handle)
+        check h != "" "handle required" status 400
+        check h != actor "cannot message yourself" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(a in Account where a.handle == h && !a.deactivated):
+            return ConversationStartDTO{state: "not_delivered"}
+        let target = max(a.id in Account where a.handle == h)
+        let open = max(c.id in Conversation where !c.is_group && exists(m in ConversationMember where m.conversation == c.id && m.account == me) && exists(m in ConversationMember where m.conversation == c.id && m.account == target))
+        if open > 0:
+            let om = add Message { conversation: open, sender: me, body: words, kind: "text", reply_to: 0, deleted: false, edited_at: 0, created: now() }
+            set Conversation(open).last_at = now()
+            for m in ConversationMember where m.conversation == open && m.account != me:
+                set ConversationMember(m.id).unread = m.unread + 1
+                emit gnosis_message MessagePushDTO{conversation_id: "" + open, message_id: "" + om, mode: Conversation(open).mode, created_at: iso(now()), sender_account: "" + me, sender_handle: actor} to Account(m.account).handle
+            return ConversationStartDTO{state: "opened", conversation: directConversationV1(Conversation(open), me)}
+        remove p in HeldMessage where p.sender == me && p.target == target
+        let hid = add HeldMessage { sender: me, target: target, body: words, decision: "", created: now() }
+        let follows = exists(f in Follow where f.follower == me && f.followee == target)
+        let mutual = follows && exists(f in Follow where f.follower == target && f.followee == me)
+        let verdict = do contactVerdict(Account(target).contact_policy, false, follows, mutual, exists(g in ContactGrant where g.owner == target && g.peer == me))
+        if verdict == "request":
+            set HeldMessage(hid).decision = "request"
+            if !exists(r in ContactRequest where r.account == target && r.requester == me):
+                add ContactRequest { account: target, requester: me, note: slice(words, 0, 280), created: now() }
+                let kn = add Notification { account: target, actor: me, kind: "contact_request", target_type: "user", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(kn), target) to Account(target).handle
+                emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == target && !nn.is_read)} to Account(target).handle
+            return ConversationStartDTO{state: "held", pending_id: "" + hid}
+        if verdict != "allow":
+            set HeldMessage(hid).decision = "deny"
+            return ConversationStartDTO{state: "not_delivered"}
+        let cid = add Conversation { is_group: false, title: "", mode: "direct", message_ttl_seconds: 0, created: now(), last_at: now() }
+        add ConversationMember { conversation: cid, account: me, unread: 0, joined: now() }
+        add ConversationMember { conversation: cid, account: target, unread: 1, joined: now() }
+        let mid = add Message { conversation: cid, sender: me, body: words, kind: "text", reply_to: 0, deleted: false, edited_at: 0, created: now() }
+        remove HeldMessage(hid)
+        emit gnosis_message MessagePushDTO{conversation_id: "" + cid, message_id: "" + mid, mode: "direct", created_at: iso(now()), sender_account: "" + me, sender_handle: actor} to h
+        return ConversationStartDTO{state: "opened", conversation: directConversationV1(Conversation(cid), me)}
+
+    # Writes through a Number: with pending_id, releases the caller's own held
+    # message when the Number opens that person's door (a working Number that
+    # is somebody else's delivers nothing and says nothing); without, writes
+    # to whoever holds the Number. The Number's policy decides, with the
+    # Number presented.
+    action messageNumber(number: text?, handle: text?, body: text?, pending_id: text?) -> ConversationStartDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        let pid = toInt(pending_id)
+        if pending_id != "":
+            check exists(p in HeldMessage where p.id == pid && p.sender == me) "No message is waiting." status 404 code "nothing_held"
+        let words = trim(body)
+        check pending_id != "" || words != "" "Write something to send." status 400 code "body_required"
+        check byteLen(words) <= 8000 "That message is too long." status 413 code "body_too_long"
+        check trim(number) != "" "Enter a F33D3R Number." status 400 code "number_required"
+        let canon = do numberCanonical(number)
+        check canon != "" "That is not a F33D3R Number. A Number is twelve digits, like 0412 8837 2919." status 400 code "bad_number"
+        let to = do messageHandle(handle)
+        check pending_id != "" || to != actor "You cannot message yourself." status 400 code "self_message"
+        let owner = max(n.account in Number where n.number == canon && !n.revoked)
+        let intended = max(p.target in HeldMessage where p.id == pid) + max(a.id in Account where a.handle == to && pending_id == "")
+        let held = "" + max(p.id in HeldMessage where p.id == pid)
+        if owner == 0 || owner == me || (intended > 0 && owner != intended):
+            if pending_id != "":
+                set HeldMessage(pid).decision = "deny"
+            return ConversationStartDTO{state: "not_delivered", pending_id: idText(pid)}
+        let follows = exists(f in Follow where f.follower == me && f.followee == owner)
+        let mutual = follows && exists(f in Follow where f.follower == owner && f.followee == me)
+        let verdict = do contactVerdict(max(n.policy in Number where n.number == canon && !n.revoked), true, follows, mutual, exists(g in ContactGrant where g.owner == owner && g.peer == me))
+        if verdict == "request":
+            if pending_id == "":
+                remove p in HeldMessage where p.sender == me && p.target == owner
+                add HeldMessage { sender: me, target: owner, body: words, decision: "request", created: now() }
+            else:
+                set HeldMessage(pid).decision = "request"
+            if !exists(r in ContactRequest where r.account == owner && r.requester == me):
+                add ContactRequest { account: owner, requester: me, note: slice(firstText(max(p.body in HeldMessage where p.id == pid), words), 0, 280), created: now() }
+                let kn = add Notification { account: owner, actor: me, kind: "contact_request", target_type: "user", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(kn), owner) to Account(owner).handle
+                emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == owner && !nn.is_read)} to Account(owner).handle
+            return ConversationStartDTO{state: "held", pending_id: "" + max(p.id in HeldMessage where p.sender == me && p.target == owner)}
+        if verdict != "allow":
+            if pending_id != "":
+                set HeldMessage(pid).decision = "deny"
+            return ConversationStartDTO{state: "not_delivered", pending_id: idText(pid)}
+        let found = max(c.id in Conversation where !c.is_group && exists(m in ConversationMember where m.conversation == c.id && m.account == me) && exists(m in ConversationMember where m.conversation == c.id && m.account == owner))
+        if found == 0:
+            let nc = add Conversation { is_group: false, title: "", mode: "direct", message_ttl_seconds: 0, created: now(), last_at: now() }
+            add ConversationMember { conversation: nc, account: me, unread: 0, joined: now() }
+            add ConversationMember { conversation: nc, account: owner, unread: 0, joined: now() }
+        let cid = max(c.id in Conversation where !c.is_group && exists(m in ConversationMember where m.conversation == c.id && m.account == me) && exists(m in ConversationMember where m.conversation == c.id && m.account == owner))
+        let text1 = do firstText(max(p.body in HeldMessage where p.id == pid), words)
+        let mid = add Message { conversation: cid, sender: me, body: text1, kind: "text", reply_to: 0, deleted: false, edited_at: 0, created: now() }
+        set Conversation(cid).last_at = now()
+        for m in ConversationMember where m.conversation == cid && m.account == owner:
+            set ConversationMember(m.id).unread = m.unread + 1
+        emit gnosis_message MessagePushDTO{conversation_id: "" + cid, message_id: "" + mid, mode: Conversation(cid).mode, created_at: iso(now()), sender_account: "" + me, sender_handle: actor} to Account(owner).handle
+        if pending_id != "":
+            remove HeldMessage(pid)
+        return ConversationStartDTO{state: "opened", conversation: directConversationV1(Conversation(cid), me)}
+
+    # ── Messaging ────────────────────────────────────────────────────────────
+
+    # Sends a plaintext message into a conversation the caller is in. A 1:1
+    # is held to the other member's DM access level; paid_only charges the
+    # price (once, for one_time) before the message goes in.
+    action messageSend(conversation_id: text, body: text, reply_to: text?) -> MessageDTO:
+        requires member
+        let words = trim(body)
+        let cid = toInt(conversation_id)
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(m in ConversationMember where m.conversation == cid && m.account == me) "forbidden" status 403
+        check words != "" "message required" status 400
+        check byteLen(words) <= 8000 "message too long" status 413
+        let rt = toInt(reply_to)
+        check rt == 0 || exists(x in Message where x.id == rt && x.conversation == cid) "reply_to is not a message in this conversation" status 400
+        let peer = max(m.account in ConversationMember where m.conversation == cid && m.account != me)
+        let level = dmLevel(peer)
+        let gated = !Conversation(cid).is_group && peer > 0
+        if gated && level == "followers_only":
+            check exists(f in Follow where f.follower == me && f.followee == peer) "not_delivered: this account takes messages from followers only" status 403
+        if gated && level == "subscribers_only":
+            check dmSubscribed(me, peer, 0.0) "not_delivered: this account takes messages from subscribers only" status 403
+        if gated && level == "vip_only":
+            check dmSubscribed(me, peer, max(d.vip_min_price_aet in DMSettings where d.account == peer)) "not_delivered: this account takes messages from VIP subscribers only" status 403
+        if gated && level == "paid_only":
+            let oneTime = max(d.charge_mode in DMSettings where d.account == peer) == "one_time"
+            if !(oneTime && exists(u in DmUnlock where u.creator == peer && u.payer == me)):
+                let price = round(max(d.price_aet in DMSettings where d.account == peer) * 1000000.0)
+                check sum(w.amount_uaet in WalletEntry where w.account == me) >= price "not_delivered: payment required" status 402
+                add WalletEntry { account: me, kind: "dm_paid", amount_uaet: 0 - price, counterparty: peer, created: now() }
+                add WalletEntry { account: peer, kind: "dm_paid_received", amount_uaet: price, counterparty: me, created: now() }
+                emit balance balanceDTO(me) to actor
+                emit balance balanceDTO(peer) to Account(peer).handle
+                if oneTime:
+                    add DmUnlock { creator: peer, payer: me, created: now() }
+        let mid = add Message { conversation: cid, sender: me, body: words, kind: "text", reply_to: rt, deleted: false, edited_at: 0, created: now() }
+        set Conversation(cid).last_at = now()
+        for m in ConversationMember where m.conversation == cid && m.account != me:
+            set ConversationMember(m.id).unread = m.unread + 1
+            emit gnosis_message MessagePushDTO{conversation_id: "" + cid, message_id: "" + mid, mode: Conversation(cid).mode, created_at: iso(now()), sender_account: "" + me, sender_handle: actor} to Account(m.account).handle
+        return messageV1(Message(mid), me) status 201
+    # This member has read the conversation up to now.
+    action messageRead(conversation_id: text):
+        requires member
+        let cid = toInt(conversation_id)
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(m in ConversationMember where m.conversation == cid && m.account == me) "forbidden" status 403
+        for m in ConversationMember where m.conversation == cid && m.account == me:
+            set ConversationMember(m.id).unread = 0

@@ -1,178 +1,57 @@
 import "core.fct"
 import "social.fct"
 
-# The mutation lane: `POST /events`, one `event_type` per call (golden's
-# x-mutation-events catalog). Actions cannot call each other in fct, so this
-# dispatcher's branches necessarily restate the same entity writes the REST
-# actions in social.fct/core.fct already make — real logic, not a stub, just
-# reached through a second route the golden contract also exposes. Covers the
-# highest-traffic event types; anything else answers 400 "unknown event_type"
-# rather than pretending to handle it.
+# The account's own event stream and its connect/disconnect hooks. The
+# mutation lane (POST /events) is the Mutation union in mutations.fct.
 app F33D3REvents:
-    action postEvent(event_type: text, target_handle: text?, work_id: text?, folder_id: text?, name: text?, reason: text?, notif_id: text?, keyword: text?, tag: text?, body: text?, is_nsfw: bool?, content_class: text?, made_with_ai: bool?, paid_partnership: bool?, comment_gating: text?, parent_cid: text?, quoted_work_id: text?) -> EventOKDTO:
+    # The account's own event stream (text/event-stream). The runtime opens every
+    # connection with the typed `hello` frame and numbers the rest, replaying
+    # what a reconnecting client missed after its Last-Event-ID.
+    stream "/api/v2/events" requires member rate read since "2026-09-18":
+        connect -> eventsBalance as balance
+        connect -> eventsUnread as notify
+        connect -> eventsOnline
+        disconnect -> eventsOffline
+        balance: BalanceEventDTO since "2026-09-06" "The AET balance changed; also sent once on connect when Ain Soph answers."
+        gnosis_call: CallSignalDTO since "2026-09-06" "Sealed call signalling (offer, answer, ice, end) with the recipient's own wrapped key."
+        gnosis_message: MessagePushDTO since "2026-09-06" "A message arrived, addressed to this account, with this recipient's sealed key when sealed."
+        gnosis_message_remove: MessageRemoveDTO since "2026-09-06" "A disappearing message expired or was deleted; drop it."
+        gnosis_typing: TypingEventDTO since "2026-09-13" "A member of one of the receiver's conversations started or stopped typing."
+        live_start: LiveStartEventDTO since "2026-09-06" "Someone the account follows went live."
+        live_state: LiveStateEventDTO since "2026-09-13" "A followed broadcaster's stream changed state (scheduled, moved, cancelled, live, ended)."
+        new_post: NewPostEventDTO since "2026-09-06" "Someone the account follows published or reposted a work; the card is attached."
+        notification: NotificationDTO since "2026-09-13" "A grouped notification the page would now show first — insert or replace by id."
+        notify: NotifyEventDTO since "2026-09-06" "The unread notification count changed; also sent once on connect."
+        poll_result: PollResultEventDTO since "2026-09-13" "A watched work's ballot moved; the poll is inside, in the receiver's own order with their own vote marked."
+        post_deleted: WorkRemovedEventDTO since "2026-09-06" "A work was deleted; remove it from every screen."
+        presence: PresenceEventDTO since "2026-09-13" "A followed account came online or went away."
+        work_edited: WorkEventDTO since "2026-09-13" "A watched work's words or labels changed; the work is inside, rendered for the receiver."
+        work_engagement: WorkEngagementEventDTO since "2026-09-06" "A watched work's counts changed (watch_post / unwatch_post choose which)."
+        work_removed: WorkRemovedEventDTO since "2026-09-13" "A watched work is gone (to connections watching it)."
+
+    # The account's event stream hooks: the balance and the unread count are
+    # sent to each new connection; the first open connection brings the
+    # account online for its followers, the last one to close takes it away.
+    action eventsBalance() -> BalanceEventDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        if event_type == "post":
-            check body != "" "say something"
-            let parent = toInt(parent_cid)
-            let quoted = toInt(quoted_work_id)
-            let wid = add Work { author: me, body: body, kind: "text", content_class: content_class, media_urls: "", is_nsfw: is_nsfw, is_gore: false, is_sensitive: false, is_pinned: false, made_with_ai: made_with_ai, paid_partnership: paid_partnership, parent_cid: parent, quoted: quoted, price_uaet: 0, comment_gating: comment_gating, deleted: false, edited: false, created: now(), edited_at: 0 }
-            if parent > 0:
-                add Notification { account: Work(parent).author, actor: me, kind: "reply", target_type: "work", target_id: wid, preview: body, amount_uaet: 0, is_read: false, created: now() }
-            return EventOKDTO{ok: true}
-        if event_type == "follow":
-            check target_handle != "" "target_handle required"
-            check exists(a in Account where a.handle == target_handle) "no such account" status 404
-            let target = max(a.id in Account where a.handle == target_handle)
-            if !exists(f in Follow where f.follower == me && f.followee == target):
-                add Follow { follower: me, followee: target, created: now() }
-                add Notification { account: target, actor: me, kind: "follow", target_type: "account", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
-            return EventOKDTO{ok: true}
-        if event_type == "unfollow":
-            let target = max(a.id in Account where a.handle == target_handle)
-            remove f in Follow where f.follower == me && f.followee == target
-            return EventOKDTO{ok: true}
-        if event_type == "block":
-            check target_handle != "" "target_handle required"
-            let target = max(a.id in Account where a.handle == target_handle)
-            check target > 0 "no such account" status 404
-            if !exists(b in Block where b.account == me && b.target == target):
-                add Block { account: me, target: target }
-            remove f in Follow where f.follower == target && f.followee == me
-            return EventOKDTO{ok: true}
-        if event_type == "unblock":
-            let target = max(a.id in Account where a.handle == target_handle)
-            remove b in Block where b.account == me && b.target == target
-            return EventOKDTO{ok: true}
-        if event_type == "mute":
-            check target_handle != "" "target_handle required"
-            let target = max(a.id in Account where a.handle == target_handle)
-            check target > 0 "no such account" status 404
-            if !exists(m in Mute where m.account == me && m.target == target):
-                add Mute { account: me, target: target }
-            return EventOKDTO{ok: true}
-        if event_type == "unmute":
-            let target = max(a.id in Account where a.handle == target_handle)
-            remove m in Mute where m.account == me && m.target == target
-            return EventOKDTO{ok: true}
-        if event_type == "mute_keyword":
-            check keyword != "" "keyword required"
-            return EventOKDTO{ok: true}
-        if event_type == "unmute_keyword":
-            return EventOKDTO{ok: true}
-        if event_type == "work_like":
-            let wid = toInt(work_id)
-            check exists(w in Work where w.id == wid) "no such work" status 404
-            if !exists(l in Like where l.work == wid && l.account == me):
-                add Like { work: wid, account: me }
-                if Work(wid).author != me:
-                    add Notification { account: Work(wid).author, actor: me, kind: "like", target_type: "work", target_id: wid, preview: Work(wid).body, amount_uaet: 0, is_read: false, created: now() }
-            return EventOKDTO{ok: true}
-        if event_type == "work_unlike":
-            let wid = toInt(work_id)
-            remove l in Like where l.work == wid && l.account == me
-            return EventOKDTO{ok: true}
-        if event_type == "work_dislike":
-            let wid = toInt(work_id)
-            if !exists(l in Dislike where l.work == wid && l.account == me):
-                add Dislike { work: wid, account: me }
-            return EventOKDTO{ok: true}
-        if event_type == "work_undislike":
-            let wid = toInt(work_id)
-            remove l in Dislike where l.work == wid && l.account == me
-            return EventOKDTO{ok: true}
-        if event_type == "work_repost":
-            let wid = toInt(work_id)
-            check exists(w in Work where w.id == wid) "no such work" status 404
-            if !exists(r in Repost where r.work == wid && r.account == me):
-                add Repost { work: wid, account: me }
-            return EventOKDTO{ok: true}
-        if event_type == "work_unrepost":
-            let wid = toInt(work_id)
-            remove r in Repost where r.work == wid && r.account == me
-            return EventOKDTO{ok: true}
-        if event_type == "work_bookmark":
-            let wid = toInt(work_id)
-            let f = toInt(folder_id)
-            if !exists(b in Bookmark where b.work == wid && b.account == me):
-                add Bookmark { work: wid, account: me, folder: f }
-            return EventOKDTO{ok: true}
-        if event_type == "work_unbookmark":
-            let wid = toInt(work_id)
-            remove b in Bookmark where b.work == wid && b.account == me
-            return EventOKDTO{ok: true}
-        if event_type == "work_delete":
-            let wid = toInt(work_id)
-            check Work(wid).author == me "not your work" status 403
-            set Work(wid).deleted = true
-            return EventOKDTO{ok: true}
-        if event_type == "pin_work" || event_type == "pin_post":
-            let wid = toInt(work_id)
-            check Work(wid).author == me "not your work" status 403
-            for w in Work where w.author == me && w.is_pinned:
-                set Work(w.id).is_pinned = false
-            set Work(wid).is_pinned = true
-            return EventOKDTO{ok: true}
-        if event_type == "unpin_work" || event_type == "unpin_post":
-            let wid = toInt(work_id)
-            check Work(wid).author == me "not your work" status 403
-            set Work(wid).is_pinned = false
-            return EventOKDTO{ok: true}
-        if event_type == "watch_post":
-            let wid = toInt(work_id)
-            if !exists(v in WorkWatch where v.account == me && v.work == wid):
-                add WorkWatch { account: me, work: wid }
-            return EventOKDTO{ok: true}
-        if event_type == "unwatch_post":
-            let wid = toInt(work_id)
-            remove v in WorkWatch where v.account == me && v.work == wid
-            return EventOKDTO{ok: true}
-        if event_type == "notif_read":
-            set Notification(toInt(notif_id)).is_read = true
-            return EventOKDTO{ok: true}
-        if event_type == "notif_read_all":
-            for x in Notification where x.account == me && !x.is_read:
-                set Notification(x.id).is_read = true
-            return EventOKDTO{ok: true}
-        if event_type == "bookmark_folder_create":
-            check name != "" "name required"
-            let fid = add BookmarkFolder { account: me, name: name, position: count(f in BookmarkFolder where f.account == me) }
-            let wid = toInt(work_id)
-            if wid > 0:
-                add Bookmark { work: wid, account: me, folder: fid }
-            return EventOKDTO{ok: true}
-        if event_type == "bookmark_folder_delete":
-            let fid = toInt(folder_id)
-            remove b in Bookmark where b.folder == fid
-            remove BookmarkFolder(fid)
-            return EventOKDTO{ok: true}
-        if event_type == "bookmark_folder_rename":
-            set BookmarkFolder(toInt(folder_id)).name = name
-            return EventOKDTO{ok: true}
-        if event_type == "contact_policy":
-            check reason == "" "reason not accepted here"
-            return EventOKDTO{ok: true}
-        if event_type == "follow_topic":
-            if !exists(t in TopicFollow where t.account == me && t.tag == tag):
-                add TopicFollow { account: me, tag: tag }
-            return EventOKDTO{ok: true}
-        if event_type == "unfollow_topic":
-            remove t in TopicFollow where t.account == me && t.tag == tag
-            return EventOKDTO{ok: true}
-        if event_type == "circle_add":
-            let target = max(a.id in Account where a.handle == target_handle)
-            if !exists(c in Circle where c.account == me && c.target == target):
-                add Circle { account: me, target: target }
-            return EventOKDTO{ok: true}
-        if event_type == "circle_remove":
-            let target = max(a.id in Account where a.handle == target_handle)
-            remove c in Circle where c.account == me && c.target == target
-            return EventOKDTO{ok: true}
-        if event_type == "report":
-            check reason != "" "reason required"
-            let wid = toInt(work_id)
-            let target = max(a.id in Account where a.handle == target_handle)
-            add Report { reporter: me, reason: reason, work: wid, target: target, detail: "", created: now() }
-            return EventOKDTO{ok: true}
-        check false "unknown event_type" status 400
-        return EventOKDTO{ok: false}
+        return balanceDTO(me)
+    action eventsUnread() -> NotifyEventDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return NotifyEventDTO{unread: count(n in Notification where n.account == me && !n.is_read)}
+    action eventsOnline():
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        if !exists(c in EventsConnection where c.account == me):
+            for f in Follow where f.followee == me:
+                emit presence PresenceEventDTO{handle: actor, online: true, user_id: "" + me} to Account(f.follower).handle
+        add EventsConnection { account: me, opened: now() }
+    action eventsOffline():
+        let me = max(a.id in Account where a.handle == actor)
+        let cid = max(c.id in EventsConnection where c.account == me)
+        remove EventsConnection(cid)
+        set Account(me).last_seen = now()
+        if !exists(c in EventsConnection where c.account == me):
+            for f in Follow where f.followee == me:
+                emit presence PresenceEventDTO{handle: actor, online: false, user_id: "" + me} to Account(f.follower).handle

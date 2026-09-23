@@ -2,40 +2,168 @@ import "entities.fct"
 import "core.fct"
 
 app F33D3RCommunities:
+    # A place listing as every places surface answers with it.
+    derive placeDTO(p: Place): V2PlaceListingDTO = V2PlaceListingDTO{
+        id: "" + p.id,
+        name: p.name,
+        category: p.category,
+        description: p.description,
+        address: p.address,
+        website: p.website,
+        lat: p.lat,
+        lon: p.lon,
+        status: p.status,
+        owner_handle: Account(p.owner).handle,
+        owner_name: Account(p.owner).display_name,
+        owner_avatar: Account(p.owner).avatar_url
+        }
+    # A community's roles, lowest first: member < moderator < admin < creator.
+    # A moderator may act on the queue and on members below them; an admin
+    # (or the creator) also on settings, rules and roles.
     policy administersCommunity(id: int):
-        exists(m in CommunityMember where m.community == id && m.account == max(a.id in Account where a.handle == actor) && (m.role == "owner" || m.role == "admin"))
+        exists(m in CommunityMember where m.community == id && m.account == max(a.id in Account where a.handle == actor) && (m.role == "creator" || m.role == "admin"))
 
-    action listCommunities(cursor: text?, limit: int?) -> [V2CommunityListItemDTO]:
+    # Community rows the golden contract's community.* events write: the
+    # rules (1-10, in order), bans (a lifted one keeps its row: lifted > 0),
+    # reports against works posted into the community, and the hide/keep
+    # verdict a report ends in — scoped to that community's timeline only.
+    entity CommunityRule:
+        id: int
+        community: int
+        position: int
+        body: text
+        created: int
+    entity CommunityBan:
+        id: int
+        community: int
+        account: int
+        banned_by: int
+        reason: text
+        created: int
+        lifted: int
+        lifted_by: int
+    entity CommunityReport:
+        id: int
+        community: int
+        work: int
+        reporter: int
+        reason: text
+        rule: int
+        detail: text
+        status: text
+        created: int
+        resolved: int
+        resolved_by: int
+    entity CommunityPostState:
+        id: int
+        community: int
+        work: int
+        state: text
+
+    proc communityRank(role: text) -> int:
+        if role == "creator":
+            return 4
+        if role == "admin":
+            return 3
+        if role == "moderator":
+            return 2
+        if role == "member":
+            return 1
+        return 0
+    # A community handle: 3-30 of [a-z0-9_].
+    proc communityHandleOk(h: text) -> bool:
+        if len(h) < 3 || len(h) > 30:
+            return false
+        let ok = "abcdefghijklmnopqrstuvwxyz0123456789_"
+        let mut i = 0
+        loop i < len(h):
+            if !contains(ok, charAt(h, i)):
+                return false
+            i = i + 1
+        return true
+    # The policies a community may be created or updated into; subscriber_only
+    # and vip_only are the membership gate's alone (vip_only must name a plan).
+    proc communityPolicyOk(p: text, allowSubscriber: bool) -> bool:
+        if p == "open" || p == "request_to_join" || p == "invite_only":
+            return true
+        return allowSubscriber && p == "subscriber_only"
+    proc communityReportReasonOk(r: text) -> bool:
+        return r == "spam" || r == "harassment" || r == "hate" || r == "nsfw" || r == "violence" || r == "illegal" || r == "off_topic" || r == "rule_violation" || r == "other"
+    # A handle as typed: trimmed, lowercased, without its @.
+    proc handleTyped(h: text) -> text:
+        let t = lower(trim(h))
+        if len(t) > 0 && charAt(t, 0) == "@":
+            return slice(t, 1, len(t))
+        return t
+    # A PIAL as a client names it ("pial:<id>" or the bare id) — here the
+    # account id selfDTO publishes as pial_id.
+    proc pialAccount(p: text) -> int:
+        let t = trim(p)
+        if len(t) > 5 && slice(t, 0, 5) == "pial:":
+            return toInt(slice(t, 5, len(t)))
+        return toInt(t)
+    # The target a moderation event names: its PIAL when given, else its handle.
+    proc targetAccount(pial: text, byHandle: int) -> int:
+        if trim(pial) != "":
+            return pialAccount(pial)
+        return byHandle
+    proc truncText(t: text, n: int) -> text:
+        let s = trim(t)
+        if len(s) > n:
+            return slice(s, 0, n)
+        return s
+    proc rulesOk(rules: [text]) -> bool:
+        if len(rules) < 1 || len(rules) > 10:
+            return false
+        let mut i = 0
+        loop i < len(rules):
+            let b = trim(rules[i])
+            if b == "" || len(b) > 300:
+                return false
+            i = i + 1
+        return true
+
+    # A community as community.create answers with it (CommunityDTO).
+    derive communityV1(c: Community): CommunityDTO = CommunityDTO{
+        id: "" + c.id,
+        version: c.version,
+        handle: c.handle,
+        name: c.name,
+        description: c.description,
+        avatar_url: c.avatar_url,
+        banner_url: c.banner_url,
+        membership_policy: c.membership_policy,
+        member_count: count(m in CommunityMember where m.community == c.id),
+        created_at: iso(c.created),
+        updated_at: iso(c.updated)
+        }
+
+    # The caller's own communities (the ones it is a member of), newest first.
+    action listCommunities(cursor: text?, limit: int?) -> V2PageOfV2CommunityListItemDTO:
         requires member
+        let me = max(a.id in Account where a.handle == actor)
         let n = do pageSize(limit, 20, 50)
         let start = do cursorStart(cursor)
-        return list(V2CommunityListItemDTO{id: "" + c.id, handle: c.handle, name: c.name, description: c.description, avatar_url: c.avatar_url, membership_policy: c.membership_policy, member_count: count(m in CommunityMember where m.community == c.id)} in Community where c.id < start by id desc limit n)
-    action createCommunity(handle: text, name: text?, description: text?, membership_policy: text?, avatar_url: text?, banner_url: text?) -> V2CommunityDTO:
-        requires member
-        check handle != "" "handle is required"
-        check !exists(c in Community where c.handle == handle) "handle is taken" status 409
-        let me = max(a.id in Account where a.handle == actor)
-        let _h1 = do orText(name, handle)
-        let _h2 = do orText(membership_policy, "open")
-        let cid = add Community { handle: handle, name: _h1, description: description, avatar_url: avatar_url, banner_url: banner_url, membership_policy: _h2, created: now() }
-        add CommunityMember { community: cid, account: me, role: "owner", joined: now() }
-        return V2CommunityDTO{id: "" + cid, handle: handle, name: Community(cid).name, description: description, avatar_url: avatar_url, banner_url: banner_url, membership_policy: Community(cid).membership_policy, member_count: 1, viewer: V2CommunityViewerDTO{can_administer: true, can_moderate: true, has_pending_invite: false, has_pending_join_request: false, role: "owner"}}
+        let ids = list(c.id in Community where c.id < start && exists(m in CommunityMember where m.community == c.id && m.account == me) by id desc limit n)
+        let next = do nextCursor(ids, n)
+        return V2PageOfV2CommunityListItemDTO{items: list(V2CommunityListItemDTO{id: "" + c.id, handle: c.handle, name: c.name, description: c.description, avatar_url: c.avatar_url, membership_policy: c.membership_policy, member_count: count(m in CommunityMember where m.community == c.id)} in Community where c.id in ids by id desc), next_cursor: next, server_time: iso(now())}
     action getCommunity(id: int) -> V2CommunityDTO:
         requires member
         check exists(c in Community where c.id == id) "no such community" status 404
         let me = max(a.id in Account where a.handle == actor)
         let myRole = max(m.role in CommunityMember where m.community == id && m.account == me)
-        return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: Community(id).membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: myRole == "owner" || myRole == "admin", can_moderate: myRole == "owner" || myRole == "admin" || myRole == "mod", has_pending_invite: exists(i in CommunityInvite where i.community == id && i.invitee == me), has_pending_join_request: exists(j in CommunityJoinRequest where j.community == id && j.account == me), role: myRole}}
+        return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: Community(id).membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: myRole == "creator" || myRole == "admin", can_moderate: myRole == "creator" || myRole == "admin" || myRole == "moderator", has_pending_invite: exists(i in CommunityInvite where i.community == id && i.invitee == me), has_pending_join_request: exists(j in CommunityJoinRequest where j.community == id && j.account == me), role: myRole}}
     action joinCommunity(id: int) -> V2CommunityDTO:
         requires member
         check exists(c in Community where c.id == id) "no such community" status 404
         let me = max(a.id in Account where a.handle == actor)
         check !exists(m in CommunityMember where m.community == id && m.account == me) "already a member" status 409
+        check !exists(b in CommunityBan where b.community == id && b.account == me && b.lifted == 0) "That person is banned from this community." status 409 code "banned"
         if Community(id).membership_policy == "open":
             add CommunityMember { community: id, account: me, role: "member", joined: now() }
         else:
             if !exists(j in CommunityJoinRequest where j.community == id && j.account == me):
-                add CommunityJoinRequest { community: id, account: me, created: now() }
+                add CommunityJoinRequest { community: id, account: me, created: now(), message: "" }
         return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: Community(id).membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: false, can_moderate: false, has_pending_invite: false, has_pending_join_request: Community(id).membership_policy != "open", role: "member"}}
     action leaveCommunity(id: int):
         requires member
@@ -45,108 +173,371 @@ app F33D3RCommunities:
         requires member
         requires administersCommunity(id)
         set Community(id).membership_policy = membership_policy
-        return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: true, can_moderate: true, has_pending_invite: false, has_pending_join_request: false, role: "owner"}}
-    action updateCommunitySettings(id: int, name: text?, description: text?, membership_policy: text?, avatar_url: text?, banner_url: text?):
+        set Community(id).required_plan = toInt(required_plan_id)
+        set Community(id).version = Community(id).version + 1
+        set Community(id).updated = now()
+        return V2CommunityDTO{id: "" + id, handle: Community(id).handle, name: Community(id).name, description: Community(id).description, avatar_url: Community(id).avatar_url, banner_url: Community(id).banner_url, membership_policy: membership_policy, member_count: count(m in CommunityMember where m.community == id), viewer: V2CommunityViewerDTO{can_administer: true, can_moderate: true, has_pending_invite: false, has_pending_join_request: false, role: max(m.role in CommunityMember where m.community == id && m.account == max(a.id in Account where a.handle == actor))}}
+    # ── The POST /events community.* lane ────────────────────────────────
+    # community.create: the caller founds a community and is its creator.
+    action communityCreate(handle: text, name: text?, description: text?, membership_policy: text?, avatar_url: text?, banner_url: text?) -> CommunityDTO:
         requires member
-        requires administersCommunity(id)
-        set Community(id).name = name
-        set Community(id).description = description
-        set Community(id).avatar_url = avatar_url
-        set Community(id).banner_url = banner_url
-    action inviteToCommunity(id: int, invitee_handle: text):
-        requires member
-        requires administersCommunity(id)
-        check exists(a in Account where a.handle == invitee_handle) "no such user" status 404
-        let target = max(a.id in Account where a.handle == invitee_handle)
-        if !exists(i in CommunityInvite where i.community == id && i.invitee == target):
-            add CommunityInvite { community: id, invitee: target, created: now() }
-    action acceptCommunityInvite(id: int, invite_id: text):
-        requires member
+        let h = lower(trim(handle))
+        let nm = trim(name)
+        check h != "" && nm != "" "Give your community a handle and a name." status 400 code "invalid_community"
+        check communityHandleOk(h) "handle must be 3-30 chars of [a-z0-9_]" status 400
+        check len(nm) <= 100 "name must be 1-100 characters" status 400
+        let desc = trim(description)
+        check len(desc) <= 500 "description must be at most 500 characters" status 400
+        let policy = orTextC(trim(membership_policy), "open")
+        check policy != "vip_only" "vip_only cannot be set at creation — create the community, then set its membership gate to name and validate its plan" status 400
+        check communityPolicyOk(policy, true) "membership_policy must be open, request_to_join, invite_only or subscriber_only" status 400
+        check !exists(c in Community where c.handle == h) "That community handle is taken." status 409
         let me = max(a.id in Account where a.handle == actor)
-        remove i in CommunityInvite where i.id == toInt(invite_id)
-        if !exists(m in CommunityMember where m.community == id && m.account == me):
-            add CommunityMember { community: id, account: me, role: "member", joined: now() }
-    action declineCommunityInvite(id: int, invite_id: text):
+        let cid = add Community { handle: h, name: nm, description: desc, avatar_url: trim(avatar_url), banner_url: trim(banner_url), membership_policy: policy, created: now(), creator: me, version: 1, updated: now(), required_plan: 0 }
+        add CommunityMember { community: cid, account: me, role: "creator", joined: now() }
+        return communityV1(Community(cid))
+    # community.update_settings: an admin changes what it names; an absent
+    # field keeps its value.
+    action communityUpdateSettings(community_id: text, name: text?, description: text?, membership_policy: text?, avatar_url: text?, banner_url: text?):
         requires member
-        remove CommunityInvite(toInt(invite_id))
-    action approveJoinRequest(id: int, request_id: text):
-        requires member
-        requires administersCommunity(id)
-        let target = CommunityJoinRequest(toInt(request_id)).account
-        if !exists(m in CommunityMember where m.community == id && m.account == target):
-            add CommunityMember { community: id, account: target, role: "member", joined: now() }
-        remove CommunityJoinRequest(toInt(request_id))
-    action declineJoinRequest(id: int, request_id: text):
-        requires member
-        requires administersCommunity(id)
-        remove CommunityJoinRequest(toInt(request_id))
-    action setMemberRole(id: int, role: text, target_pial: text?, target_handle: text?):
-        requires member
-        requires administersCommunity(id)
-        let _h3 = do orTextC(target_handle, "")
-        let target = max(a.id in Account where a.handle == _h3)
-        for m in CommunityMember where m.community == id && m.account == target:
-            set CommunityMember(m.id).role = role
-    action removeMember(id: int, target_pial: text?, target_handle: text?):
-        requires member
-        requires administersCommunity(id)
-        let _h4 = do orTextC(target_handle, "")
-        let target = max(a.id in Account where a.handle == _h4)
-        remove m in CommunityMember where m.community == id && m.account == target
-    action banMember(id: int, reason: text?, target_pial: text?, target_handle: text?):
-        requires member
-        requires administersCommunity(id)
-        let _h5 = do orTextC(target_handle, "")
-        let target = max(a.id in Account where a.handle == _h5)
-        remove m in CommunityMember where m.community == id && m.account == target
-    action unbanMember(id: int, target_pial: text?, target_handle: text?):
-        requires member
-        requires administersCommunity(id)
-        let target = max(a.id in Account where a.handle == target_handle)
-        if !exists(m in CommunityMember where m.community == id && m.account == target):
-            add CommunityMember { community: id, account: target, role: "member", joined: now() }
-    action updateRules(id: int, rules: text):
-        requires member
-        requires administersCommunity(id)
-        set Community(id).description = rules
-    action reportCommunityPost(id: int, work_id: text, reason: text, rule_id: text?, detail: text?):
-        requires member
-        check reason != "" "reason required"
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        check exists(c in Community where c.id == cid) "no such community" status 404
+        let policy = trim(membership_policy)
+        check policy != "subscriber_only" && policy != "vip_only" "subscriber_only/vip_only can only be set through the membership gate" status 400
         let me = max(a.id in Account where a.handle == actor)
-        add Report { reporter: me, reason: reason, work: toInt(work_id), target: 0, detail: detail, created: now() }
-    action moderatePost(id: int, report_id: text, action: text, reason: text?):
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 3 "role does not permit this action" status 403
+        check policy == "" || communityPolicyOk(policy, false) "membership_policy must be open, request_to_join or invite_only" status 400
+        check len(trim(name)) <= 100 "name must be 1-100 characters" status 400
+        check len(trim(description)) <= 500 "description must be at most 500 characters" status 400
+        if trim(name) != "":
+            set Community(cid).name = trim(name)
+        if trim(description) != "":
+            set Community(cid).description = trim(description)
+        if trim(avatar_url) != "":
+            set Community(cid).avatar_url = trim(avatar_url)
+        if trim(banner_url) != "":
+            set Community(cid).banner_url = trim(banner_url)
+        if policy != "":
+            set Community(cid).membership_policy = policy
+        set Community(cid).version = Community(cid).version + 1
+        set Community(cid).updated = now()
+        add ModerationAction { community: cid, report_id: 0, action: "update_settings", reason: "", moderator: me, created: now(), target: 0, work: 0 }
+    # community.update_rules: an admin replaces the rules (1-10, each 1-300
+    # characters), in the order given.
+    action communityUpdateRules(community_id: text, rules: text):
         requires member
-        requires administersCommunity(id)
-        check action != "" "action is required"
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
         let me = max(a.id in Account where a.handle == actor)
-        add ModerationAction { community: id, report_id: toInt(report_id), action: action, reason: reason, moderator: me, created: now() }
-        remove Report(toInt(report_id))
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 3 "role does not permit this action" status 403
+        # The rule bodies: a JSON array of strings; anything else is no rules.
+        let bodies = jsonTexts(fromJson(rules))
+        check len(bodies) >= 1 && len(bodies) <= 10 "a community must have between 1 and 10 rules" status 400
+        check rulesOk(bodies) "each rule must be 1-300 characters" status 400
+        remove r in CommunityRule where r.community == cid
+        for b in bodies:
+            let at = count(r in CommunityRule where r.community == cid) + 1
+            add CommunityRule { community: cid, position: at, body: trim(b), created: now() }
+        add ModerationAction { community: cid, report_id: 0, action: "update_rules", reason: "", moderator: me, created: now(), target: 0, work: 0 }
+    # community.join: into an open community, or a subscriber/vip one the
+    # caller holds the creator's plan for. A ban holds until lifted.
+    action communityJoin(community_id: text):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        check exists(c in Community where c.id == cid) "no such community" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let policy = Community(cid).membership_policy
+        check policy != "request_to_join" && policy != "invite_only" "This community isn't open to join directly — request to join instead." status 409 code "membership_policy_not_open"
+        check policy != "subscriber_only" || exists(x in ShopSubscription where x.account == me && exists(s in Shop where s.id == x.shop && s.owner == Community(cid).creator)) "an active subscription to this creator is required to join" status 402
+        check policy != "vip_only" || exists(x in ShopSubscription where x.account == me && x.plan == Community(cid).required_plan) "an active subscription to this creator is required to join" status 402
+        check !exists(b in CommunityBan where b.community == cid && b.account == me && b.lifted == 0) "That person is banned from this community." status 409 code "banned"
+        check !exists(m in CommunityMember where m.community == cid && m.account == me) "You're already a member of this community." status 409 code "already_a_member"
+        add CommunityMember { community: cid, account: me, role: "member", joined: now() }
+    # community.leave: anyone but the creator.
+    action communityLeave(community_id: text):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(m in CommunityMember where m.community == cid && m.account == me) "not a member of this community" status 404
+        check !exists(m in CommunityMember where m.community == cid && m.account == me && m.role == "creator") "As the creator, you can't leave your own community." status 409 code "creator_cannot_leave"
+        remove m in CommunityMember where m.community == cid && m.account == me
+    # community.request_join: ask a request_to_join community; one pending
+    # request at a time.
+    action communityRequestJoin(community_id: text, message: text?):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        check exists(c in Community where c.id == cid) "no such community" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        check Community(cid).membership_policy == "request_to_join" "This community doesn't take join requests." status 409 code "membership_policy_not_request_to_join"
+        check !exists(m in CommunityMember where m.community == cid && m.account == me) "You're already a member of this community." status 409 code "already_a_member"
+        check !exists(b in CommunityBan where b.community == cid && b.account == me && b.lifted == 0) "That person is banned from this community." status 409 code "banned"
+        check !exists(j in CommunityJoinRequest where j.community == cid && j.account == me) "You already have a pending request to join." status 409 code "join_request_already_pending"
+        add CommunityJoinRequest { community: cid, account: me, created: now(), message: truncText(message, 300) }
+    # community.approve_join_request: a moderator admits the requester, who
+    # is told.
+    action communityApproveJoinRequest(community_id: text, request_id: text):
+        requires member
+        let cid = toInt(community_id)
+        let rid = toInt(request_id)
+        check trim(community_id) != "" && trim(request_id) != "" "community_id and request_id required" status 400 code "request_id_required"
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 2 "role does not permit this action" status 403
+        check exists(j in CommunityJoinRequest where j.id == rid && j.community == cid) "no such join request" status 404
+        let who = CommunityJoinRequest(rid).account
+        remove CommunityJoinRequest(rid)
+        check !exists(b in CommunityBan where b.community == cid && b.account == who && b.lifted == 0) "That person is banned from this community." status 409 code "banned"
+        check !exists(m in CommunityMember where m.community == cid && m.account == who) "You're already a member of this community." status 409 code "already_a_member"
+        add CommunityMember { community: cid, account: who, role: "member", joined: now() }
+        let note = add Notification { account: who, actor: me, kind: "community_join_approved", target_type: "community", target_id: cid, preview: Community(cid).name, amount_uaet: 0, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), who) to Account(who).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == who && !n.is_read)} to Account(who).handle
+    action communityDeclineJoinRequest(community_id: text, request_id: text):
+        requires member
+        let cid = toInt(community_id)
+        let rid = toInt(request_id)
+        check trim(community_id) != "" && trim(request_id) != "" "community_id and request_id required" status 400 code "request_id_required"
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 2 "role does not permit this action" status 403
+        check exists(j in CommunityJoinRequest where j.id == rid && j.community == cid) "no such join request" status 404
+        remove CommunityJoinRequest(rid)
+    # community.invite: any member may invite into an open or request_to_join
+    # community; only a moderator or above into an invite_only one. The
+    # invitee is told.
+    action communityInvite(community_id: text, invitee_handle: text):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        let h = handleTyped(invitee_handle)
+        check h != "" "Who do you want to invite?" status 400 code "invitee_required"
+        check exists(a in Account where a.handle == h) "No such person." status 404
+        let target = max(a.id in Account where a.handle == h)
+        check exists(c in Community where c.id == cid) "no such community" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check Community(cid).membership_policy != "invite_only" || myRank >= 2 "only an admin or moderator may invite into an invite-only community" status 403
+        check !exists(m in CommunityMember where m.community == cid && m.account == target) "You're already a member of this community." status 409 code "already_a_member"
+        check !exists(i in CommunityInvite where i.community == cid && i.invitee == target) "That person already has a pending invite." status 409 code "invite_already_pending"
+        add CommunityInvite { community: cid, invitee: target, created: now(), inviter: me }
+        let note = add Notification { account: target, actor: me, kind: "community_invite", target_type: "community", target_id: cid, preview: Community(cid).name, amount_uaet: 0, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), target) to Account(target).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == target && !n.is_read)} to Account(target).handle
+    # community.accept_invite: the invitee joins; the inviter is told.
+    action communityAcceptInvite(community_id: text, invite_id: text):
+        requires member
+        let cid = toInt(community_id)
+        let iid = toInt(invite_id)
+        check trim(community_id) != "" && trim(invite_id) != "" "community_id and invite_id required" status 400 code "invite_id_required"
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(i in CommunityInvite where i.id == iid && i.community == cid && i.invitee == me) "no such invite" status 404
+        let inviter = CommunityInvite(iid).inviter
+        remove CommunityInvite(iid)
+        check !exists(b in CommunityBan where b.community == cid && b.account == me && b.lifted == 0) "That person is banned from this community." status 409 code "banned"
+        check !exists(m in CommunityMember where m.community == cid && m.account == me) "You're already a member of this community." status 409 code "already_a_member"
+        add CommunityMember { community: cid, account: me, role: "member", joined: now() }
+        if inviter > 0:
+            let note = add Notification { account: inviter, actor: me, kind: "community_invite_accepted", target_type: "community", target_id: cid, preview: Community(cid).name, amount_uaet: 0, is_read: false, created: now() }
+            emit notification notificationV1(Notification(note), inviter) to Account(inviter).handle
+            emit notify NotifyEventDTO{unread: count(n in Notification where n.account == inviter && !n.is_read)} to Account(inviter).handle
+    action communityDeclineInvite(community_id: text, invite_id: text):
+        requires member
+        let cid = toInt(community_id)
+        let iid = toInt(invite_id)
+        check trim(community_id) != "" && trim(invite_id) != "" "community_id and invite_id required" status 400 code "invite_id_required"
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(i in CommunityInvite where i.id == iid && i.community == cid && i.invitee == me) "no such invite" status 404
+        remove CommunityInvite(iid)
+    # community.set_member_role: an admin makes a member an admin, a
+    # moderator, or a plain member again; the creator's role is fixed.
+    action communitySetMemberRole(community_id: text, role: text, target_pial: text?, target_handle: text?):
+        requires member
+        let th = handleTyped(target_handle)
+        check trim(target_pial) != "" || th != "" "target_handle required" status 400 code "target_handle_required"
+        let target = targetAccount(target_pial, max(a.id in Account where a.handle == th))
+        check exists(a in Account where a.id == target) "No such person." status 404
+        let cid = toInt(community_id)
+        let newRole = trim(role)
+        check trim(community_id) != "" && newRole != "" "community_id and role required" status 400 code "role_required"
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 3 "role does not permit this action" status 403
+        check newRole != "creator" "the creator role cannot be assigned" status 403
+        check newRole == "admin" || newRole == "moderator" || newRole == "member" "role must be admin, moderator or member" status 400
+        check exists(m in CommunityMember where m.community == cid && m.account == target && m.role != "creator") "not a member of this community" status 404
+        for m in CommunityMember where m.community == cid && m.account == target:
+            set CommunityMember(m.id).role = newRole
+        if newRole == "admin":
+            add ModerationAction { community: cid, report_id: 0, action: "add_admin", reason: "", moderator: me, created: now(), target: target, work: 0 }
+        if newRole == "moderator":
+            add ModerationAction { community: cid, report_id: 0, action: "add_moderator", reason: "", moderator: me, created: now(), target: target, work: 0 }
+        if newRole == "member":
+            add ModerationAction { community: cid, report_id: 0, action: "remove_moderator", reason: "", moderator: me, created: now(), target: target, work: 0 }
+    # community.remove_member: a moderator removes someone ranked below them;
+    # never the creator. They may join again (a ban is what stops that).
+    action communityRemoveMember(community_id: text, target_pial: text?, target_handle: text?):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        let th = handleTyped(target_handle)
+        check trim(target_pial) != "" || th != "" "target_handle required" status 400 code "target_handle_required"
+        let target = targetAccount(target_pial, max(a.id in Account where a.handle == th))
+        check exists(a in Account where a.id == target) "No such person." status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 2 "role does not permit this action" status 403
+        check exists(m in CommunityMember where m.community == cid && m.account == target) "not a member of this community" status 404
+        let theirRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == target))
+        check theirRank != 4 "the creator cannot be removed" status 403
+        check theirRank < myRank "cannot remove a member with an equal or higher role" status 403
+        remove m in CommunityMember where m.community == cid && m.account == target
+        add ModerationAction { community: cid, report_id: 0, action: "remove_member", reason: "", moderator: me, created: now(), target: target, work: 0 }
+    # community.ban_member: removes the member and blocks join, request_join
+    # and accept_invite for them until the ban is lifted.
+    action communityBanMember(community_id: text, reason: text?, target_pial: text?, target_handle: text?):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        let th = handleTyped(target_handle)
+        check trim(target_pial) != "" || th != "" "target_handle required" status 400 code "target_handle_required"
+        let target = targetAccount(target_pial, max(a.id in Account where a.handle == th))
+        check exists(a in Account where a.id == target) "No such person." status 404
+        let why = truncText(reason, 500)
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 2 "role does not permit this action" status 403
+        let theirRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == target))
+        check theirRank != 4 "the creator cannot be banned" status 403
+        check theirRank < myRank "cannot ban a member with an equal or higher role" status 403
+        check theirRank > 0 "not a member of this community" status 404
+        check !exists(b in CommunityBan where b.community == cid && b.account == target && b.lifted == 0) "That person is already banned." status 409 code "already_banned"
+        remove m in CommunityMember where m.community == cid && m.account == target
+        remove i in CommunityInvite where i.community == cid && i.invitee == target
+        remove j in CommunityJoinRequest where j.community == cid && j.account == target
+        remove b in CommunityBan where b.community == cid && b.account == target
+        add CommunityBan { community: cid, account: target, banned_by: me, reason: why, created: now(), lifted: 0, lifted_by: 0 }
+        add ModerationAction { community: cid, report_id: 0, action: "ban_member", reason: why, moderator: me, created: now(), target: target, work: 0 }
+    action communityUnbanMember(community_id: text, target_pial: text?, target_handle: text?):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        let th = handleTyped(target_handle)
+        check trim(target_pial) != "" || th != "" "target_handle required" status 400 code "target_handle_required"
+        let target = targetAccount(target_pial, max(a.id in Account where a.handle == th))
+        check exists(a in Account where a.id == target) "No such person." status 404
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check myRank > 0 "not a member of this community" status 403
+        check myRank >= 2 "role does not permit this action" status 403
+        check exists(b in CommunityBan where b.community == cid && b.account == target && b.lifted == 0) "no active ban" status 404
+        for b in CommunityBan where b.community == cid && b.account == target && b.lifted == 0:
+            set CommunityBan(b.id).lifted = now()
+            set CommunityBan(b.id).lifted_by = me
+        add ModerationAction { community: cid, report_id: 0, action: "unban_member", reason: "", moderator: me, created: now(), target: target, work: 0 }
+    # community.report_post: a member reports a work into the community's
+    # moderation queue.
+    action communityReportPost(community_id: text, work_id: text, reason: text, rule_id: text?, detail: text?):
+        requires member
+        let cid = toInt(community_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        check trim(work_id) != "" && trim(reason) != "" "work_id and reason required" status 400 code "reason_required"
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(m in CommunityMember where m.community == cid && m.account == me) "not a member of this community" status 403
+        check communityReportReasonOk(trim(reason)) "reason must be spam, harassment, hate, nsfw, violence, illegal, off_topic, rule_violation or other" status 400
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid) "no such work" status 404
+        let rule = toInt(rule_id)
+        check trim(rule_id) == "" || exists(r in CommunityRule where r.id == rule && r.community == cid) "no such rule in this community" status 400
+        add CommunityReport { community: cid, work: wid, reporter: me, reason: trim(reason), rule: rule, detail: truncText(detail, 500), status: "open", created: now(), resolved: 0, resolved_by: 0 }
+    # community.moderate_post: a moderator (or a platform admin) hides or
+    # keeps the reported work — in this community's timeline only — which
+    # closes every open report against it here.
+    action communityModeratePost(community_id: text, report_id: text, action: text, reason: text?):
+        requires member
+        let cid = toInt(community_id)
+        let rid = toInt(report_id)
+        check trim(community_id) != "" "community_id required" status 400 code "community_id_required"
+        check trim(report_id) != "" && (action == "hide" || action == "keep") "report_id and a valid action required" status 400 code "action_required"
+        let why = truncText(reason, 500)
+        let me = max(a.id in Account where a.handle == actor)
+        let myRank = communityRank(max(m.role in CommunityMember where m.community == cid && m.account == me))
+        check role == "admin" || myRank > 0 "not a member of this community" status 403
+        check role == "admin" || myRank >= 2 "role does not permit this action" status 403
+        check exists(r in CommunityReport where r.id == rid && r.community == cid) "no such report" status 404
+        let wid = CommunityReport(rid).work
+        for r in CommunityReport where r.community == cid && r.work == wid && r.status == "open":
+            if action == "hide":
+                set CommunityReport(r.id).status = "resolved_hidden"
+            else:
+                set CommunityReport(r.id).status = "resolved_kept"
+            set CommunityReport(r.id).resolved = now()
+            set CommunityReport(r.id).resolved_by = me
+        remove p in CommunityPostState where p.community == cid && p.work == wid
+        if action == "hide":
+            add CommunityPostState { community: cid, work: wid, state: "hidden" }
+            add ModerationAction { community: cid, report_id: rid, action: "hide_post", reason: why, moderator: me, created: now(), target: 0, work: wid }
+        else:
+            add CommunityPostState { community: cid, work: wid, state: "visible" }
+            add ModerationAction { community: cid, report_id: rid, action: "keep_post", reason: why, moderator: me, created: now(), target: 0, work: wid }
 
     proc orTextC(v: text, fallback: text) -> text:
         if v == "":
             return fallback
         return v
 
-    action listPlaces(cursor: text?) -> [V2PlaceListingDTO]:
-        return list(V2PlaceListingDTO{id: "" + p.id, name: p.name, category: p.category, description: p.description, address: p.address, website: p.website, lat: 0, lon: 0, status: p.status, owner_handle: Account(p.owner).handle, owner_name: Account(p.owner).display_name, owner_avatar: Account(p.owner).avatar_url} in Place where p.status == "active" by id desc)
-    action placesNearby(min_lat: text?, min_lon: text?, max_lat: text?, max_lon: text?) -> [V2PlaceListingDTO]:
-        let _h6 = do orTextC(min_lat, "")
-        return list(V2PlaceListingDTO{id: "" + p.id, name: p.name, category: p.category, description: p.description, address: p.address, website: p.website, lat: 0, lon: 0, status: p.status, owner_handle: Account(p.owner).handle, owner_name: Account(p.owner).display_name, owner_avatar: Account(p.owner).avatar_url} in Place where p.status == "active" && p.lat >= _h6 by id)
-    action placesSearch(q: text?) -> [V2PlaceListingDTO]:
-        let _h201 = do orTextC(q, "")
-        return list(V2PlaceListingDTO{id: "" + p.id, name: p.name, category: p.category, description: p.description, address: p.address, website: p.website, lat: 0, lon: 0, status: p.status, owner_handle: Account(p.owner).handle, owner_name: Account(p.owner).display_name, owner_avatar: Account(p.owner).avatar_url} in Place where contains(lower(p.name), lower(_h201)) by id)
+    # One edge of a map viewport: an absent or unparsable edge is the world's,
+    # and every edge is clamped to the Web-Mercator range the map can show.
+    proc bboxEdge(v: text, fallback: float, lo: float, hi: float) -> float:
+        let mut x = fallback
+        if v != "":
+            x = toFloat(v)
+        if x < lo:
+            return lo
+        if x > hi:
+            return hi
+        return x
+
+    # The caller's own listings, any status.
+    action listPlaces() -> V2PageOfV2PlaceListingDTO:
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        return V2PageOfV2PlaceListingDTO{items: list(placeDTO(p) in Place where p.owner == me by id desc), next_cursor: "", server_time: iso(now())}
+    # Listed places inside a viewport (at most 300).
+    action placesNearby(min_lat: text?, min_lon: text?, max_lat: text?, max_lon: text?) -> V2PageOfV2PlaceListingDTO:
+        let s = do bboxEdge(min_lat, -85.0, -85.0, 85.0)
+        let nn = do bboxEdge(max_lat, 85.0, -85.0, 85.0)
+        let w = do bboxEdge(min_lon, -180.0, -180.0, 180.0)
+        let e = do bboxEdge(max_lon, 180.0, -180.0, 180.0)
+        return V2PageOfV2PlaceListingDTO{items: list(placeDTO(p) in Place where p.status == "active" && p.lat >= min(s, nn) && p.lat <= max(s, nn) && p.lon >= min(w, e) && p.lon <= max(w, e) by id limit 300), next_cursor: "", server_time: iso(now())}
+    # Listed places whose name, category or address holds the query (2+ chars).
+    action placesSearch(q: text?) -> V2PageOfV2PlaceListingDTO:
+        let needle = lower(trim(q))
+        return V2PageOfV2PlaceListingDTO{items: list(placeDTO(p) in Place where len(needle) >= 2 && p.status == "active" && (contains(lower(p.name), needle) || contains(lower(p.category), needle) || contains(lower(p.address), needle)) by id desc limit 20), next_cursor: "", server_time: iso(now())}
     action getPlace(id: int) -> V2PlaceListingDTO:
-        check exists(p in Place where p.id == id) "no such place" status 404
-        return V2PlaceListingDTO{id: "" + id, name: Place(id).name, category: Place(id).category, description: Place(id).description, address: Place(id).address, website: Place(id).website, lat: 0, lon: 0, status: Place(id).status, owner_handle: Account(Place(id).owner).handle, owner_name: Account(Place(id).owner).display_name, owner_avatar: Account(Place(id).owner).avatar_url}
-    action createPlace(name: text, category: text?, description: text?, address: text?, website: text?, lat: text?, lon: text?) -> V2PlaceListingDTO:
+        check exists(p in Place where p.id == id) "That listing does not exist." status 404 code "place_not_found"
+        return placeDTO(Place(id))
+    action createPlace(name: text, category: text?, description: text?, address: text?, website: text?, lat: float?, lon: float?) -> V2PlaceListingDTO:
         requires member
         check name != "" "a name is required"
+        check lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0 "lat/lon out of range" status 400
         let me = max(a.id in Account where a.handle == actor)
-        let _h7 = do orTextC(lat, "0")
-        let _h8 = do orTextC(lon, "0")
-        let pid = add Place { owner: me, name: name, category: category, description: description, address: address, website: website, lat: _h7, lon: _h8, status: "active", created: now() }
-        return V2PlaceListingDTO{id: "" + pid, name: name, category: category, description: description, address: address, website: website, lat: 0, lon: 0, status: "active", owner_handle: actor, owner_name: Account(me).display_name, owner_avatar: Account(me).avatar_url}
-    action updatePlace(id: int, name: text?, category: text?, description: text?, address: text?, website: text?, lat: text?, lon: text?) -> V2PlaceListingDTO:
+        let pid = add Place { owner: me, name: name, category: category, description: description, address: address, website: website, lat: lat, lon: lon, status: "active", created: now() }
+        return placeDTO(Place(pid))
+    action updatePlace(id: int, name: text?, category: text?, description: text?, address: text?, website: text?, lat: float?, lon: float?) -> V2PlaceListingDTO:
         requires member
         check Place(id).owner == max(a.id in Account where a.handle == actor) "not your listing" status 403
         set Place(id).name = name
@@ -154,8 +545,24 @@ app F33D3RCommunities:
         set Place(id).description = description
         set Place(id).address = address
         set Place(id).website = website
-        return V2PlaceListingDTO{id: "" + id, name: Place(id).name, category: Place(id).category, description: Place(id).description, address: Place(id).address, website: Place(id).website, lat: 0, lon: 0, status: Place(id).status, owner_handle: actor, owner_name: Account(Place(id).owner).display_name, owner_avatar: Account(Place(id).owner).avatar_url}
+        set Place(id).lat = lat
+        set Place(id).lon = lon
+        return placeDTO(Place(id))
     action deletePlace(id: int):
         requires member
         check Place(id).owner == max(a.id in Account where a.handle == actor) "not your listing" status 403
         set Place(id).status = "removed"
+
+    # This module's HTTP surface (merged into the app with the rest of it).
+    api GET "/api/v2/communities" -> listCommunities rate read since "2026-09-18"
+    api GET "/api/v2/communities/{id}" -> getCommunity rate read since "2026-09-18"
+    api POST "/api/v2/communities/{id}/membership" -> joinCommunity rate write since "2026-09-18"
+    api DELETE "/api/v2/communities/{id}/membership" -> leaveCommunity status 204 rate write since "2026-09-18"
+    api POST "/api/v2/communities/{id}/membership-gate" -> setMembershipGate rate write since "2026-09-18"
+    api GET "/api/v2/places" -> listPlaces rate read since "2026-09-18"
+    api POST "/api/v2/places" -> createPlace status 201 rate write since "2026-09-18"
+    api GET "/api/v2/places/nearby" -> placesNearby rate read since "2026-09-18"
+    api GET "/api/v2/places/search" -> placesSearch rate read since "2026-09-18"
+    api GET "/api/v2/places/{id}" -> getPlace rate read since "2026-09-18"
+    api PATCH "/api/v2/places/{id}" -> updatePlace rate write since "2026-09-18"
+    api DELETE "/api/v2/places/{id}" -> deletePlace status 204 rate write since "2026-09-18"

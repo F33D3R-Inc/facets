@@ -2,10 +2,11 @@ import "entities.fct"
 import "core.fct"
 
 app F33D3RArticles:
-    action listArticles() -> [ArticleSummaryDTO]:
+    # The caller's own articles, every status, most recently edited first.
+    action listArticles() -> V2PageOfV2ArticleSummaryDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return list(ArticleSummaryDTO{id: "" + a.id, slug: a.slug, title: a.title, excerpt: a.subtitle, status: a.status, view_count: a.view_count, created_at: "" + a.created, updated_at: "" + a.updated, published_at: "" + a.published_at} in Article where a.author == me by id desc)
+        return V2PageOfV2ArticleSummaryDTO{items: list(V2ArticleSummaryDTO{id: "" + a.id, slug: a.slug, title: a.title, excerpt: a.subtitle, status: a.status, view_count: a.view_count, created_at: iso(a.created), updated_at: iso(a.updated), published_at: iso(a.published_at)} in Article where a.author == me by updated desc), next_cursor: "", server_time: iso(now())}
     action createArticle(title: text, subtitle: text?, body: text, status: text?, cover_url: text?, subscriber_only: bool?, tags: text?, community_id: text?) -> V2ArticleDTO:
         requires member
         check title != "" "a title is required"
@@ -14,14 +15,14 @@ app F33D3RArticles:
         let articleSlug = slug(title) + "-" + suffix
         let initialStatus = do orTextA(status, "draft")
         let aid = add Article { author: me, slug: articleSlug, title: title, subtitle: subtitle, body: body, cover_url: cover_url, status: initialStatus, subscriber_only: subscriber_only, community_id: toInt(community_id), published_at: 0, created: now(), updated: now(), view_count: 0 }
-        return V2ArticleDTO{id: "" + aid, slug: articleSlug, title: title, subtitle: subtitle, body: body, body_html: body, cover_url: cover_url, status: Article(aid).status, subscriber_only: subscriber_only, community_id: community_id, author_handle: actor, author_display_name: Account(me).display_name, author_avatar_url: Account(me).avatar_url, view_count: 0, like_count: 0, liked_by_user: false, bookmark_count: 0, bookmarked_by_user: false, created_at: "" + now(), updated_at: "" + now()}
+        return V2ArticleDTO{id: "" + aid, slug: articleSlug, title: title, subtitle: subtitle, body: body, body_html: body, cover_url: cover_url, status: Article(aid).status, subscriber_only: subscriber_only, community_id: community_id, author_handle: actor, author_display_name: Account(me).display_name, author_avatar_url: Account(me).avatar_url, view_count: 0, like_count: 0, liked_by_user: false, bookmark_count: 0, bookmarked_by_user: false, created_at: iso(now()), updated_at: iso(now())}
     action getArticle(slug: text) -> V2ArticleDTO:
         requires member
-        check exists(a in Article where a.slug == slug) "no such article" status 404
+        check exists(a in Article where a.slug == slug) "That article does not exist." status 404 code "article_not_found"
         let id = max(a.id in Article where a.slug == slug)
         let me = max(a.id in Account where a.handle == actor)
         set Article(id).view_count = Article(id).view_count + 1
-        return V2ArticleDTO{id: "" + id, slug: slug, title: Article(id).title, subtitle: Article(id).subtitle, body: Article(id).body, body_html: Article(id).body, cover_url: Article(id).cover_url, status: Article(id).status, subscriber_only: Article(id).subscriber_only, author_handle: Account(Article(id).author).handle, author_display_name: Account(Article(id).author).display_name, author_avatar_url: Account(Article(id).author).avatar_url, view_count: Article(id).view_count, like_count: count(l in ArticleLike where l.article == id), liked_by_user: exists(l in ArticleLike where l.article == id && l.account == me), bookmark_count: count(b in ArticleBookmark where b.article == id), bookmarked_by_user: exists(b in ArticleBookmark where b.article == id && b.account == me), created_at: "" + Article(id).created, updated_at: "" + Article(id).updated}
+        return V2ArticleDTO{id: "" + id, slug: slug, title: Article(id).title, subtitle: Article(id).subtitle, body: Article(id).body, body_html: Article(id).body, cover_url: Article(id).cover_url, status: Article(id).status, subscriber_only: Article(id).subscriber_only, author_handle: Account(Article(id).author).handle, author_display_name: Account(Article(id).author).display_name, author_avatar_url: Account(Article(id).author).avatar_url, view_count: Article(id).view_count, like_count: count(l in ArticleLike where l.article == id), liked_by_user: exists(l in ArticleLike where l.article == id && l.account == me), bookmark_count: count(b in ArticleBookmark where b.article == id), bookmarked_by_user: exists(b in ArticleBookmark where b.article == id && b.account == me), created_at: iso(Article(id).created), updated_at: iso(Article(id).updated)}
     action updateArticle(id: int, title: text?, subtitle: text?, body: text?, status: text?, cover_url: text?, subscriber_only: bool?, tags: text?, community_id: text?) -> V2ArticleDTO:
         requires member
         check Article(id).author == max(a.id in Account where a.handle == actor) "not your article" status 403
@@ -30,21 +31,21 @@ app F33D3RArticles:
         set Article(id).body = body
         set Article(id).status = status
         set Article(id).updated = now()
-        return V2ArticleDTO{id: "" + id, slug: Article(id).slug, title: Article(id).title, subtitle: Article(id).subtitle, body: Article(id).body, body_html: Article(id).body, cover_url: Article(id).cover_url, status: Article(id).status, subscriber_only: Article(id).subscriber_only, author_handle: actor, view_count: Article(id).view_count, like_count: count(l in ArticleLike where l.article == id), liked_by_user: false, bookmark_count: count(b in ArticleBookmark where b.article == id), bookmarked_by_user: false, created_at: "" + Article(id).created, updated_at: "" + now()}
+        return V2ArticleDTO{id: "" + id, slug: Article(id).slug, title: Article(id).title, subtitle: Article(id).subtitle, body: Article(id).body, body_html: Article(id).body, cover_url: Article(id).cover_url, status: Article(id).status, subscriber_only: Article(id).subscriber_only, author_handle: actor, view_count: Article(id).view_count, like_count: count(l in ArticleLike where l.article == id), liked_by_user: false, bookmark_count: count(b in ArticleBookmark where b.article == id), bookmarked_by_user: false, created_at: iso(Article(id).created), updated_at: iso(now())}
     action deleteArticle(id: int):
         requires member
         check Article(id).author == max(a.id in Account where a.handle == actor) "not your article" status 403
         remove Article(id)
     action likeArticle(id: int) -> V2ArticleEngagementDTO:
         requires member
-        check exists(a in Article where a.id == id) "no such article" status 404
+        check exists(a in Article where a.id == id) "That article does not exist." status 404 code "article_not_found"
         let me = max(a.id in Account where a.handle == actor)
         if !exists(l in ArticleLike where l.article == id && l.account == me):
             add ArticleLike { article: id, account: me }
         return V2ArticleEngagementDTO{like_count: count(l in ArticleLike where l.article == id), liked: true, bookmark_count: count(b in ArticleBookmark where b.article == id), bookmarked: exists(b in ArticleBookmark where b.article == id && b.account == me)}
     action bookmarkArticle(id: int) -> V2ArticleEngagementDTO:
         requires member
-        check exists(a in Article where a.id == id) "no such article" status 404
+        check exists(a in Article where a.id == id) "That article does not exist." status 404 code "article_not_found"
         let me = max(a.id in Account where a.handle == actor)
         if !exists(b in ArticleBookmark where b.article == id && b.account == me):
             add ArticleBookmark { article: id, account: me }
@@ -54,3 +55,12 @@ app F33D3RArticles:
         if v == "":
             return fallback
         return v
+
+    # This module's HTTP surface (merged into the app with the rest of it).
+    api GET "/api/v2/articles" -> listArticles rate read since "2026-09-18"
+    api POST "/api/v2/articles" -> createArticle status 201 rate write since "2026-09-18"
+    api GET "/api/v2/articles/{slug}" -> getArticle rate read since "2026-09-18"
+    api PATCH "/api/v2/articles/{id}" -> updateArticle rate write since "2026-09-18"
+    api DELETE "/api/v2/articles/{id}" -> deleteArticle status 204 rate write since "2026-09-18"
+    api POST "/api/v2/articles/{id}/like" -> likeArticle rate write since "2026-09-18"
+    api POST "/api/v2/articles/{id}/bookmark" -> bookmarkArticle rate write since "2026-09-18"

@@ -1,0 +1,910 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+
+# Markets: the cashtag quote card, the GIF picker and the sports scoreboard.
+#
+# In the legacy product each of these is a live read of an external provider
+# (Tiingo for quotes, KLIPY for GIFs, an ESPN-shaped feed for scores). Here the
+# provider's answers are rows: an ingest process that polls the provider
+# delivers each answer through a signed webhook (see the `webhook` lines at the
+# bottom), which runs the matching ingest action with the runtime's system
+# authority, and every read endpoint serves from the stored rows.
+#
+# "Is this deployment configured for X" is a real row too: a MarketSource per
+# data kind ("quotes", "gifs", "sports") names the provider and whether it is
+# enabled. No enabled source of a kind answers 503 on that kind's endpoints,
+# exactly as the legacy answered when its provider key was unset.
+#
+# Every display label (price/change labels, a game's status/start/period/header
+# labels, a play's inning label) is a pure function of the stored snapshot — the
+# legacy computed them from the snapshot alone and never from the wall clock,
+# so they are computed once, when the snapshot is written, and stored beside
+# it. The one time-dependent read is a league's `stale` flag, computed at read
+# time against the league's last successful poll.
+app F33D3RMarkets:
+    # A provider this deployment reads one kind of market data from.
+    entity MarketSource:
+        id: int
+        kind: text @unique
+        provider: text
+        enabled: bool
+        updated: int
+
+    # One listed symbol. A row from the provider's symbol directory has
+    # has_quote false until a quote for it has been delivered: it can be
+    # suggested by search, but asking for its quote is a 404, the same way the
+    # legacy told "no such company" apart from "provider is down".
+    entity Ticker:
+        id: int
+        symbol: text @unique
+        company_name: text
+        exchange: text
+        has_quote: bool
+        price: float
+        prev_close: float
+        change_pct: float
+        price_label: text
+        change_label: text
+        as_of: int
+    # One intraday bar close (the legacy read 30-minute bars over five days).
+    entity TickerClose:
+        id: int
+        ticker: Ticker
+        ts: int
+        close: float
+
+    # One GIF the provider returned. trending_rank > 0 places it in the
+    # trending set the picker shows before anything is typed.
+    entity Gif:
+        id: int
+        gif_id: text @unique
+        title: text
+        url: text
+        preview_url: text
+        width: int
+        height: int
+        trending_rank: int
+        created: int
+
+    # A league this deployment polls. `zone` is the zone its fixture times are
+    # printed in ("" prints UTC). poll_interval is the poller's current
+    # cadence for the league in seconds and last_ok when it last answered;
+    # stale_after (3 missed polls, never under two minutes) is derived from it.
+    entity SportsLeague:
+        id: int
+        slug: text @unique
+        label: text
+        sport: text
+        regulation: int
+        weeks: bool
+        zone: text
+        display_order: int
+        poll_interval: int
+        stale_after: int
+        last_ok: int
+    entity SportsTeam:
+        id: int
+        league: SportsLeague
+        team_id: text
+        name: text
+        short_name: text
+        abbr: text
+        logo_url: text
+        record: text
+        color: text
+        alt_color: text
+    entity SportsGame:
+        id: int
+        league: SportsLeague
+        game_id: text
+        start: int
+        observed: int
+        state: text
+        period: int
+        clock: text
+        home_team: SportsTeam
+        away_team: SportsTeam
+        home_score: int
+        away_score: int
+        home_has_ball: bool
+        away_has_ball: bool
+        has_score: bool
+        week_label: text
+        round_label: text
+        series_summary: text
+        red_zone: bool
+        down_distance: text
+        possession_text: text
+        last_play: text
+        field_yard_line: int
+        distance: int
+        broadcast: text
+        venue: text
+        status_label: text
+        start_label: text
+        period_label: text
+        header_label: text
+        has_situation: bool
+        has_field: bool
+        has_first_down: bool
+        ball_on: float
+        first_down_on: float
+        possession_abbr: text
+        driving_toward: text
+        sort_key: int
+        current_inning_label: text
+    entity SportsPlay:
+        id: int
+        game: SportsGame
+        seq: int
+        period: int
+        clock: text
+        team_id: text
+        play_type: text
+        text: text
+        home_score: int
+        away_score: int
+        half_inning: text
+        inning_label: text
+    entity SportsBoxTeam:
+        id: int
+        game: SportsGame
+        team_id: text
+        total: int
+        display_order: int
+    entity SportsBoxPeriod:
+        id: int
+        box: SportsBoxTeam
+        period: int
+        score: int
+    entity SportsLeader:
+        id: int
+        game: SportsGame
+        team_id: text
+        category: text
+        player_name: text
+        stat_line: text
+        display_order: int
+    entity SportsOdds:
+        id: int
+        game: SportsGame
+        provider: text
+        spread_team_id: text
+        spread_line: float
+        total_line: float
+        home_moneyline: int
+        away_moneyline: int
+        has_opening: bool
+        opening_spread_line: float
+        opening_total_line: float
+        opening_home_moneyline: int
+        opening_away_moneyline: int
+
+    # Only the runtime's system authority — a signed webhook delivery, a job —
+    # carries role "admin" on this app (member sessions are established with an
+    # actor and no role), so this is the ingest process and nothing else.
+    policy marketsOperator:
+        role == "admin"
+
+    # ── Shared formatting ──────────────────────────────────────────────────
+
+    # v to two decimals, the way Go's %.2f prints it (half away from zero).
+    proc fixed2(v: float) -> text:
+        let cents = round(v * 100.0)
+        let mut a = cents
+        let mut sign = ""
+        if a < 0:
+            a = 0 - a
+            sign = "-"
+        let frac = a % 100
+        if frac < 10:
+            return sign + (a / 100) + ".0" + frac
+        return sign + (a / 100) + "." + frac
+    proc ordinal(n: int) -> text:
+        let m = n % 100
+        if m >= 11 && m <= 13:
+            return n + "th"
+        let d = n % 10
+        if d == 1:
+            return n + "st"
+        if d == 2:
+            return n + "nd"
+        if d == 3:
+            return n + "rd"
+        return n + "th"
+
+    # ── Cashtag ────────────────────────────────────────────────────────────
+
+    # A ticker as the legacy accepted one: 1–5 letters A–Z.
+    proc safeTicker(t: text) -> bool:
+        let n = len(t)
+        if n < 1 || n > 5:
+            return false
+        let letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        let mut i = 0
+        loop i < n:
+            if !contains(letters, charAt(t, i)):
+                return false
+            i = i + 1
+        return true
+    # The composer's query: trimmed, one leading $ dropped.
+    proc cashtagQuery(q: text) -> text:
+        let t = trim(q)
+        if charAt(t, 0) == "$":
+            return slice(t, 1, len(t))
+        return t
+    # The most reliable current price: live last, then mid, then the
+    # provider's computed last (market closed), then the previous close.
+    proc bestPrice(last: float, mid: float, tngo: float, prev: float) -> float:
+        if last != 0.0:
+            return last
+        if mid != 0.0:
+            return mid
+        if tngo != 0.0:
+            return tngo
+        return prev
+    proc changePct(price: float, prev: float) -> float:
+        if prev == 0.0 || price == 0.0:
+            return 0.0
+        return ((price - prev) / prev) * 100.0
+    proc changeLabel(pct: float) -> text:
+        if pct < 0.0:
+            return fixed2(pct) + "%"
+        return "+" + fixed2(pct) + "%"
+    proc orSymbol(name: text, symbol: text) -> text:
+        if trim(name) == "":
+            return symbol
+        return name
+
+    derive cashtagSuggestionDTO(t: Ticker): V2CashtagSuggestionDTO = V2CashtagSuggestionDTO{
+        ticker: t.symbol,
+        display: "$" + t.symbol,
+        company_name: t.company_name,
+        exchange: t.exchange
+        }
+    # The sparkline is the close series over the five days before the quote,
+    # oldest first.
+    derive cashtagQuoteDTO(t: Ticker): V2CashtagQuoteDTO = V2CashtagQuoteDTO{
+        ticker: t.symbol,
+        display: "$" + t.symbol,
+        company_name: t.company_name,
+        exchange: t.exchange,
+        price: t.price,
+        price_label: t.price_label,
+        change_pct: t.change_pct,
+        change_label: t.change_label,
+        is_positive: t.change_pct >= 0.0,
+        sparkline: list(c.close in TickerClose where c.ticker == t.id && c.ts >= t.as_of - 432000 by ts),
+        as_of: iso(t.as_of)
+        }
+
+    action cashtagSearch(q: text?) -> V2CashtagSearchDTO:
+        requires member
+        check exists(s in MarketSource where s.kind == "quotes" && s.enabled) "Quotes are not available on this deployment." status 503 code "cashtag_unavailable"
+        let nq = do cashtagQuery(q)
+        if len(nq) < 2:
+            return V2CashtagSearchDTO{results: []}
+        return V2CashtagSearchDTO{results: list(cashtagSuggestionDTO(t) in Ticker where contains(t.symbol, upper(nq)) || contains(lower(t.company_name), lower(nq)) by symbol limit 8)}
+    action cashtagQuote(ticker: text) -> V2CashtagQuoteDTO:
+        requires member
+        let sym = upper(trim(ticker))
+        let safe = do safeTicker(sym)
+        check safe "No quote for that symbol." status 404 code "cashtag_not_found"
+        check exists(s in MarketSource where s.kind == "quotes" && s.enabled) "Quotes are not available on this deployment." status 503 code "cashtag_unavailable"
+        check exists(t in Ticker where t.symbol == sym && t.has_quote) "No quote for that symbol." status 404 code "cashtag_not_found"
+        let id = max(t.id in Ticker where t.symbol == sym)
+        return cashtagQuoteDTO(Ticker(id))
+
+    # ── GIFs ───────────────────────────────────────────────────────────────
+
+    derive gifResultDTO(g: Gif): V2GifResultDTO = V2GifResultDTO{
+        id: g.gif_id,
+        url: g.url,
+        preview_url: g.preview_url,
+        width: g.width,
+        height: g.height,
+        title: g.title
+        }
+    # Nothing typed answers the trending set, as the legacy asked the
+    # provider's trending endpoint; 24 results, the legacy's page size.
+    action gifSearch(q: text?) -> V2GifSearchDTO:
+        requires member
+        check exists(s in MarketSource where s.kind == "gifs" && s.enabled) "GIF search is not available on this server." status 503 code "gif_search_unavailable"
+        let tq = trim(q)
+        if tq == "":
+            return V2GifSearchDTO{results: list(gifResultDTO(g) in Gif where g.trending_rank > 0 by trending_rank limit 24)}
+        return V2GifSearchDTO{results: list(gifResultDTO(g) in Gif where contains(lower(g.title), lower(tq)) by id desc limit 24)}
+
+    # ── Sports labels ──────────────────────────────────────────────────────
+
+    proc sportsState(s: text) -> text:
+        let t = lower(trim(s))
+        if t == "scheduled" || t == "in_progress" || t == "halftime" || t == "end_period" || t == "delayed" || t == "postponed" || t == "canceled" || t == "final":
+            return t
+        return "unknown"
+    proc stateActive(s: text) -> bool:
+        return s == "in_progress" || s == "halftime" || s == "end_period"
+    # "1st".."4th" in a four-period league, then "OT", "2OT"; a league that
+    # did not state its regulation (0) keeps counting ordinals.
+    proc periodLabel(p: int, regulation: int) -> text:
+        if p <= 0:
+            return ""
+        if regulation > 0 && p > regulation:
+            let ot = p - regulation
+            if ot > 1:
+                return ot + "OT"
+            return "OT"
+        return ordinal(p)
+    proc inningLabel(half: text, period: int) -> text:
+        if period <= 0:
+            return ""
+        let o = ordinal(period)
+        if half == "Top":
+            return "Top " + o
+        if half == "Mid":
+            return "Mid " + o
+        if half == "Bottom":
+            return "Bot " + o
+        if half == "End":
+            return "End " + o
+        return ""
+
+    # "Thu 8:20 PM EDT" in the league's own zone, named by the abbreviation
+    # in force that day (UTC when the league has none); a fixture a week or
+    # more past the moment it was read carries its date instead: "Oct 4,
+    # 1:00 PM EDT" (legacy Game.StartLabel).
+    proc startLabel(start: int, observed: int, zone: text) -> text:
+        let z = orText(zone, "UTC")
+        if observed != 0 && start - observed >= 604800:
+            return formatIn(start, z, "Jan 2, 3:04 PM MST")
+        return formatIn(start, z, "Mon 3:04 PM MST")
+    proc statusLabel(state: text, clock: text, period: int, regulation: int, start: int, observed: int, zone: text) -> text:
+        let pl = periodLabel(period, regulation)
+        if state == "scheduled":
+            let sl = startLabel(start, observed, zone)
+            if sl != "":
+                return sl
+            return "Scheduled"
+        if state == "in_progress":
+            if clock != "" && pl != "":
+                return clock + " · " + pl
+            if pl != "":
+                return pl
+            return "In progress"
+        if state == "halftime":
+            return "Halftime"
+        if state == "end_period":
+            if pl != "":
+                return "End " + pl
+            return "End of period"
+        if state == "delayed":
+            return "Delayed"
+        if state == "postponed":
+            return "Postponed"
+        if state == "canceled":
+            return "Canceled"
+        if state == "final":
+            if regulation > 0 && period > regulation:
+                return "Final/" + pl
+            return "Final"
+        return "Status unavailable"
+    # The slate order as one key: live, delayed, upcoming (soonest first),
+    # final (most recently started first), everything else.
+    proc slateKey(state: text, start: int) -> int:
+        if stateActive(state):
+            return start
+        if state == "delayed":
+            return 100000000000 + start
+        if state == "scheduled":
+            return 200000000000 + start
+        if state == "final":
+            return 300000000000 + (99999999999 - start)
+        return 400000000000 + start
+    proc textIf(cond: bool, v: text) -> text:
+        if cond:
+            return v
+        return ""
+    proc clampYards(v: float) -> float:
+        if v < 0.0:
+            return 0.0
+        if v > 100.0:
+            return 100.0
+        return v
+
+    # ── Sports projections ─────────────────────────────────────────────────
+
+    derive sportsTeamDTO(t: SportsTeam, score: int, has_ball: bool): V2SportsTeamDTO = V2SportsTeamDTO{
+        id: t.team_id,
+        abbr: t.abbr,
+        name: t.name,
+        short_name: t.short_name,
+        logo_url: t.logo_url,
+        record: t.record,
+        score: score,
+        has_ball: has_ball,
+        color: t.color,
+        alt_color: t.alt_color
+        }
+    derive sportsGameDTO(g: SportsGame): V2SportsGameDTO = V2SportsGameDTO{
+        id: g.game_id,
+        league: SportsLeague(g.league).slug,
+        league_label: SportsLeague(g.league).label,
+        state: g.state,
+        status_label: g.status_label,
+        start_label: g.start_label,
+        start: iso(g.start),
+        clock: g.clock,
+        period_label: g.period_label,
+        header_label: g.header_label,
+        series_summary: g.series_summary,
+        home: sportsTeamDTO(SportsTeam(g.home_team), g.home_score, g.home_has_ball),
+        away: sportsTeamDTO(SportsTeam(g.away_team), g.away_score, g.away_has_ball),
+        has_score: g.has_score,
+        is_live: g.state == "in_progress" || g.state == "halftime" || g.state == "end_period",
+        is_final: g.state == "final",
+        down_distance: g.down_distance,
+        possession_text: g.possession_text,
+        red_zone: g.red_zone,
+        last_play: g.last_play,
+        broadcast: g.broadcast,
+        venue: g.venue
+        }
+    # The same game with its field diagram — only for a football game with a
+    # live situation and a side in possession (has_field), in two shapes
+    # because the line to gain is absent when there is nothing to gain.
+    derive sportsGameFieldDTO(g: SportsGame): V2SportsGameDTO = V2SportsGameDTO{
+        id: g.game_id,
+        league: SportsLeague(g.league).slug,
+        league_label: SportsLeague(g.league).label,
+        state: g.state,
+        status_label: g.status_label,
+        start_label: g.start_label,
+        start: iso(g.start),
+        clock: g.clock,
+        period_label: g.period_label,
+        header_label: g.header_label,
+        series_summary: g.series_summary,
+        home: sportsTeamDTO(SportsTeam(g.home_team), g.home_score, g.home_has_ball),
+        away: sportsTeamDTO(SportsTeam(g.away_team), g.away_score, g.away_has_ball),
+        has_score: g.has_score,
+        is_live: g.state == "in_progress" || g.state == "halftime" || g.state == "end_period",
+        is_final: g.state == "final",
+        down_distance: g.down_distance,
+        possession_text: g.possession_text,
+        red_zone: g.red_zone,
+        last_play: g.last_play,
+        field: V2SportsFieldDTO{ball_on: g.ball_on, possession_abbr: g.possession_abbr, driving_toward: g.driving_toward},
+        broadcast: g.broadcast,
+        venue: g.venue
+        }
+    derive sportsGameFieldFirstDownDTO(g: SportsGame): V2SportsGameDTO = V2SportsGameDTO{
+        id: g.game_id,
+        league: SportsLeague(g.league).slug,
+        league_label: SportsLeague(g.league).label,
+        state: g.state,
+        status_label: g.status_label,
+        start_label: g.start_label,
+        start: iso(g.start),
+        clock: g.clock,
+        period_label: g.period_label,
+        header_label: g.header_label,
+        series_summary: g.series_summary,
+        home: sportsTeamDTO(SportsTeam(g.home_team), g.home_score, g.home_has_ball),
+        away: sportsTeamDTO(SportsTeam(g.away_team), g.away_score, g.away_has_ball),
+        has_score: g.has_score,
+        is_live: g.state == "in_progress" || g.state == "halftime" || g.state == "end_period",
+        is_final: g.state == "final",
+        down_distance: g.down_distance,
+        possession_text: g.possession_text,
+        red_zone: g.red_zone,
+        last_play: g.last_play,
+        field: V2SportsFieldDTO{ball_on: g.ball_on, first_down_on: g.first_down_on, possession_abbr: g.possession_abbr, driving_toward: g.driving_toward},
+        broadcast: g.broadcast,
+        venue: g.venue
+        }
+    derive sportsLeagueDTO(l: SportsLeague, at: int): V2SportsLeagueDTO = V2SportsLeagueDTO{
+        slug: l.slug,
+        label: l.label,
+        games: list(sportsGameDTO(g) in SportsGame where g.league == l.id by sort_key),
+        stale: l.last_ok == 0 || at - l.last_ok > l.stale_after
+        }
+    derive sportsPlayDTO(p: SportsPlay): V2SportsPlayDTO = V2SportsPlayDTO{
+        seq: p.seq,
+        period: p.period,
+        clock: p.clock,
+        team_id: p.team_id,
+        type: p.play_type,
+        text: p.text,
+        home_score: p.home_score,
+        away_score: p.away_score,
+        inning_label: p.inning_label
+        }
+    derive sportsBoxDTO(b: SportsBoxTeam): V2SportsBoxScoreTeamDTO = V2SportsBoxScoreTeamDTO{
+        team_id: b.team_id,
+        period_scores: list(p.score in SportsBoxPeriod where p.box == b.id by period),
+        total: b.total
+        }
+    derive sportsLeaderDTO(l: SportsLeader): V2SportsStatLeaderDTO = V2SportsStatLeaderDTO{
+        team_id: l.team_id,
+        category: l.category,
+        player_name: l.player_name,
+        stat_line: l.stat_line
+        }
+    derive sportsOddsDTO(o: SportsOdds): V2SportsOddsDTO = V2SportsOddsDTO{
+        provider: o.provider,
+        spread_team_id: o.spread_team_id,
+        spread_line: o.spread_line,
+        total_line: o.total_line,
+        home_moneyline: o.home_moneyline,
+        away_moneyline: o.away_moneyline
+        }
+    derive sportsOddsOpeningDTO(o: SportsOdds): V2SportsOddsDTO = V2SportsOddsDTO{
+        provider: o.provider,
+        spread_team_id: o.spread_team_id,
+        spread_line: o.spread_line,
+        total_line: o.total_line,
+        home_moneyline: o.home_moneyline,
+        away_moneyline: o.away_moneyline,
+        opening_spread_line: o.opening_spread_line,
+        opening_total_line: o.opening_total_line,
+        opening_home_moneyline: o.opening_home_moneyline,
+        opening_away_moneyline: o.opening_away_moneyline
+        }
+
+    # ── Sports reads ───────────────────────────────────────────────────────
+
+    action sportsBoard(league: text?) -> V2SportsBoardDTO:
+        requires member
+        check exists(s in MarketSource where s.kind == "sports" && s.enabled) "Scores are not available on this deployment." status 503 code "sports_unavailable"
+        let wanted = lower(trim(league))
+        let lid = max(l.id in SportsLeague where l.slug == wanted)
+        let at = now()
+        if wanted == "":
+            return V2SportsBoardDTO{leagues: list(sportsLeagueDTO(l, at) in SportsLeague where l.id > 0 by display_order), count: count(g in SportsGame where g.id > 0)}
+        return V2SportsBoardDTO{leagues: list(sportsLeagueDTO(l, at) in SportsLeague where l.slug == wanted by display_order), count: count(g in SportsGame where g.league == lid && lid > 0)}
+
+    # One game: its plays newest first (the legacy's 50-play backlog), box
+    # score, leaders, odds (absent when no book has posted a line) and the
+    # works that mention either team by its short name.
+    action getSportsGame(league: text, game: text) -> V2SportsGameDetailDTO:
+        requires member
+        check exists(s in MarketSource where s.kind == "sports" && s.enabled) "Scores are not available on this deployment." status 503 code "sports_unavailable"
+        let slug = lower(trim(league))
+        check exists(l in SportsLeague where l.slug == slug) "No league with that name." status 404 code "unknown_league"
+        let lid = max(l.id in SportsLeague where l.slug == slug)
+        check exists(g in SportsGame where g.league == lid && g.game_id == game) "No game with that id." status 404 code "game_not_found"
+        let gid = max(g.id in SportsGame where g.league == lid && g.game_id == game)
+        let me = max(a.id in Account where a.handle == actor)
+        let home = lower(trim(SportsTeam(SportsGame(gid).home_team).short_name))
+        let away = lower(trim(SportsTeam(SportsGame(gid).away_team).short_name))
+        let plays = list(sportsPlayDTO(p) in SportsPlay where p.game == gid by seq desc limit 50)
+        let inning = SportsGame(gid).current_inning_label
+        let box = list(sportsBoxDTO(b) in SportsBoxTeam where b.game == gid by display_order)
+        let leaders = list(sportsLeaderDTO(l) in SportsLeader where l.game == gid by display_order)
+        let works = list(workDTO(w, me) in Work where !w.deleted && ((home != "" && contains(lower(w.body), home)) || (away != "" && contains(lower(w.body), away))) by id desc limit 40)
+        let g = SportsGame(gid)
+        let plain = sportsGameDTO(g)
+        let withField = sportsGameFieldDTO(g)
+        let withFirstDown = sportsGameFieldFirstDownDTO(g)
+        if !exists(o in SportsOdds where o.game == gid):
+            if g.has_first_down:
+                return V2SportsGameDetailDTO{game: withFirstDown, plays: plays, box: box, leaders: leaders, current_inning_label: inning, works: works}
+            if g.has_field:
+                return V2SportsGameDetailDTO{game: withField, plays: plays, box: box, leaders: leaders, current_inning_label: inning, works: works}
+            return V2SportsGameDetailDTO{game: plain, plays: plays, box: box, leaders: leaders, current_inning_label: inning, works: works}
+        let oid = max(o.id in SportsOdds where o.game == gid)
+        let odds = sportsOddsDTO(SportsOdds(oid))
+        let opening = sportsOddsOpeningDTO(SportsOdds(oid))
+        if SportsOdds(oid).has_opening:
+            if g.has_first_down:
+                return V2SportsGameDetailDTO{game: withFirstDown, plays: plays, box: box, leaders: leaders, odds: opening, current_inning_label: inning, works: works}
+            if g.has_field:
+                return V2SportsGameDetailDTO{game: withField, plays: plays, box: box, leaders: leaders, odds: opening, current_inning_label: inning, works: works}
+            return V2SportsGameDetailDTO{game: plain, plays: plays, box: box, leaders: leaders, odds: opening, current_inning_label: inning, works: works}
+        if g.has_first_down:
+            return V2SportsGameDetailDTO{game: withFirstDown, plays: plays, box: box, leaders: leaders, odds: odds, current_inning_label: inning, works: works}
+        if g.has_field:
+            return V2SportsGameDetailDTO{game: withField, plays: plays, box: box, leaders: leaders, odds: odds, current_inning_label: inning, works: works}
+        return V2SportsGameDetailDTO{game: plain, plays: plays, box: box, leaders: leaders, odds: odds, current_inning_label: inning, works: works}
+
+    # ── Ingest (system authority only) ────────────────────────────────────
+
+    action configureMarketSource(kind: text, provider: text, enabled: bool):
+        requires marketsOperator
+        check kind == "quotes" || kind == "gifs" || kind == "sports" "kind must be quotes, gifs or sports"
+        check trim(provider) != "" "a provider is required"
+        if exists(s in MarketSource where s.kind == kind):
+            let id = max(s.id in MarketSource where s.kind == kind)
+            set MarketSource(id).provider = trim(provider)
+            set MarketSource(id).enabled = enabled
+            set MarketSource(id).updated = now()
+        else:
+            add MarketSource { kind: kind, provider: trim(provider), enabled: enabled, updated: now() }
+
+    # A symbol-directory entry (what the provider's symbol search answers).
+    action upsertTickerListing(symbol: text, company_name: text?, exchange: text?):
+        requires marketsOperator
+        let sym = upper(trim(symbol))
+        let safe = do safeTicker(sym)
+        check safe "a ticker is 1-5 letters"
+        let name = do orSymbol(company_name, sym)
+        if exists(t in Ticker where t.symbol == sym):
+            let id = max(t.id in Ticker where t.symbol == sym)
+            set Ticker(id).company_name = name
+            set Ticker(id).exchange = trim(exchange)
+        else:
+            add Ticker { symbol: sym, company_name: name, exchange: trim(exchange), has_quote: false, price: 0.0, prev_close: 0.0, change_pct: 0.0, price_label: "", change_label: "", as_of: 0 }
+    # One quote as the provider reported it (last/mid/tngo_last may each be 0
+    # out of market hours; the best of them is kept, as the legacy did).
+    action recordTickerQuote(symbol: text, last: float?, mid: float?, tngo_last: float?, prev_close: float?, as_of: int?):
+        requires marketsOperator
+        let sym = upper(trim(symbol))
+        let safe = do safeTicker(sym)
+        check safe "a ticker is 1-5 letters"
+        let price = do bestPrice(last, mid, tngo_last, prev_close)
+        check price > 0.0 "the provider gave no price"
+        let pct = do changePct(price, prev_close)
+        let pl = do fixed2(price)
+        let cl = do changeLabel(pct)
+        let at = do nonZero(as_of, now())
+        if !exists(t in Ticker where t.symbol == sym):
+            add Ticker { symbol: sym, company_name: sym, exchange: "", has_quote: false, price: 0.0, prev_close: 0.0, change_pct: 0.0, price_label: "", change_label: "", as_of: 0 }
+        let id = max(t.id in Ticker where t.symbol == sym)
+        set Ticker(id).has_quote = true
+        set Ticker(id).price = price
+        set Ticker(id).prev_close = prev_close
+        set Ticker(id).change_pct = pct
+        set Ticker(id).price_label = pl
+        set Ticker(id).change_label = cl
+        set Ticker(id).as_of = at
+    # One bar close; closes older than five days before it are dropped.
+    action recordTickerClose(symbol: text, ts: int, close: float):
+        requires marketsOperator
+        let sym = upper(trim(symbol))
+        check exists(t in Ticker where t.symbol == sym) "unknown ticker" status 404
+        check close > 0.0 "a close must be positive"
+        let id = max(t.id in Ticker where t.symbol == sym)
+        remove c in TickerClose where c.ticker == id && (c.ts == ts || c.ts < ts - 432000)
+        add TickerClose { ticker: id, ts: ts, close: close }
+
+    proc nonZero(v: int, fallback: int) -> int:
+        if v == 0:
+            return fallback
+        return v
+
+    action upsertGif(gif_id: text, url: text, preview_url: text, title: text?, width: int?, height: int?, trending_rank: int?):
+        requires marketsOperator
+        check trim(gif_id) != "" "a gif id is required"
+        check trim(url) != "" && trim(preview_url) != "" "a gif needs a url and a preview url"
+        if exists(g in Gif where g.gif_id == gif_id):
+            let id = max(g.id in Gif where g.gif_id == gif_id)
+            set Gif(id).url = url
+            set Gif(id).preview_url = preview_url
+            set Gif(id).title = title
+            set Gif(id).width = width
+            set Gif(id).height = height
+            set Gif(id).trending_rank = trending_rank
+        else:
+            add Gif { gif_id: gif_id, title: title, url: url, preview_url: preview_url, width: width, height: height, trending_rank: trending_rank, created: now() }
+    action removeGif(gif_id: text):
+        requires marketsOperator
+        remove g in Gif where g.gif_id == gif_id
+
+    action upsertSportsLeague(slug: text, label: text, sport: text, regulation: int?, weeks: bool?, zone: text?, display_order: int?):
+        requires marketsOperator
+        let s = lower(trim(slug))
+        check s != "" && trim(label) != "" "a league needs a slug and a label"
+        check zone == "" || zoneValid(zone) "unknown zone {zone}: a league's fixture times print in an IANA zone (e.g. America/New_York), or UTC when none is given"
+        if exists(l in SportsLeague where l.slug == s):
+            let id = max(l.id in SportsLeague where l.slug == s)
+            set SportsLeague(id).label = label
+            set SportsLeague(id).sport = sport
+            set SportsLeague(id).regulation = regulation
+            set SportsLeague(id).weeks = weeks
+            set SportsLeague(id).zone = zone
+            set SportsLeague(id).display_order = display_order
+        else:
+            add SportsLeague { slug: s, label: label, sport: sport, regulation: regulation, weeks: weeks, zone: zone, display_order: display_order, poll_interval: 0, stale_after: 120, last_ok: 0 }
+    # The poller read this league successfully just now, at this cadence.
+    action recordLeaguePoll(slug: text, poll_interval: int):
+        requires marketsOperator
+        let s = lower(trim(slug))
+        check exists(l in SportsLeague where l.slug == s) "unknown league" status 404
+        let id = max(l.id in SportsLeague where l.slug == s)
+        set SportsLeague(id).poll_interval = poll_interval
+        set SportsLeague(id).stale_after = max(3 * poll_interval, 120)
+        set SportsLeague(id).last_ok = now()
+    action upsertSportsTeam(league: text, team_id: text, name: text, short_name: text?, abbr: text?, logo_url: text?, record: text?, color: text?, alt_color: text?):
+        requires marketsOperator
+        let s = lower(trim(league))
+        check exists(l in SportsLeague where l.slug == s) "unknown league" status 404
+        check trim(team_id) != "" "a team id is required"
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        if !exists(t in SportsTeam where t.league == lid && t.team_id == team_id):
+            add SportsTeam { league: lid, team_id: team_id, name: name, short_name: short_name, abbr: abbr, logo_url: logo_url, record: record, color: color, alt_color: alt_color }
+        else:
+            let id = max(t.id in SportsTeam where t.league == lid && t.team_id == team_id)
+            set SportsTeam(id).name = name
+            set SportsTeam(id).short_name = short_name
+            set SportsTeam(id).abbr = abbr
+            set SportsTeam(id).logo_url = logo_url
+            set SportsTeam(id).record = record
+            set SportsTeam(id).color = color
+            set SportsTeam(id).alt_color = alt_color
+    # One game's scoreboard snapshot. Every label is computed here from the
+    # snapshot and the moment it was read (observed), never from the wall
+    # clock at read time.
+    action upsertSportsGame(league: text, game_id: text, home_team_id: text, away_team_id: text, start: int, state: text, period: int?, clock: text?, home_score: int?, away_score: int?, has_score: bool?, home_has_ball: bool?, away_has_ball: bool?, week_label: text?, round_label: text?, series_summary: text?, red_zone: bool?, down_distance: text?, possession_text: text?, last_play: text?, field_yard_line: int?, distance: int?, broadcast: text?, venue: text?, observed: int?):
+        requires marketsOperator
+        let s = lower(trim(league))
+        check exists(l in SportsLeague where l.slug == s) "unknown league" status 404
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        check trim(game_id) != "" "a game id is required"
+        check exists(t in SportsTeam where t.league == lid && t.team_id == home_team_id) "unknown home team" status 404
+        check exists(t in SportsTeam where t.league == lid && t.team_id == away_team_id) "unknown away team" status 404
+        let home = max(t.id in SportsTeam where t.league == lid && t.team_id == home_team_id)
+        let away = max(t.id in SportsTeam where t.league == lid && t.team_id == away_team_id)
+        let st = do sportsState(state)
+        let obs = do nonZero(observed, now())
+        let reg = SportsLeague(lid).regulation
+        let zone = SportsLeague(lid).zone
+        let status = do statusLabel(st, clock, period, reg, start, obs, zone)
+        let sl = do startLabel(start, obs, zone)
+        let startOut = do textIf(!has_score, sl)
+        let pl = do periodLabel(period, reg)
+        let week = do textIf(SportsLeague(lid).weeks, week_label)
+        let header = do firstNonEmpty(round_label, week)
+        let situation = st == "in_progress" && (down_distance != "" || red_zone)
+        let dd = do textIf(situation, down_distance)
+        let pt = do textIf(situation, possession_text)
+        let lp = do textIf(situation, last_play)
+        let homeAbbr = do textIf(home_has_ball, SportsTeam(home).abbr)
+        let awayAbbr = do textIf(away_has_ball && !home_has_ball, SportsTeam(away).abbr)
+        let possAbbr = homeAbbr + awayAbbr
+        let towardHome = do textIf(home_has_ball, "away")
+        let towardAway = do textIf(away_has_ball && !home_has_ball, "home")
+        let ballOn = 100.0 - toFloat(field_yard_line)
+        let fdRaw = ballOn - toFloat(distance)
+        let fdAway = ballOn + toFloat(distance)
+        let fdHome = do clampYards(fdRaw)
+        let fdAw = do clampYards(fdAway)
+        let key = do slateKey(st, start)
+        if !exists(g in SportsGame where g.league == lid && g.game_id == game_id):
+            add SportsGame { league: lid, game_id: game_id, start: 0, observed: 0, state: "", period: 0, clock: "", home_team: home, away_team: away, home_score: 0, away_score: 0, home_has_ball: false, away_has_ball: false, has_score: false, week_label: "", round_label: "", series_summary: "", red_zone: false, down_distance: "", possession_text: "", last_play: "", field_yard_line: 0, distance: 0, broadcast: "", venue: "", status_label: "", start_label: "", period_label: "", header_label: "", has_situation: false, has_field: false, has_first_down: false, ball_on: 0.0, first_down_on: 0.0, possession_abbr: "", driving_toward: "", sort_key: 0, current_inning_label: "" }
+        let id = max(g.id in SportsGame where g.league == lid && g.game_id == game_id)
+        set SportsGame(id).start = start
+        set SportsGame(id).observed = obs
+        set SportsGame(id).state = st
+        set SportsGame(id).period = period
+        set SportsGame(id).clock = clock
+        set SportsGame(id).home_team = home
+        set SportsGame(id).away_team = away
+        set SportsGame(id).home_score = home_score
+        set SportsGame(id).away_score = away_score
+        set SportsGame(id).home_has_ball = home_has_ball
+        set SportsGame(id).away_has_ball = away_has_ball
+        set SportsGame(id).has_score = has_score
+        set SportsGame(id).week_label = week
+        set SportsGame(id).round_label = round_label
+        set SportsGame(id).series_summary = series_summary
+        set SportsGame(id).red_zone = red_zone
+        set SportsGame(id).down_distance = dd
+        set SportsGame(id).possession_text = pt
+        set SportsGame(id).last_play = lp
+        set SportsGame(id).field_yard_line = field_yard_line
+        set SportsGame(id).distance = distance
+        set SportsGame(id).broadcast = broadcast
+        set SportsGame(id).venue = venue
+        set SportsGame(id).status_label = status
+        set SportsGame(id).start_label = startOut
+        set SportsGame(id).period_label = pl
+        set SportsGame(id).header_label = header
+        set SportsGame(id).has_situation = situation
+        set SportsGame(id).has_field = situation && possAbbr != ""
+        set SportsGame(id).has_first_down = situation && possAbbr != "" && distance > 0
+        set SportsGame(id).ball_on = ballOn
+        set SportsGame(id).first_down_on = fdHome
+        if away_has_ball && !home_has_ball:
+            set SportsGame(id).first_down_on = fdAw
+        set SportsGame(id).possession_abbr = possAbbr
+        set SportsGame(id).driving_toward = towardHome + towardAway
+        set SportsGame(id).sort_key = key
+    proc firstNonEmpty(a: text, b: text) -> text:
+        if a != "":
+            return a
+        return b
+
+    # One play; a re-sent seq replaces the play it names instead of repeating it.
+    # The newest play's inning label is the game's current one.
+    action recordSportsPlay(league: text, game_id: text, seq: int, type: text, text: text, period: int?, clock: text?, team_id: text?, home_score: int?, away_score: int?, half_inning: text?):
+        requires marketsOperator
+        let s = lower(trim(league))
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        check exists(g in SportsGame where g.league == lid && g.game_id == game_id && lid > 0) "unknown game" status 404
+        let gid = max(g.id in SportsGame where g.league == lid && g.game_id == game_id)
+        let il = do inningLabel(half_inning, period)
+        if !exists(p in SportsPlay where p.game == gid && p.seq > seq):
+            set SportsGame(gid).current_inning_label = il
+        remove p in SportsPlay where p.game == gid && p.seq == seq
+        add SportsPlay { game: gid, seq: seq, period: period, clock: clock, team_id: team_id, play_type: type, text: text, home_score: home_score, away_score: away_score, half_inning: half_inning, inning_label: il }
+    # One team's line in the box score: its total, and (separately) the score
+    # of each period.
+    action setSportsBoxTeam(league: text, game_id: text, team_id: text, total: int, display_order: int?):
+        requires marketsOperator
+        let s = lower(trim(league))
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        check exists(g in SportsGame where g.league == lid && g.game_id == game_id && lid > 0) "unknown game" status 404
+        let gid = max(g.id in SportsGame where g.league == lid && g.game_id == game_id)
+        if exists(b in SportsBoxTeam where b.game == gid && b.team_id == team_id):
+            let id = max(b.id in SportsBoxTeam where b.game == gid && b.team_id == team_id)
+            set SportsBoxTeam(id).total = total
+            set SportsBoxTeam(id).display_order = display_order
+        else:
+            add SportsBoxTeam { game: gid, team_id: team_id, total: total, display_order: display_order }
+    action setSportsBoxPeriod(league: text, game_id: text, team_id: text, period: int, score: int):
+        requires marketsOperator
+        let s = lower(trim(league))
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        let gid = max(g.id in SportsGame where g.league == lid && g.game_id == game_id && lid > 0)
+        check exists(b in SportsBoxTeam where b.game == gid && b.team_id == team_id && gid > 0) "unknown box score line" status 404
+        check period >= 1 "periods count from 1"
+        let bid = max(b.id in SportsBoxTeam where b.game == gid && b.team_id == team_id)
+        remove p in SportsBoxPeriod where p.box == bid && p.period == period
+        add SportsBoxPeriod { box: bid, period: period, score: score }
+    action setSportsLeader(league: text, game_id: text, team_id: text, category: text, player_name: text, stat_line: text, display_order: int?):
+        requires marketsOperator
+        let s = lower(trim(league))
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        check exists(g in SportsGame where g.league == lid && g.game_id == game_id && lid > 0) "unknown game" status 404
+        let gid = max(g.id in SportsGame where g.league == lid && g.game_id == game_id)
+        remove l in SportsLeader where l.game == gid && l.team_id == team_id && l.category == category
+        add SportsLeader { game: gid, team_id: team_id, category: category, player_name: player_name, stat_line: stat_line, display_order: display_order }
+    # A book's line for one game. The opening line is either wholly known
+    # (has_opening) or absent — never a line of zero standing in for unknown.
+    action setSportsOdds(league: text, game_id: text, provider: text, spread_team_id: text?, spread_line: float?, total_line: float?, home_moneyline: int?, away_moneyline: int?, has_opening: bool?, opening_spread_line: float?, opening_total_line: float?, opening_home_moneyline: int?, opening_away_moneyline: int?):
+        requires marketsOperator
+        let s = lower(trim(league))
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        check exists(g in SportsGame where g.league == lid && g.game_id == game_id && lid > 0) "unknown game" status 404
+        check trim(provider) != "" "odds need a provider"
+        let gid = max(g.id in SportsGame where g.league == lid && g.game_id == game_id)
+        remove o in SportsOdds where o.game == gid
+        add SportsOdds { game: gid, provider: provider, spread_team_id: spread_team_id, spread_line: spread_line, total_line: total_line, home_moneyline: home_moneyline, away_moneyline: away_moneyline, has_opening: has_opening, opening_spread_line: opening_spread_line, opening_total_line: opening_total_line, opening_home_moneyline: opening_home_moneyline, opening_away_moneyline: opening_away_moneyline }
+    action clearSportsOdds(league: text, game_id: text):
+        requires marketsOperator
+        let s = lower(trim(league))
+        let lid = max(l.id in SportsLeague where l.slug == s)
+        let gid = max(g.id in SportsGame where g.league == lid && g.game_id == game_id && lid > 0)
+        remove o in SportsOdds where o.game == gid
+
+    # The ingest process's door is one signed `webhook` per action above,
+    # declared in main.fct beside the API routes: an imported module's
+    # webhooks are not carried into the merged app (internal/compile
+    # mergeInto drops them), so they must live in the root file.
+
+    # This module's HTTP surface (merged into the app with the rest of it).
+    api GET "/api/v2/cashtag/search" -> cashtagSearch rate read since "2026-09-18"
+    api GET "/api/v2/cashtag/{ticker}" -> cashtagQuote rate read since "2026-09-18"
+    api GET "/api/v2/gif/search" -> gifSearch rate read since "2026-09-18"
+    api GET "/api/v2/sports" -> sportsBoard rate read since "2026-09-18"
+    api GET "/api/v2/sports/{league}/{game}" -> getSportsGame rate read since "2026-09-18"
+    # Market-data ingest: each delivery is HMAC-signed with MARKETS_INGEST_KEY
+    # (the master-derived key when unset) and runs with system authority, the
+    # only caller the marketsOperator policy admits.
+    webhook "/hooks/markets/source" -> configureMarketSource secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/ticker" -> upsertTickerListing secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/quote" -> recordTickerQuote secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/close" -> recordTickerClose secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/gif" -> upsertGif secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/gif/remove" -> removeGif secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/league" -> upsertSportsLeague secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/league/poll" -> recordLeaguePoll secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/team" -> upsertSportsTeam secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/game" -> upsertSportsGame secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/play" -> recordSportsPlay secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/box" -> setSportsBoxTeam secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/box/period" -> setSportsBoxPeriod secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/leader" -> setSportsLeader secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/odds" -> setSportsOdds secret MARKETS_INGEST_KEY
+    webhook "/hooks/markets/odds/clear" -> clearSportsOdds secret MARKETS_INGEST_KEY

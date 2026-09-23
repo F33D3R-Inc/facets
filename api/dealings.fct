@@ -1,0 +1,384 @@
+import "entities.fct"
+import "core.fct"
+import "social.fct"
+import "misc.fct"
+import "commerce.fct"
+
+# The money lanes of the mutation surface: the BTC/XRP marketplace (a
+# seller's shop, their encrypted listings, a buyer's pending purchase, a
+# subscription to a seller), a creator's subscription plans and onboarding,
+# brand sponsorship deals, and buying a priced work in AET. Selling — opening
+# a shop, listing content, plans, onboarding — asks the identity bar
+# (kyc_status "full", or the system authority); buying never does.
+app F33D3RDealings:
+    # A sponsorship a brand account proposed to a creator. status moves
+    # pending -> accepted | declined | cancelled; accepted -> live when the
+    # creator links one of their own works (the only way a work ever gains
+    # the non-removable sponsored disclosure); live -> paid when the brand
+    # releases the amount through the wallet. amount_uaet is µAET; tx is the
+    # brand's wallet entry that paid it.
+    entity BrandDeal:
+        id: int
+        brand: int
+        creator: int
+        amount_uaet: int
+        terms: text
+        status: text
+        work: int
+        tx: int
+        proposed: int
+        responded: int
+        linked: int
+        paid: int
+    # One priced work an account bought in AET.
+    entity WorkPurchase:
+        id: int
+        work: int
+        buyer: int
+        amount_uaet: int
+        created: int
+
+    # ── Shared validation ──────────────────────────────────────────────────
+
+    # Identity-verified enough to be paid (legacy CanMonetize): a full KYC
+    # tier, or the operator authority.
+    proc canMonetize(kyc: text, sessionRole: text) -> bool:
+        return kyc == "full" || sessionRole == "admin"
+    # A handle as typed: trimmed, without a leading @, lowercased.
+    proc bareHandle(h: text) -> text:
+        let t = trim(h)
+        if take(t, 1) == "@":
+            return lower(slice(t, 1, len(t)))
+        return lower(t)
+    # Every character of s is one of set.
+    proc allIn(s: text, set: text) -> bool:
+        let mut i = 0
+        loop i < len(s):
+            if !contains(set, charAt(s, i)):
+                return false
+            i = i + 1
+        return true
+    # A Bitcoin address by format (no checksum): legacy P2PKH/P2SH in
+    # base58, or bech32 bc1q/bc1p of 42 or 62 lowercase characters.
+    proc validBtcAddress(a: text) -> bool:
+        let n = len(a)
+        if n < 25 || n > 90:
+            return false
+        if take(a, 3) == "bc1":
+            if lower(a) != a:
+                return false
+            if !allIn(a, "abcdefghijklmnopqrstuvwxyz0123456789"):
+                return false
+            return (take(a, 4) == "bc1q" || take(a, 4) == "bc1p") && (n == 42 || n == 62)
+        if take(a, 1) != "1" && take(a, 1) != "3":
+            return false
+        return n <= 34 && allIn(a, "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+    # Standard, padded base64.
+    proc validBase64(s: text) -> bool:
+        let n = len(s)
+        if n == 0 || n % 4 != 0:
+            return false
+        let mut body = s
+        if take(slice(s, n - 2, n), 2) == "==":
+            body = slice(s, 0, n - 2)
+        else:
+            if charAt(s, n - 1) == "=":
+                body = slice(s, 0, n - 1)
+        return allIn(body, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+    proc clampInt(v: int, lo: int, hi: int) -> int:
+        if v < lo:
+            return lo
+        if v > hi:
+            return hi
+        return v
+
+    # ── Marketplace (shops, listings, purchases, subscriptions) ────────────
+
+    # Open (or reopen) the caller's shop on a BTC payout address. A shop
+    # whose address changes tells its owner, so a redirected payout is never
+    # silent.
+    action marketplaceShopOpen(btc_address: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check canMonetize(Account(me).kyc_status, role) "Selling on the marketplace requires identity verification. Complete verification at /kyc." status 403
+        let btc = trim(btc_address)
+        check btc != "" "btc_address required" status 400
+        check validBtcAddress(btc) "That doesn't look like a valid Bitcoin address." status 400
+        check !exists(s in Shop where s.btc_address == btc && s.is_enabled && s.owner != me) "This Bitcoin address is already registered to another shop." status 409
+        if !exists(s in Shop where s.owner == me):
+            add Shop { owner: me, is_enabled: true, btc_address: btc, xrp_address: "", created: now() }
+        else:
+            let sid = max(s.id in Shop where s.owner == me)
+            if Shop(sid).btc_address != "" && Shop(sid).btc_address != btc:
+                let note = add Notification { account: me, actor: me, kind: "payout_address_changed", target_type: "shop", target_id: sid, preview: "Your shop's BTC payout address was changed.", amount_uaet: 0, is_read: false, created: now() }
+                emit notification notificationV1(Notification(note), me) to actor
+                emit notify NotifyEventDTO{unread: count(n in Notification where n.account == me && !n.is_read)} to actor
+            set Shop(sid).btc_address = btc
+            set Shop(sid).is_enabled = true
+    # Close the caller's shop; its listings stop selling (a purchase needs an
+    # open shop). Closing no shop is a no-op, as legacy.
+    action marketplaceShopClose():
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        for s in Shop where s.owner == me:
+            set Shop(s.id).is_enabled = false
+    action marketplaceListingCreate(title: text, description: text?, price_sats: int, content_url: text, content_hash: text, cek_encrypted: text, visibility: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check canMonetize(Account(me).kyc_status, role) "Selling on the marketplace requires identity verification. Complete verification at /kyc." status 403
+        check title != "" && content_url != "" && cek_encrypted != "" "missing fields" status 400
+        check price_sats >= 1000 "Minimum price is 1,000 sats" status 400
+        check validBase64(cek_encrypted) "invalid cek_encrypted" status 400
+        check count(l in Listing where l.seller == me && l.is_active) < 12 "max_listings_reached" status 400 code "max_listings_reached"
+        let vis = do orText(visibility, "public")
+        check vis == "public" || vis == "subscribers" "visibility must be public or subscribers" status 400
+        add Listing { seller: me, title: title, description: description, price_sats: price_sats, currency: "btc", is_active: true, content_url: content_url, content_hash: content_hash, cek_encrypted: cek_encrypted, created: now(), visibility: vis }
+    # Retitle, redescribe or reactivate one of the caller's listings; price
+    # and content are fixed once listed (price_sats is accepted and ignored,
+    # as legacy). An absent title/description leaves it as it is.
+    action marketplaceListingEdit(listing_id: text, is_active: bool?, title: text?, description: text?, price_sats: int?):
+        requires member
+        let id = toInt(listing_id)
+        check exists(l in Listing where l.id == id) "not_found" status 404
+        let me = max(a.id in Account where a.handle == actor)
+        check Listing(id).seller == me "forbidden" status 403
+        if title != "":
+            set Listing(id).title = title
+        if description != "":
+            set Listing(id).description = description
+        if is_active:
+            check count(l in Listing where l.seller == me && l.is_active && l.id != id) < 12 "max_listings_reached" status 400 code "max_listings_reached"
+            set Listing(id).is_active = true
+    # Delist one of the caller's listings (kept, so what was bought stays in
+    # the buyers' libraries).
+    action marketplaceListingDelete(listing_id: text):
+        requires member
+        let id = toInt(listing_id)
+        check exists(l in Listing where l.id == id) "not_found" status 404
+        check Listing(id).seller == max(a.id in Account where a.handle == actor) "forbidden" status 403
+        set Listing(id).is_active = false
+    # Begin buying a listing: a pending purchase for the price, open 30
+    # minutes, paid to the seller's shop address; the content key is
+    # delivered on confirmation.
+    action marketplacePurchaseInitiate(listing_id: text, payment_currency: text):
+        requires member
+        let id = toInt(listing_id)
+        check exists(l in Listing where l.id == id && l.is_active) "listing_not_found" status 404 code "listing_not_found"
+        let me = max(a.id in Account where a.handle == actor)
+        let t = now()
+        check !exists(p in Purchase where p.listing == id && p.buyer == me && (p.status == "confirmed" || p.status == "delivered" || (p.status == "pending" && p.expires > t))) "already_purchased" status 409 code "already_purchased"
+        let seller = Listing(id).seller
+        check exists(s in Shop where s.owner == seller && s.is_enabled) "shop_unavailable" status 503 code "shop_unavailable"
+        let sid = max(s.id in Shop where s.owner == seller)
+        if payment_currency == "xrp":
+            check Shop(sid).xrp_address != "" "This seller does not accept XRP." status 400
+            check false "No XRP price set for this listing." status 400
+        add Purchase { listing: id, buyer: me, status: "pending", currency: "btc", expected_sats: Listing(id).price_sats, cek_for_buyer: "", expires: t + 1800, confirmed: 0, delivered: 0, created: t }
+    # Subscribe to a seller (by their account id, the PIAL this stack
+    # answers as pial_id) for 30 days; an existing subscription is renewed.
+    action marketplaceSubscriptionCreate(seller_pial: text):
+        requires member
+        check seller_pial != "" "seller_pial required" status 400
+        let seller = toInt(seller_pial)
+        check exists(a in Account where a.id == seller) "seller not found" status 404
+        check exists(s in Shop where s.owner == seller) "no such shop" status 404
+        let sid = max(s.id in Shop where s.owner == seller)
+        let me = max(a.id in Account where a.handle == actor)
+        if exists(x in ShopSubscription where x.shop == sid && x.account == me):
+            let xid = max(x.id in ShopSubscription where x.shop == sid && x.account == me)
+            set ShopSubscription(xid).status = "active"
+            set ShopSubscription(xid).period_end = now() + 2592000
+        else:
+            add ShopSubscription { shop: sid, account: me, plan: 0, created: now(), status: "active", period_end: now() + 2592000 }
+
+    # ── Creator plans and onboarding ───────────────────────────────────────
+
+    # A creator's monthly plan, in whole AET, held on their shop (a closed
+    # one is made to hold it when they have none yet).
+    action creatorPlanCreate(name: text, price_aet: float, description: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).is_creator || role == "admin" "forbidden" status 403
+        check canMonetize(Account(me).kyc_status, role) "creator monetization not enabled" status 403
+        check trim(name) != "" "Plan name is required" status 400
+        let price = toInt(price_aet)
+        check price >= 0 "Price cannot be negative" status 400
+        check price > 0 "price must be greater than zero" status 400
+        if !exists(s in Shop where s.owner == me):
+            add Shop { owner: me, is_enabled: false, btc_address: "", xrp_address: "", created: now() }
+        let sid = max(s.id in Shop where s.owner == me)
+        add ShopPlan { shop: sid, name: trim(name), description: description, price_aet: price, is_active: true, created: now() }
+    action creatorPlanUpdate(plan_id: text, name: text, price_aet: float, description: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).is_creator || role == "admin" "forbidden" status 403
+        check plan_id != "" "plan_id required" status 400
+        let pid = toInt(plan_id)
+        check exists(p in ShopPlan where p.id == pid && p.is_active && exists(s in Shop where s.id == p.shop && s.owner == me)) "plan not found" status 404
+        let price = toInt(price_aet)
+        check price >= 0 "Price cannot be negative" status 400
+        if trim(name) != "":
+            set ShopPlan(pid).name = trim(name)
+        if price > 0:
+            set ShopPlan(pid).price_aet = price
+        set ShopPlan(pid).description = description
+    # Retire a plan: it stops being offered; its subscribers' rows stay.
+    action creatorPlanDelete(plan_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).is_creator || role == "admin" "forbidden" status 403
+        check plan_id != "" "plan_id required" status 400
+        let pid = toInt(plan_id)
+        check exists(p in ShopPlan where p.id == pid && exists(s in Shop where s.id == p.shop && s.owner == me)) "plan not found" status 404
+        set ShopPlan(pid).is_active = false
+    # Finish onboarding: the profile (display name, bio, adult flag), creator
+    # mode on, then — best-effort, as legacy — a "<name> Fan Club" monthly
+    # plan at the price given and a shop on the BTC address given (skipped
+    # when the address is malformed or another open shop holds it).
+    action creatorSetupComplete(display_name: text?, bio: text?, is_adult: bool?, btc_address: text?, subscription_price_aet: float?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check canMonetize(Account(me).kyc_status, role) "Creator setup requires identity verification. Complete verification at /kyc, then return here." status 403
+        let dn = take(firstText(trim(display_name), Account(me).display_name), 100)
+        set Account(me).display_name = dn
+        set Account(me).bio = take(trim(bio), 500)
+        set Account(me).is_adult_creator = is_adult
+        set Account(me).is_creator = true
+        set Account(me).tier = "creator"
+        let price = clampInt(toInt(subscription_price_aet), 0, 1000000)
+        let btc = trim(btc_address)
+        if price > 0 || btc != "":
+            if !exists(s in Shop where s.owner == me):
+                add Shop { owner: me, is_enabled: false, btc_address: "", xrp_address: "", created: now() }
+            let sid = max(s.id in Shop where s.owner == me)
+            if price > 0:
+                let planName = dn + " Fan Club"
+                if exists(p in ShopPlan where p.shop == sid && p.is_active && p.name == planName):
+                    set ShopPlan(max(p.id in ShopPlan where p.shop == sid && p.is_active && p.name == planName)).price_aet = price
+                else:
+                    add ShopPlan { shop: sid, name: planName, description: "Monthly subscription to " + dn + "'s exclusive content.", price_aet: price, is_active: true, created: now() }
+            if btc != "" && validBtcAddress(btc) && !exists(s in Shop where s.btc_address == btc && s.is_enabled && s.owner != me):
+                set Shop(sid).btc_address = btc
+                set Shop(sid).is_enabled = true
+
+    # ── Brand deals ────────────────────────────────────────────────────────
+
+    action brandDealPropose(target_handle: text, amount: float, terms: text?):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).is_brand "Only brand accounts can propose sponsorships" status 403
+        let h = bareHandle(target_handle)
+        check h != "" "target_handle required" status 400
+        check exists(a in Account where a.handle == h) "Creator not found" status 404
+        let target = max(a.id in Account where a.handle == h)
+        check target != me "Cannot propose a deal to yourself" status 400
+        check Account(target).is_creator "That account isn't set up as a creator" status 400
+        check amount >= 1.0 && amount <= 1000000.0 "Enter an amount between 1 and 1e+06 AET" status 400
+        let amt = round(amount * 1000000.0)
+        let t = take(trim(terms), 2000)
+        let did = add BrandDeal { brand: me, creator: target, amount_uaet: amt, terms: t, status: "pending", work: 0, tx: 0, proposed: now(), responded: 0, linked: 0, paid: 0 }
+        let note = add Notification { account: target, actor: me, kind: "brand_deal_request", target_type: "brand_deal", target_id: did, preview: t, amount_uaet: amt, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), target) to Account(target).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == target && !n.is_read)} to Account(target).handle
+    action brandDealAccept(deal_id: text):
+        requires member
+        check deal_id != "" "deal_id required" status 400
+        let did = toInt(deal_id)
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(d in BrandDeal where d.id == did && d.creator == me && d.status == "pending") "Deal not found or already answered" status 404
+        set BrandDeal(did).status = "accepted"
+        set BrandDeal(did).responded = now()
+        let brand = BrandDeal(did).brand
+        let note = add Notification { account: brand, actor: me, kind: "brand_deal_accepted", target_type: "brand_deal", target_id: did, preview: "", amount_uaet: BrandDeal(did).amount_uaet, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), brand) to Account(brand).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == brand && !n.is_read)} to Account(brand).handle
+    action brandDealDecline(deal_id: text):
+        requires member
+        check deal_id != "" "deal_id required" status 400
+        let did = toInt(deal_id)
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(d in BrandDeal where d.id == did && d.creator == me && d.status == "pending") "Deal not found or already answered" status 404
+        set BrandDeal(did).status = "declined"
+        set BrandDeal(did).responded = now()
+        let brand = BrandDeal(did).brand
+        let note = add Notification { account: brand, actor: me, kind: "brand_deal_declined", target_type: "brand_deal", target_id: did, preview: "", amount_uaet: BrandDeal(did).amount_uaet, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), brand) to Account(brand).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == brand && !n.is_read)} to Account(brand).handle
+    # The proposing brand withdraws an offer the creator has not answered.
+    action brandDealCancel(deal_id: text):
+        requires member
+        check deal_id != "" "deal_id required" status 400
+        let did = toInt(deal_id)
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(d in BrandDeal where d.id == did && d.brand == me && d.status == "pending") "Deal not found or already answered" status 404
+        set BrandDeal(did).status = "cancelled"
+    # The creator names one of their own live works as the sponsored post of
+    # an accepted deal. Non-reversible: the work gains the paid-partnership
+    # disclosure, which setWorkLabels/editWork can no longer clear while a
+    # live or paid deal points at it.
+    action brandDealLinkWork(deal_id: text, work_id: text):
+        requires member
+        check deal_id != "" && work_id != "" "deal_id and work_id required" status 400
+        let did = toInt(deal_id)
+        let wid = toInt(work_id)
+        let me = max(a.id in Account where a.handle == actor)
+        check exists(d in BrandDeal where d.id == did && d.creator == me && d.status == "accepted") && exists(w in Work where w.id == wid && w.author == me && !w.deleted) "Could not tag that work — check the deal is accepted and the work is yours" status 400
+        set Work(wid).paid_partnership = true
+        set BrandDeal(did).status = "live"
+        set BrandDeal(did).work = wid
+        set BrandDeal(did).linked = now()
+        for ww in WorkWatch where ww.work == wid:
+            emit work_edited WorkEventDTO{work_id: "" + wid, work: workCardDTO(Work(wid), ww.account)} to Account(ww.account).handle
+        let brand = BrandDeal(did).brand
+        let note = add Notification { account: brand, actor: me, kind: "brand_deal_live", target_type: "brand_deal", target_id: did, preview: Work(wid).body, amount_uaet: BrandDeal(did).amount_uaet, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), brand) to Account(brand).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == brand && !n.is_read)} to Account(brand).handle
+    # The brand releases a live deal's amount to the creator through the
+    # wallet — the same ledger path a tip takes.
+    action brandDealMarkPaid(deal_id: text):
+        requires member
+        let me = max(a.id in Account where a.handle == actor)
+        check Account(me).is_brand "Only brand accounts can release a payout" status 403
+        check deal_id != "" "deal_id required" status 400
+        let did = toInt(deal_id)
+        check exists(d in BrandDeal where d.id == did && d.brand == me) "Deal not found" status 404
+        check BrandDeal(did).status == "live" "Only a deal linked to a live sponsored post can be paid out" status 409
+        let amt = BrandDeal(did).amount_uaet
+        let payee = BrandDeal(did).creator
+        check sum(w.amount_uaet in WalletEntry where w.account == me) >= amt "insufficient balance" status 400
+        let tx = add WalletEntry { account: me, kind: "brand_deal_payout", amount_uaet: 0 - amt, counterparty: payee, created: now() }
+        add WalletEntry { account: payee, kind: "brand_deal_payout_received", amount_uaet: amt, counterparty: me, created: now() }
+        set BrandDeal(did).status = "paid"
+        set BrandDeal(did).paid = now()
+        set BrandDeal(did).tx = tx
+        emit balance balanceDTO(me) to actor
+        emit balance balanceDTO(payee) to Account(payee).handle
+        let note = add Notification { account: payee, actor: me, kind: "brand_deal_paid", target_type: "brand_deal", target_id: did, preview: "", amount_uaet: amt, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), payee) to Account(payee).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == payee && !n.is_read)} to Account(payee).handle
+
+    # ── Buying a priced work ───────────────────────────────────────────────
+
+    # Buy a work that carries an AET price. No work made on this stack is
+    # priced (post never sets price_uaet), so an existing work answers 400
+    # not for sale, as legacy; a priced one is paid through the wallet once.
+    action workPurchase(work_id: text):
+        requires member
+        check work_id != "" "work_id required" status 400
+        let wid = toInt(work_id)
+        check exists(w in Work where w.id == wid && !w.deleted) "work not found" status 404
+        check Work(wid).price_uaet > 0 "work is not for sale" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        let author = Work(wid).author
+        check author != me "you cannot buy your own work" status 400
+        check !exists(p in WorkPurchase where p.work == wid && p.buyer == me) "already purchased" status 409
+        let price = Work(wid).price_uaet
+        check sum(w.amount_uaet in WalletEntry where w.account == me) >= price "insufficient balance" status 400
+        add WalletEntry { account: me, kind: "work_purchase", amount_uaet: 0 - price, counterparty: author, created: now() }
+        add WalletEntry { account: author, kind: "work_sale", amount_uaet: price, counterparty: me, created: now() }
+        add WorkPurchase { work: wid, buyer: me, amount_uaet: price, created: now() }
+        emit balance balanceDTO(me) to actor
+        emit balance balanceDTO(author) to Account(author).handle
+        let note = add Notification { account: author, actor: me, kind: "purchase", target_type: "work", target_id: wid, preview: Work(wid).body, amount_uaet: price, is_read: false, created: now() }
+        emit notification notificationV1(Notification(note), author) to Account(author).handle
+        emit notify NotifyEventDTO{unread: count(n in Notification where n.account == author && !n.is_read)} to Account(author).handle
