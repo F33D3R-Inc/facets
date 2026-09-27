@@ -683,6 +683,17 @@
             "actor": "bob",
             "role": "member"
           },
+          "run": "fund",
+          "args": [
+            "card",
+            100000
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
           "run": "tip",
           "args": [
             1,
@@ -772,6 +783,28 @@
           "run": "post",
           "args": [
             "tip me"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            100000
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            100000
           ]
         },
         {
@@ -1622,6 +1655,636 @@
           },
           "expect": "gated(\"ada\", true)",
           "equals": true
+        }
+      ]
+    },
+    {
+      "name": "search: the feed answers the search bar's language — a #tag, an exclusion, an author and a phrase narrow it; an empty query shows everything",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "the #nfl draft is tonight"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "mock draft results"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "a quiet garden"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            "draft -mock"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "liveSearch",
+          "args": [
+            "#NFL"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            "from:bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            "\"quiet garden\" OR draft"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 3
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            ""
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 3
+        }
+      ]
+    },
+    {
+      "name": "notifications carry a kind; the tabs filter by kind and Priority keeps mutuals (or big accounts); a kind switched off in the preferences is neither listed nor counted; a tip notifies",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "mine"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "reply",
+          "args": [
+            1,
+            "nice"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            100000
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            100000
+          ]
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "run": "tipPost",
+          "args": [
+            1,
+            500
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "tipPost",
+          "args": [
+            1,
+            100
+          ],
+          "fails": "must differ"
+        },
+        {
+          "expect": "count(n in Notification where n.user == \"ada\")",
+          "equals": 5
+        },
+        {
+          "expect": "Notification(5).kind",
+          "equals": "tip"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && inTab(n.kind, n.who, \"all\"))",
+          "equals": 5
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && inTab(n.kind, n.who, \"like\"))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && inTab(n.kind, n.who, \"follow\"))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && inTab(n.kind, n.who, \"priority\"))",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && inTab(n.kind, n.who, \"priority\"))",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && !n.read && enabledKind(n.kind))",
+          "equals": 5
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "setNotificationPrefs",
+          "args": [
+            false,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && !n.read && enabledKind(n.kind))",
+          "equals": 4
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(n in Notification where n.user == actor && enabledKind(n.kind) && inTab(n.kind, n.who, \"like\"))",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "enabledKind(\"tip\")",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "name": "For-you ranking (data/rank.fct): a work aligned with the viewer's interests outranks a followed author's unaligned one; with nothing aligned the followed author leads by at least the in-network boost (plus the neural stage's follow affinity); scores are the viewer's own",
+      "steps": [
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "my #garden tips"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "crypto today"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "addInterest",
+          "args": [
+            "garden"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "rankForYou"
+        },
+        {
+          "expect": "count(fs in FeedScore where fs.viewer == \"ada\")",
+          "equals": 2
+        },
+        {
+          "expect": "max(fs.score in FeedScore where fs.viewer == \"ada\" && fs.tweet == 1) > max(fs.score in FeedScore where fs.viewer == \"ada\" && fs.tweet == 2)",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "run": "rankForYou"
+        },
+        {
+          "expect": "max(fs.score in FeedScore where fs.viewer == \"dee\" && fs.tweet == 2) - max(fs.score in FeedScore where fs.viewer == \"dee\" && fs.tweet == 1) >= 80000",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "rankForYou"
+        },
+        {
+          "expect": "count(fs in FeedScore where fs.viewer == \"ada\")",
+          "equals": 2
+        },
+        {
+          "expect": "count(FeedScore)",
+          "equals": 4
+        },
+        {
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          },
+          "run": "rankForYou",
+          "fails": "member"
+        }
+      ]
+    },
+    {
+      "name": "trending ranks with no viewer; impressions and engagement raise a work's quality",
+      "steps": [
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "one"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "two"
+          ]
+        },
+        {
+          "run": "rankTrending"
+        },
+        {
+          "expect": "max(fs.score in FeedScore where fs.viewer == \"\" && fs.tweet == 1) == max(fs.score in FeedScore where fs.viewer == \"\" && fs.tweet == 2)",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "openPost",
+          "args": [
+            2
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            2
+          ]
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            2
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "openPost",
+          "args": [
+            99
+          ],
+          "fails": "doesn't exist"
+        },
+        {
+          "run": "rankTrending"
+        },
+        {
+          "expect": "count(fs in FeedScore where fs.viewer == \"\")",
+          "equals": 2
+        },
+        {
+          "expect": "max(fs.score in FeedScore where fs.viewer == \"\" && fs.tweet == 2) > max(fs.score in FeedScore where fs.viewer == \"\" && fs.tweet == 1)",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "name": "tips move AET on the ledger: an unfunded tip is refused (402) and nothing is recorded; a funded tip debits amount + 1% fee, credits the author, the treasury takes the fee",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "tip me"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "tipPost",
+          "args": [
+            1,
+            500
+          ],
+          "fails": "insufficient balance"
+        },
+        {
+          "expect": "count(PostTip)",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "tipPost",
+          "args": [
+            1,
+            0
+          ],
+          "fails": "valid amount"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            1000
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "tipPost",
+          "args": [
+            1,
+            500
+          ]
+        },
+        {
+          "expect": "count(PostTip)",
+          "equals": 1
+        },
+        {
+          "expect": "balanceOf(\"ada\")",
+          "equals": 50000
+        },
+        {
+          "expect": "balanceOf(\"bob\")",
+          "equals": 47000
+        },
+        {
+          "expect": "balanceOf(\"treasury\")",
+          "equals": 500
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "Ada live",
+            "Music"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "tip",
+          "args": [
+            1,
+            100,
+            "gg"
+          ]
+        },
+        {
+          "expect": "balanceOf(\"ada\")",
+          "equals": 60000
+        },
+        {
+          "expect": "count(e in LedgerEvent where e.kind == \"TIP\")",
+          "equals": 2
         }
       ]
     }

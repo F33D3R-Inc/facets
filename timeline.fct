@@ -23,6 +23,8 @@ import "social/whotofollow.fct"
 import "profile/profileheader.fct"
 import "forms/searchbox.fct"
 import "social/visibility.fct"
+import "data/searchquery.fct"
+import "forms/livesearchbox.fct"
 
 app F33D3RTimeline:
     auth
@@ -138,10 +140,10 @@ app F33D3RTimeline:
                 use TopBar("Home", "", "/")
                 if actor != "guest":
                     use ComposeBox()
-                use SearchBox()
+                use LiveSearchBox("Search — \"phrase\", -word, #tag, @handle, from:, since:")
                 tabs bind feedTab:
                     tab "For you" -> "foryou":
-                        for t in Tweet where feedVisible(t, feedAsOf) && contains(lower(t.body), lower(q)) by surfaced desc limit shown more loadMore:
+                        for t in Tweet where feedVisible(t, feedAsOf) && searchHit(t.body, t.author, t.created, t.media != "", 0) by surfaced desc limit shown more loadMore:
                             if t.pinned:
                                 row class "x-pinned":
                                     icon "pin"

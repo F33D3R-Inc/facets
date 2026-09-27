@@ -1,0 +1,474 @@
+{
+  "tests": [
+    {
+      "name": "funding: a known rail, a positive amount; 1 cent = 1 credit = 100 \u00b5AET less the 2.5% deposit fee, minted into supply (aethyr-ledger fund_wallet)",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "paypal",
+            1000
+          ],
+          "fails": "invalid funding rail"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            0
+          ],
+          "fails": "must be positive"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            1000
+          ],
+          "returns": 97500
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "balanceOf(\"ada\")",
+          "equals": 97500
+        },
+        {
+          "expect": "supplyMinted",
+          "equals": 97500
+        },
+        {
+          "expect": "LedgerEvent(1).kind",
+          "equals": "PURCHASE"
+        },
+        {
+          "expect": "LedgerEvent(1).fee",
+          "equals": 2500
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "gift_card",
+            99
+          ],
+          "returns": 9700
+        }
+      ]
+    },
+    {
+      "name": "transfers: the fee schedule (TRANSFER 3%, TIP 1%, SUBSCRIPTION 1.5%, CREATOR_PAYOUT 3%, truncating basis points) is paid on top by the sender and collected by the treasury; the book balances",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            1000
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TRANSFER",
+            "bob",
+            10000,
+            "",
+            ""
+          ]
+        },
+        {
+          "expect": "balanceOf(\"ada\")",
+          "equals": 87200
+        },
+        {
+          "expect": "balanceOf(\"bob\")",
+          "equals": 10000
+        },
+        {
+          "expect": "balanceOf(\"treasury\")",
+          "equals": 300
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TIP",
+            "bob",
+            10000,
+            "",
+            ""
+          ]
+        },
+        {
+          "expect": "balanceOf(\"treasury\")",
+          "equals": 400
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "SUBSCRIPTION",
+            "bob",
+            10001,
+            "",
+            ""
+          ]
+        },
+        {
+          "expect": "balanceOf(\"treasury\")",
+          "equals": 550
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "CREATOR_PAYOUT",
+            "bob",
+            100,
+            "",
+            ""
+          ]
+        },
+        {
+          "expect": "balanceOf(\"treasury\")",
+          "equals": 553
+        },
+        {
+          "expect": "circulating",
+          "equals": 97500
+        },
+        {
+          "expect": "sum(a.balance in LedgerAccount where a.owner != \"\")",
+          "equals": 97500
+        },
+        {
+          "expect": "max(a.seq in LedgerAccount where a.owner == \"ada\")",
+          "equals": 4
+        }
+      ]
+    },
+    {
+      "name": "refusals: unknown kind, non-positive amount, self-transfer (400); insufficient balance including the fee (402); nothing moves",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            100
+          ],
+          "returns": 9800
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "GIFT",
+            "bob",
+            100,
+            "",
+            ""
+          ],
+          "fails": "invalid event_type"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TIP",
+            "bob",
+            0,
+            "",
+            ""
+          ],
+          "fails": "must be positive"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TIP",
+            "ada",
+            100,
+            "",
+            ""
+          ],
+          "fails": "must differ"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TRANSFER",
+            "bob",
+            9600,
+            "",
+            ""
+          ],
+          "fails": "insufficient balance"
+        },
+        {
+          "expect": "balanceOf(\"ada\")",
+          "equals": 9800
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TRANSFER",
+            "bob",
+            9514,
+            "",
+            ""
+          ]
+        },
+        {
+          "expect": "balanceOf(\"ada\")",
+          "equals": 1
+        },
+        {
+          "expect": "balanceOf(\"treasury\")",
+          "equals": 285
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "burn",
+          "args": [
+            2
+          ],
+          "fails": "insufficient balance"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "burn",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "supplyBurned",
+          "equals": 1
+        },
+        {
+          "expect": "circulating",
+          "equals": 9799
+        },
+        {
+          "expect": "supplyMinted - supplyBurned",
+          "equals": 9799
+        }
+      ]
+    },
+    {
+      "name": "an idempotency key answers the first event instead of moving twice",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "fund",
+          "args": [
+            "card",
+            1000
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TIP",
+            "bob",
+            1000,
+            "tip-1",
+            ""
+          ],
+          "returns": 2
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            "TIP",
+            "bob",
+            1000,
+            "tip-1",
+            ""
+          ],
+          "returns": 2
+        },
+        {
+          "expect": "balanceOf(\"bob\")",
+          "equals": 1000
+        },
+        {
+          "expect": "count(e in LedgerEvent where e.kind == \"TIP\")",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "minting is an operator's; the wallet UI's topUp/transfer/sendRedPacket move real AET through the same book",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "mint",
+          "args": [
+            "ada",
+            100
+          ],
+          "fails": "only an operator"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "mint",
+          "args": [
+            "ada",
+            100000
+          ]
+        },
+        {
+          "expect": "supplyMinted",
+          "equals": 100000
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "topUp",
+          "args": [
+            1000
+          ]
+        },
+        {
+          "expect": "balanceOf(\"ada\")",
+          "equals": 197500
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "transfer",
+          "args": [
+            "bob",
+            100,
+            "lunch"
+          ]
+        },
+        {
+          "expect": "balanceOf(\"bob\")",
+          "equals": 10000
+        },
+        {
+          "expect": "balanceOf(\"ada\")",
+          "equals": 187200
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "sendRedPacket",
+          "args": [
+            "cy",
+            50,
+            "new year"
+          ]
+        },
+        {
+          "expect": "balanceOf(\"cy\")",
+          "equals": 5000
+        },
+        {
+          "expect": "count(e in LedgerEvent where e.to == \"cy\" && e.note == \"red packet: new year\")",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "transfer",
+          "args": [
+            "bob",
+            999999,
+            "too much"
+          ],
+          "fails": "insufficient balance"
+        }
+      ]
+    }
+  ]
+}

@@ -78,6 +78,11 @@ import "layout/vocabulary.fct"
 import "navigation/sidebaritem.fct"
 import "ui/trend.fct"
 import "social/visibility.fct"
+import "data/searchquery.fct"
+import "forms/livesearchbox.fct"
+import "data/rank.fct"
+import "commerce/ledger.fct"
+import "commerce/wallet.fct"
 
 app F33D3RHome:
     auth
@@ -272,10 +277,23 @@ app F33D3RHome:
         id: int
         user: text
         who: text
+        # like | repost | reply | follow | tip — the reference's notification
+        # type, which its tabs filter on (NotificationTabLike, …).
+        kind: text
         verb: text
         subject: text
         read: bool
         created: int
+    # Per-kind preferences, the platform's own field names (the contract's
+    # NotificationPrefs): a kind switched off is not listed and not counted.
+    entity NotificationPrefs:
+        id: int
+        account: text
+        likes_enabled: bool
+        reposts_enabled: bool
+        replies_enabled: bool
+        follows_enabled: bool
+        mentions_enabled: bool
 
     # ── the creator layer ────────────────────────────────────────────────────
     # Stream/Chat/Tip/Sub/Ban mirror `live.fct` (the standalone streaming
@@ -347,6 +365,19 @@ app F33D3RHome:
         user: text
         label: text
         muted: bool
+    # An impression: a work opened in full. Quality is engagement per
+    # impression (data/rank.fct), so the ranking needs them counted.
+    entity Impression:
+        id: int
+        tweet: Tweet
+        user: text
+    # One viewer's ranked For-you list (viewer "" is the global trending
+    # list): scored by data/rank.fct when the viewer asks, read by the tab.
+    entity FeedScore:
+        id: int
+        viewer: text
+        tweet: Tweet
+        score: int
 
     state draft: text = "" @client
     state feedTab: text = "foryou" @client
@@ -370,6 +401,7 @@ app F33D3RHome:
     # app can actually back with a real field (there is no DM system here to
     # hide previews of).
     state streamerMode: bool = false @client
+    state notifTab: text = "all" @client
 
     policy member:
         actor != "guest"
@@ -380,6 +412,13 @@ app F33D3RHome:
     derive walled(who: text): bool = who != actor && exists(p in Profile where p.handle == who && p.private) && !exists(f in Follow where f.follower == actor && f.followee == who)
     derive hidden(who: text): bool = blockedEither(who) || walled(who) || exists(m in Mute where m.user == actor && m.muted == who)
     derive follows(who: text): bool = exists(f in Follow where f.follower == actor && f.followee == who)
+    # Notification preferences: every kind is on until the account says
+    # otherwise; a tip is never switched off (money is always news).
+    derive enabledKind(kind: text): bool = !exists(p in NotificationPrefs where p.account == actor && ((kind == "like" && !p.likes_enabled) || (kind == "repost" && !p.reposts_enabled) || (kind == "reply" && !p.replies_enabled) || (kind == "follow" && !p.follows_enabled) || (kind == "mention" && !p.mentions_enabled)))
+    # The Priority tab (the reference's notificationTabSQL): the actor
+    # follows you back, or has at least the priority follower count (500).
+    derive priorityFrom(who: text): bool = (follows(who) && exists(f in Follow where f.follower == who && f.followee == actor)) || count(f in Follow where f.followee == who) >= 500
+    derive inTab(kind: text, who: text, tab: text): bool = tab == "all" || (tab == "priority" && priorityFrom(who)) || tab == kind
 
     # A row-level policy: the argument is the row being acted on, so the check is
     # about *this* notification rather than about the caller in general. Without
@@ -424,7 +463,7 @@ app F33D3RHome:
         check !exists(l in Like where l.tweet == id && l.user == actor) "you already liked this"
         add Like { tweet: id, user: actor }
         if Tweet(id).author != actor:
-            add Notification { user: Tweet(id).author, who: actor, verb: "liked your post", subject: Tweet(id).body, read: false, created: now() }
+            add Notification { user: Tweet(id).author, who: actor, kind: "like", verb: "liked your post", subject: Tweet(id).body, read: false, created: now() }
     action repost(id: int):
         requires member
         check exists(t in Tweet where t.id == id) "that post doesn't exist"
@@ -432,7 +471,7 @@ app F33D3RHome:
         add Repost { tweet: id, user: actor }
         set Tweet(id).surfaced = now()
         if Tweet(id).author != actor:
-            add Notification { user: Tweet(id).author, who: actor, verb: "reposted", subject: Tweet(id).body, read: false, created: now() }
+            add Notification { user: Tweet(id).author, who: actor, kind: "repost", verb: "reposted", subject: Tweet(id).body, read: false, created: now() }
     action bookmark(id: int):
         requires member
         check !exists(b in Bookmark where b.tweet == id && b.user == actor) "already bookmarked"
@@ -446,7 +485,7 @@ app F33D3RHome:
         check !exists(f in Follow where f.follower == actor && f.followee == handle) "already following"
         check !blockedEither(handle) "you cannot follow this account"
         add Follow { follower: actor, followee: handle }
-        add Notification { user: handle, who: actor, verb: "followed you", subject: "", read: false, created: now() }
+        add Notification { user: handle, who: actor, kind: "follow", verb: "followed you", subject: "", read: false, created: now() }
     # A block ends the follow relationship in both directions and hides each
     # from the other; a mute only quiets the muted account for the muter.
     action block(handle: text):
@@ -480,7 +519,7 @@ app F33D3RHome:
         check exists(t in Tweet where t.id == id) "that post doesn't exist"
         add Reply { tweet: id, author: actor, body: body, created: now() }
         if Tweet(id).author != actor:
-            add Notification { user: Tweet(id).author, who: actor, verb: "replied to your post", subject: body, read: false, created: now() }
+            add Notification { user: Tweet(id).author, who: actor, kind: "reply", verb: "replied to your post", subject: body, read: false, created: now() }
     # saveProfile is an upsert spelled in two statements: drop the actor's old row,
     # write the new one. The handle is always the actor's — you edit your own card.
     # The two `check`s are load-bearing, not politeness. `nameDraft`/`bioDraft` are
@@ -528,8 +567,15 @@ app F33D3RHome:
         requires notBanned(stream)
         check body != "" "say something"
         add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now(), held: contains(lower(body), "http") }
+    # A tip is a TIP transfer on the ledger (commerce/ledger.fct): 1 cent of
+    # the amount is 100 µAET, the tipper pays it plus the 1% fee, the
+    # broadcaster receives it; an uncovered tip is refused (402).
     action tip(stream: int, cents: money, note: text):
         requires member
+        check exists(s in Stream where s.id == stream) "no such stream"
+        check toInt(cents) > 0 "Enter a valid amount"
+        check toInt(cents) <= 1000000 "Enter a valid amount"
+        run send("TIP", Stream(stream).owner, toInt(cents) * 100, "", "stream tip")
         add Tip { stream: stream, from: actor, cents: cents, note: note, at: now() }
         add Chat { stream: stream, author: actor, role: "sub", body: "tipped " + money(cents) + " " + note, sent: now(), held: false }
     action subscribe(stream: int):
@@ -558,7 +604,17 @@ app F33D3RHome:
         set Chat(id).held = false
     action tipPost(id: int, cents: money):
         requires member
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        check toInt(cents) > 0 "Enter a valid amount"
+        check toInt(cents) <= 1000000 "Enter a valid amount"
+        run send("TIP", Tweet(id).author, toInt(cents) * 100, "", "post tip")
         add PostTip { tweet: id, from: actor, cents: cents, at: now() }
+        if Tweet(id).author != actor:
+            add Notification { user: Tweet(id).author, who: actor, kind: "tip", verb: "tipped " + money(cents), subject: Tweet(id).body, read: false, created: now() }
+    action setNotificationPrefs(likes: bool, reposts: bool, replies: bool, follows: bool, mentions: bool):
+        requires member
+        remove p in NotificationPrefs where p.account == actor
+        add NotificationPrefs { account: actor, likes_enabled: likes, reposts_enabled: reposts, replies_enabled: replies, follows_enabled: follows, mentions_enabled: mentions }
     action setAlgoFollowPct(pct: int):
         requires member
         remove a in AlgoWeight where a.user == actor
@@ -572,6 +628,81 @@ app F33D3RHome:
         remove Interest(id)
 
     # ── local (client-only) actions ──────────────────────────────────────────
+    # The topic vector of a work over the viewer's interest labels: 1.0 for
+    # each label the body carries (as a word or #tag), else 0.0.
+    proc topicVector(body: text, labels: [text]) -> [float]:
+        let mut out = []
+        let low = lower(body)
+        let mut i = 0
+        loop i < len(labels):
+            if contains(low, lower(labels[i])):
+                out = append(out, 1.0)
+            else:
+                out = append(out, 0.0)
+            i = i + 1
+        return out
+    proc ones(n: int) -> [float]:
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            out = append(out, 1.0)
+            i = i + 1
+        return out
+    proc postsSince(stamps: [int], since: int) -> int:
+        let mut n = 0
+        let mut i = 0
+        loop i < len(stamps):
+            if stamps[i] >= since:
+                n = n + 1
+            i = i + 1
+        return n
+    # Score the recent works for the viewer with the engine's model: AESQ
+    # over the viewer's interests plus the in-network boost for followed
+    # authors. The For-you tab reads the stored scores, best first.
+    action rankForYou:
+        requires member
+        let t0 = now()
+        let labels = list(i.label in Interest where i.user == actor && !i.muted)
+        let u = do ones(len(labels))
+        remove fs in FeedScore where fs.viewer == actor
+        for t in Tweet where t.created > t0 - 604800:
+            let c = do topicVector(t.body, labels)
+            let stamps = list(w.created in Tweet where w.author == t.author)
+            let burst = do postsSince(stamps, t0 - 86400)
+            let a = do aesqTotal(u, c, count(im in Impression where im.tweet == t.id), count(im in Impression where Tweet(im.tweet).author == t.author), toFloat(count(l in Like where l.tweet == t.id)), toFloat(count(r in Repost where r.tweet == t.id)), toFloat(count(r in Reply where r.tweet == t.id)), toFloat(count(b in Bookmark where b.tweet == t.id)), 0.0, toFloat(count(im in Impression where im.tweet == t.id)), kindName(t.kind), len(t.body), burst, t0 - t.created)
+            # The engine's full pipeline: the neural stage (affinity 0.30 for a
+            # followed author; fatigue from how much of the viewer's history
+            # this work already is) times the AESQ multiplier, plus the
+            # network boost. No watch data here, so completion and retention
+            # are 0.
+            let aff = do followAffinity(follows(t.author))
+            let n = do neuralScore(u, c, toFloat(count(l in Like where l.tweet == t.id)), toFloat(count(r in Repost where r.tweet == t.id)), toFloat(count(r in Reply where r.tweet == t.id)), toFloat(count(b in Bookmark where b.tweet == t.id)), toFloat(count(im in Impression where im.tweet == t.id)), 0.0, 0.0, aff, count(im in Impression where im.user == actor && im.tweet == t.id), count(im in Impression where im.user == actor))
+            let f = do pipelineScore(n, a, follows(t.author))
+            let m = do micro(f)
+            add FeedScore { viewer: actor, tweet: t.id, score: m }
+    # Trending: the same model with no viewer — no interests, no network.
+    action rankTrending:
+        let t0 = now()
+        remove fs in FeedScore where fs.viewer == ""
+        for t in Tweet where t.created > t0 - 604800:
+            let stamps = list(w.created in Tweet where w.author == t.author)
+            let burst = do postsSince(stamps, t0 - 86400)
+            let a = do aesqTotal([], [], count(im in Impression where im.tweet == t.id), count(im in Impression where Tweet(im.tweet).author == t.author), toFloat(count(l in Like where l.tweet == t.id)), toFloat(count(r in Repost where r.tweet == t.id)), toFloat(count(r in Reply where r.tweet == t.id)), toFloat(count(b in Bookmark where b.tweet == t.id)), 0.0, toFloat(count(im in Impression where im.tweet == t.id)), kindName(t.kind), len(t.body), burst, t0 - t.created)
+            let m = do micro(a)
+            add FeedScore { viewer: "", tweet: t.id, score: m }
+    job trending every 300s -> rankTrending
+    action openPost(id: int):
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        add Impression { tweet: id, user: actor }
+    # The feed's follow affinity (feed-engine aethyr_rank.go followAffinity).
+    proc followAffinity(followed: bool) -> float:
+        if followed:
+            return 0.30
+        return 0.0
+    proc kindName(k: text) -> text:
+        if k == "video":
+            return "video"
+        return "text"
     action openTip:
         tipOpen = true
     action closeTip:
@@ -622,7 +753,7 @@ app F33D3RHome:
             box class "x-l-app3-main":
                 slot
             box class "x-l-app3-aside":
-                use SearchBox()
+                use LiveSearchBox("Search — \"phrase\", -word, #tag, @handle, from:, since:")
                 # While the actor is live, the aside becomes control + money +
                 # audience instead of Trending/Who to follow.
                 for s in Stream where s.owner == actor && s.live limit 1:
@@ -722,9 +853,23 @@ app F33D3RHome:
             use ComposeBox()
             tabs bind feedTab class "x-tabs":
                 tab "For you" -> "foryou":
-                    for t in Tweet where !hidden(t.author) && feedVisible(t, feedAsOf) && contains(lower(t.body), lower(q)) by surfaced desc limit shown:
-                        use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
-                            use PostExtras(t.id, t.aiAssisted)
+                    if actor != "guest":
+                        button "Rank for me" -> rankForYou
+                    # Ranked by data/rank.fct for this viewer once asked;
+                    # until then, the newest surfacing first.
+                    for fs in FeedScore where fs.viewer == actor by score desc limit shown:
+                        for t in Tweet where t.id == fs.tweet && !hidden(t.author) && feedVisible(t, feedAsOf) && searchHit(t.body, t.author, t.created, t.media != "", count(r in Reply where r.tweet == t.id)) limit 1:
+                            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                                use PostExtras(t.id, t.aiAssisted)
+                    if !exists(fs in FeedScore where fs.viewer == actor):
+                        for t in Tweet where !hidden(t.author) && feedVisible(t, feedAsOf) && searchHit(t.body, t.author, t.created, t.media != "", count(r in Reply where r.tweet == t.id)) by surfaced desc limit shown:
+                            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                                use PostExtras(t.id, t.aiAssisted)
+                tab "Trending" -> "trending":
+                    for fs in FeedScore where fs.viewer == "" by score desc limit shown:
+                        for t in Tweet where t.id == fs.tweet && !hidden(t.author) && feedVisible(t, feedAsOf) limit 1:
+                            use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
+                                use PostExtras(t.id, t.aiAssisted)
                 tab "Following" -> "following":
                     for t in Tweet where !hidden(t.author) && feedVisible(t, feedAsOf) && (t.author == actor || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == actor || follows(r.user)))) by surfaced desc limit shown:
                         use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
@@ -805,9 +950,24 @@ app F33D3RHome:
         box:
             row:
                 text "Notifications"
-                use UnreadBadge(count(n in Notification where n.user == actor && !n.read))
+                use UnreadBadge(count(n in Notification where n.user == actor && !n.read && enabledKind(n.kind)))
                 button "Clear all" -> clearNotifications
-            for n in Notification where n.user == actor by created desc limit 50:
+            tabs bind notifTab class "x-tabs":
+                tab "All" -> "all":
+                    text ""
+                tab "Priority" -> "priority":
+                    text ""
+                tab "Likes" -> "like":
+                    text ""
+                tab "Reposts" -> "repost":
+                    text ""
+                tab "Replies" -> "reply":
+                    text ""
+                tab "Follows" -> "follow":
+                    text ""
+                tab "Tips" -> "tip":
+                    text ""
+            for n in Notification where n.user == actor && enabledKind(n.kind) && inTab(n.kind, n.who, notifTab) by created desc limit 50:
                 row:
                     if !streamerMode:
                         use NotificationItem(n.who, n.verb, n.subject, !n.read)
@@ -815,6 +975,8 @@ app F33D3RHome:
                         use NotificationItem(n.who, n.verb, "", !n.read)
                     if !n.read:
                         button "✓" -> markRead(n.id)
+            if !exists(n in Notification where n.user == actor && enabledKind(n.kind) && inTab(n.kind, n.who, notifTab)):
+                text "Nothing here yet." class "x-empty"
 
     # Bookmarks — your saved posts, with a way back off the list (there was no
     # `unbookmark` before this pass, which made Bookmark a write-only entity).
@@ -838,6 +1000,7 @@ app F33D3RHome:
         box:
             text "Wallet" class "x-section"
             use StatGroup():
+                use Stat("Balance (µAET)", commas(balanceOf(actor)))
                 use Stat("AET all-time", money(sum(t.cents in Tip where Stream(t.stream).owner == actor) + sum(pt.cents in PostTip where Tweet(pt.tweet).author == actor)))
                 use Stat("Tips received", count(t in Tip where Stream(t.stream).owner == actor) + count(pt in PostTip where Tweet(pt.tweet).author == actor) + "")
             text "Recent stream tips" class "x-section"
@@ -923,7 +1086,7 @@ app F33D3RHome:
         meta title "Search / F33D3R"
         box:
             text "Posts matching \"{q}\"" class "x-section"
-            for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
+            for t in Tweet where searchHit(t.body, t.author, t.created, t.media != "", count(r in Reply where r.tweet == t.id)) by created desc limit shown:
                 use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
                     use PostExtras(t.id, t.aiAssisted)
             text "People" class "x-section"

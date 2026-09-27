@@ -1,0 +1,546 @@
+{
+  "tests": [
+    {
+      "name": "parity with aethyrrank-engine's formulas on fixed inputs: alignment, expansion, shadow, quality (media/long-form/dilution), freshness, the AESQ total with the in-network boost, the creator boost (in micro-units)",
+      "steps": [
+        {
+          "run": "rankAlignment",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ]
+          ],
+          "returns": 1000000
+        },
+        {
+          "run": "rankExpansion",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ]
+          ],
+          "returns": 520450
+        },
+        {
+          "run": "rankAlignment",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "returns": 500000
+        },
+        {
+          "run": "rankExpansion",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "returns": 5938
+        },
+        {
+          "run": "rankAlignment",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.75,
+              0.5,
+              0.25,
+              0.25
+            ]
+          ],
+          "returns": 978921
+        },
+        {
+          "run": "rankExpansion",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.75,
+              0.5,
+              0.25,
+              0.25
+            ]
+          ],
+          "returns": 991233
+        },
+        {
+          "run": "rankAlignment",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              1.0
+            ]
+          ],
+          "returns": 0
+        },
+        {
+          "run": "rankAlignment",
+          "args": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0
+            ]
+          ],
+          "returns": 0
+        },
+        {
+          "run": "rankShadow",
+          "args": [
+            0,
+            0
+          ],
+          "returns": 150000
+        },
+        {
+          "run": "rankShadow",
+          "args": [
+            1,
+            1
+          ],
+          "returns": 150000
+        },
+        {
+          "run": "rankShadow",
+          "args": [
+            10,
+            100
+          ],
+          "returns": 37956
+        },
+        {
+          "run": "rankShadow",
+          "args": [
+            100000,
+            5
+          ],
+          "returns": 30186
+        },
+        {
+          "run": "rankQuality",
+          "args": [
+            10.0,
+            2.0,
+            3.0,
+            1.0,
+            120.0,
+            100.0,
+            "text",
+            100,
+            1
+          ],
+          "returns": 995504
+        },
+        {
+          "run": "rankQuality",
+          "args": [
+            10.0,
+            2.0,
+            3.0,
+            1.0,
+            120.0,
+            100.0,
+            "video",
+            1200,
+            2
+          ],
+          "returns": 1000000
+        },
+        {
+          "run": "rankQuality",
+          "args": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            50.0,
+            "text",
+            300,
+            7
+          ],
+          "returns": 460989
+        },
+        {
+          "run": "rankQuality",
+          "args": [
+            5.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            "image",
+            0,
+            1
+          ],
+          "returns": 0
+        },
+        {
+          "run": "rankQuality",
+          "args": [
+            40.0,
+            10.0,
+            10.0,
+            10.0,
+            600.0,
+            100.0,
+            "text",
+            100,
+            20
+          ],
+          "returns": 500000
+        },
+        {
+          "run": "rankFreshness",
+          "args": [
+            0
+          ],
+          "returns": 1000000
+        },
+        {
+          "run": "rankFreshness",
+          "args": [
+            3600
+          ],
+          "returns": 971532
+        },
+        {
+          "run": "rankFreshness",
+          "args": [
+            86400
+          ],
+          "returns": 500000
+        },
+        {
+          "run": "rankFreshness",
+          "args": [
+            172800
+          ],
+          "returns": 250000
+        },
+        {
+          "run": "rankFreshness",
+          "args": [
+            604800
+          ],
+          "returns": 7813
+        },
+        {
+          "run": "rankTotal",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.75,
+              0.5,
+              0.25,
+              0.25
+            ],
+            10,
+            100,
+            10.0,
+            2.0,
+            3.0,
+            1.0,
+            120.0,
+            100.0,
+            "video",
+            1200,
+            2,
+            43200,
+            false
+          ],
+          "returns": 818327
+        },
+        {
+          "run": "rankTotal",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.75,
+              0.5,
+              0.25,
+              0.25
+            ],
+            10,
+            100,
+            10.0,
+            2.0,
+            3.0,
+            1.0,
+            120.0,
+            100.0,
+            "video",
+            1200,
+            2,
+            43200,
+            true
+          ],
+          "returns": 898327
+        },
+        {
+          "run": "rankCreatorBoost",
+          "args": [
+            false,
+            1
+          ],
+          "returns": 0
+        },
+        {
+          "run": "rankCreatorBoost",
+          "args": [
+            true,
+            1
+          ],
+          "returns": 210000
+        },
+        {
+          "run": "rankCreatorBoost",
+          "args": [
+            true,
+            5
+          ],
+          "returns": 510000
+        },
+        {
+          "run": "rankCreatorBoost",
+          "args": [
+            false,
+            3
+          ],
+          "returns": 150000
+        },
+        {
+          "run": "rankCreatorBoost",
+          "args": [
+            true,
+            9
+          ],
+          "returns": 810000
+        }
+      ]
+    },
+    {
+      "name": "parity with the engine's neural stage (pipeline/neural.rs score_item, a fixed heuristic \u2014 no trained weights exist) and its pipeline combination neural \u00d7 clamp(AESQ\u00d70.40+0.60) + network",
+      "steps": [
+        {
+          "run": "rankNeural",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.75,
+              0.5,
+              0.25,
+              0.25
+            ],
+            10.0,
+            2.0,
+            3.0,
+            1.0,
+            100.0,
+            0.5,
+            0.25,
+            0.3,
+            0,
+            10
+          ],
+          "returns": 721251
+        },
+        {
+          "run": "rankNeural",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ],
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            5,
+            10
+          ],
+          "returns": 100000
+        },
+        {
+          "run": "rankNeural",
+          "args": [
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            [
+              1.0,
+              0.5,
+              0.0,
+              0.25
+            ],
+            40.0,
+            10.0,
+            10.0,
+            10.0,
+            100.0,
+            1.0,
+            1.0,
+            0.3,
+            0,
+            0
+          ],
+          "returns": 880000
+        },
+        {
+          "run": "rankNeural",
+          "args": [
+            [
+              1.0
+            ],
+            [
+              1.0
+            ],
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            20,
+            10
+          ],
+          "returns": 200000
+        },
+        {
+          "run": "rankPipeline",
+          "args": [
+            0.5,
+            0.5,
+            false
+          ],
+          "returns": 400000
+        },
+        {
+          "run": "rankPipeline",
+          "args": [
+            0.5,
+            0.5,
+            true
+          ],
+          "returns": 480000
+        },
+        {
+          "run": "rankPipeline",
+          "args": [
+            1.0,
+            1.0,
+            true
+          ],
+          "returns": 1000000
+        },
+        {
+          "run": "rankPipeline",
+          "args": [
+            0.25,
+            0.0,
+            false
+          ],
+          "returns": 150000
+        },
+        {
+          "run": "rankPipeline",
+          "args": [
+            0.8,
+            0.3,
+            false
+          ],
+          "returns": 576000
+        }
+      ]
+    }
+  ]
+}

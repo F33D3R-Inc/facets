@@ -548,6 +548,131 @@
           "equals": true
         }
       ]
+    },
+    {
+      "name": "search: the feed answers the search bar's language — a #tag, an exclusion, an author and a phrase narrow it; an empty query shows everything",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "the #nfl draft is tonight"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "mock draft results"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "a quiet garden"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            "draft -mock"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "liveSearch",
+          "args": [
+            "#NFL"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            "from:bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            "\"quiet garden\" OR draft"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 3
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "search",
+          "args": [
+            ""
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where searchHit(t.body, t.author, t.created, false, 0))",
+          "equals": 3
+        }
+      ]
     }
   ]
 }

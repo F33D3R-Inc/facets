@@ -1,0 +1,153 @@
+# Ledger — the token economy's double-entry book, ported from the reference's
+# aethyr-ledger service (src/main.rs, src/models.rs). Every movement of AET is
+# one append-only event; a balance is the account's running total and always
+# equals credits minus debits. Amounts are integer micro-AET (µAET).
+#
+#   fund(rail, fiatCents)      a deposit: 1 cent = 1 credit = 100 µAET, less the
+#                              2.5% deposit fee, minted to the account.
+#   send(kind, to, µAET, key)  TRANSFER 3%, TIP 1%, SUBSCRIPTION 1.5%,
+#                              CREATOR_PAYOUT 3%: the sender pays amount + fee,
+#                              the receiver gets the amount, the treasury the fee.
+#   burn(µAET)                 destroyed from supply (a boost is a full burn).
+#   mint(to, µAET)             an operator mint from platform reserves.
+#
+# Refusals are the reference's: a non-positive amount, sender = receiver, an
+# unknown rail or transfer kind (400), and an insufficient balance (402). A
+# repeated idempotency key answers the first event instead of moving twice.
+# Supply = minted − burned; circulating = the sum of balances.
+#
+# It also implements the three actions commerce/wallet.fct's components
+# expect (topUp, transfer, sendRedPacket), so the wallet UI moves real AET.
+app FacetCommerce:
+    expect policy member
+    entity LedgerAccount:
+        id: int
+        owner: text
+        balance: int
+        total_spent: int
+        total_earned: int
+        total_burned: int
+        seq: int
+    entity LedgerEvent:
+        id: int
+        kind: text
+        from: text
+        to: text
+        amount: int
+        fee: int
+        seq_from: int
+        idem: text
+        note: text
+        created: int
+    entity LedgerSupply:
+        id: int
+        minted: int
+        burned: int
+    # The fee schedule, in basis points (models.rs FEE_*).
+    proc feeBp(kind: text) -> int:
+        if kind == "TIP":
+            return 100
+        if kind == "SUBSCRIPTION":
+            return 150
+        if kind == "DEPOSIT":
+            return 250
+        if kind == "BOOST":
+            return 0
+        return 300
+    # fee_for: truncating integer basis points, as the reference computes it.
+    proc feeFor(amount: int, bp: int) -> int:
+        return floor(toFloat(amount * bp) / 10000.0)
+    proc validRail(r: text) -> bool:
+        return r == "apple_iap" || r == "gift_card" || r == "card" || r == "google_play" || r == "crypto" || r == "internal"
+    proc validSendKind(k: text) -> bool:
+        return k == "TRANSFER" || k == "TIP" || k == "SUBSCRIPTION" || k == "CREATOR_PAYOUT"
+    derive balanceOf(who: text): int = sum(a.balance in LedgerAccount where a.owner == who)
+    derive hasAccount(who: text): bool = exists(a in LedgerAccount where a.owner == who)
+    derive circulating: int = sum(a.balance in LedgerAccount where a.owner != "")
+    derive supplyMinted: int = sum(s.minted in LedgerSupply where s.id > 0)
+    derive supplyBurned: int = sum(s.burned in LedgerSupply where s.id > 0)
+    # ── internal postings (one place each, so the book always balances) ──────
+    action ensureAccount(who: text):
+        if !exists(a in LedgerAccount where a.owner == who):
+            add LedgerAccount { owner: who, balance: 0, total_spent: 0, total_earned: 0, total_burned: 0, seq: 0 }
+        if !exists(s in LedgerSupply where s.id > 0):
+            add LedgerSupply { minted: 0, burned: 0 }
+    # A deposit through a funding rail: the net credit is minted to the account.
+    action fund(rail: text, fiatCents: int) -> int:
+        requires member
+        let ok = do validRail(rail)
+        check ok "invalid funding rail" status 400
+        check fiatCents > 0 "fiat_amount must be positive" status 400
+        let bp = do feeBp("DEPOSIT")
+        let feeCredit = do feeFor(fiatCents, bp)
+        let credited = (fiatCents - feeCredit) * 100
+        run ensureAccount(actor)
+        set a in LedgerAccount where a.owner == actor:
+            balance = a.balance + credited
+            total_earned = a.total_earned + credited
+        set s in LedgerSupply where s.id > 0:
+            minted = s.minted + credited
+        add LedgerEvent { kind: "PURCHASE", from: "", to: actor, amount: credited, fee: feeCredit * 100, seq_from: 0, idem: "", note: rail, created: now() }
+        return credited
+    # A movement between two accounts; the treasury collects the fee.
+    action send(kind: text, to: text, amount: int, idem: text, note: text) -> int:
+        requires member
+        if idem != "" && exists(e in LedgerEvent where e.idem == idem && e.from == actor):
+            return max(e.id in LedgerEvent where e.idem == idem && e.from == actor)
+        let ok = do validSendKind(kind)
+        check ok "invalid event_type for transfer" status 400
+        check amount > 0 "amount must be positive" status 400
+        check to != actor "from and to must differ" status 400
+        check to != "" "a receiver is required" status 400
+        let bp = do feeBp(kind)
+        let fee = do feeFor(amount, bp)
+        check balanceOf(actor) >= amount + fee "insufficient balance" status 402 code "insufficient_balance"
+        run ensureAccount(to)
+        run ensureAccount("treasury")
+        let seqNo = max(a.seq in LedgerAccount where a.owner == actor) + 1
+        set a in LedgerAccount where a.owner == actor:
+            balance = a.balance - amount - fee
+            total_spent = a.total_spent + amount + fee
+            seq = a.seq + 1
+        set a in LedgerAccount where a.owner == to:
+            balance = a.balance + amount
+            total_earned = a.total_earned + amount
+        if fee > 0:
+            set a in LedgerAccount where a.owner == "treasury":
+                balance = a.balance + fee
+                total_earned = a.total_earned + fee
+        let eid = add LedgerEvent { kind: kind, from: actor, to: to, amount: amount, fee: fee, seq_from: seqNo, idem: idem, note: note, created: now() }
+        return eid
+    action burn(amount: int) -> int:
+        requires member
+        check amount > 0 "amount must be positive" status 400
+        check balanceOf(actor) >= amount "insufficient balance" status 402 code "insufficient_balance"
+        set a in LedgerAccount where a.owner == actor:
+            balance = a.balance - amount
+            total_spent = a.total_spent + amount
+            total_burned = a.total_burned + amount
+        set s in LedgerSupply where s.id > 0:
+            burned = s.burned + amount
+        let eid = add LedgerEvent { kind: "BURN", from: actor, to: "", amount: amount, fee: 0, seq_from: 0, idem: "", note: "", created: now() }
+        return eid
+    action mint(to: text, amount: int) -> int:
+        check role == "admin" "only an operator mints" status 403
+        check amount > 0 "amount must be positive" status 400
+        run ensureAccount(to)
+        set a in LedgerAccount where a.owner == to:
+            balance = a.balance + amount
+            total_earned = a.total_earned + amount
+        set s in LedgerSupply where s.id > 0:
+            minted = s.minted + amount
+        let eid = add LedgerEvent { kind: "MINT", from: "", to: to, amount: amount, fee: 0, seq_from: 0, idem: "", note: "", created: now() }
+        return eid
+    # ── the wallet UI's actions (commerce/wallet.fct), on the real ledger ────
+    action topUp(cents: money):
+        requires member
+        run fund("card", toInt(cents))
+    action transfer(to: text, cents: money, note: text):
+        requires member
+        run send("TRANSFER", to, toInt(cents) * 100, "", note)
+    action sendRedPacket(to: text, cents: money, note: text):
+        requires member
+        run send("TRANSFER", to, toInt(cents) * 100, "", "red packet: " + note)

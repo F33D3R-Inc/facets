@@ -1,7 +1,7 @@
 {
   "tests": [
     {
-      "name": "a channel's owner mints keys, sets the source, goes live, heartbeats and ends; nobody else can",
+      "name": "a channel's owner mints keys, sets the source, goes live and ends; nobody else can",
       "steps": [
         {
           "as": {
@@ -115,33 +115,6 @@
         {
           "expect": "Stream(1).startedAt > 0",
           "equals": true
-        },
-        {
-          "as": {
-            "actor": "bob",
-            "role": "member"
-          },
-          "run": "heartbeat",
-          "args": [
-            1,
-            40
-          ],
-          "fails": "owner"
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "heartbeat",
-          "args": [
-            1,
-            40
-          ]
-        },
-        {
-          "expect": "Stream(1).viewers",
-          "equals": 40
         },
         {
           "as": {
@@ -802,6 +775,387 @@
           },
           "expect": "mayWatch(1)",
           "equals": true
+        }
+      ]
+    },
+    {
+      "name": "operator held terms: only an admin edits the list; a line carrying a term is held after the link rule; the host is never held",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "Ada live",
+            "Music"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "addHeldTerm",
+          "args": [
+            "scam"
+          ],
+          "fails": "only an operator"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "addHeldTerm",
+          "args": [
+            "  Free Coins "
+          ]
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "addHeldTerm",
+          "args": [
+            "free coins"
+          ],
+          "fails": "already on the list"
+        },
+        {
+          "expect": "HeldTerm(1).term",
+          "equals": "free coins"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "get FREE COINS now"
+          ]
+        },
+        {
+          "expect": "Chat(1).held",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "nice stream"
+          ]
+        },
+        {
+          "expect": "Chat(2).held",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "no free coins here"
+          ]
+        },
+        {
+          "expect": "Chat(3).held",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "removeHeldTerm",
+          "args": [
+            "FREE COINS"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "free coins?"
+          ]
+        },
+        {
+          "expect": "Chat(4).held",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "  Free   coins? "
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "free coins?"
+          ]
+        },
+        {
+          "expect": "Chat(6).held",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "name": "presence: joining the room counts a viewer once, leaving uncounts; the count is who is here",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "Ada live",
+            "Music"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "joinRoom",
+          "args": [
+            1
+          ],
+          "returns": {
+            "count": 1
+          }
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "joinRoom",
+          "args": [
+            1
+          ],
+          "returns": {
+            "count": 1
+          }
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "joinRoom",
+          "args": [
+            1
+          ],
+          "returns": {
+            "count": 2
+          }
+        },
+        {
+          "expect": "Stream(1).viewers",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "leaveRoom",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "Stream(1).viewers",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "joinRoom",
+          "args": [
+            99
+          ],
+          "fails": "no such stream"
+        }
+      ]
+    },
+    {
+      "name": "reminders: only on a scheduled broadcast, once per person; the sweep sends due ones once; going live clears the schedule",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "Ada live",
+            "Music"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "remind",
+          "args": [
+            1
+          ],
+          "fails": "only a scheduled broadcast"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "schedule",
+          "args": [
+            1,
+            9999999999
+          ],
+          "fails": "owner"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "schedule",
+          "args": [
+            1,
+            1
+          ],
+          "fails": "between 5 minutes and 30 days"
+        },
+        {
+          "seed": {
+            "Stream": [
+              {
+                "owner": "ada",
+                "verified": false,
+                "title": "Later",
+                "category": "Music",
+                "tags": "",
+                "hls": "",
+                "thumb": "",
+                "live": false,
+                "mature": false,
+                "viewers": 0,
+                "startedAt": 0,
+                "pinned": "",
+                "goalLabel": "",
+                "goalTarget": 0,
+                "audience": "",
+                "scheduledAt": 1
+              }
+            ]
+          }
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "remind",
+          "args": [
+            2
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "remind",
+          "args": [
+            2
+          ],
+          "fails": "already be reminded"
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "remind",
+          "args": [
+            2
+          ]
+        },
+        {
+          "run": "sendDueReminders"
+        },
+        {
+          "expect": "count(LiveNotice)",
+          "equals": 2
+        },
+        {
+          "expect": "LiveNotice(1).body",
+          "equals": "ada goes live soon: Later"
+        },
+        {
+          "run": "sendDueReminders"
+        },
+        {
+          "expect": "count(LiveNotice)",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "goLive",
+          "args": [
+            2
+          ]
+        },
+        {
+          "expect": "Stream(2).scheduledAt",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "run": "remind",
+          "args": [
+            2
+          ],
+          "fails": "only a scheduled broadcast"
         }
       ]
     }

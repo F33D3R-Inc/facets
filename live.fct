@@ -20,6 +20,7 @@ import "live/browsegrid.fct"
 import "live/golivepanel.fct"
 import "live/streamkeybox.fct"
 import "live/agegate.fct"
+import "api/handles.fct"
 
 app F33D3RLive:
     auth
@@ -43,6 +44,37 @@ app F33D3RLive:
         # Who may watch: "" (everyone), "followers", or "subscribers" — the
         # reference's liveMayWatch; the owner always may.
         audience: text
+        # "" (not scheduled), or the instant a scheduled broadcast starts —
+        # the reference's status 'scheduled' with its scheduled_at.
+        scheduledAt: int
+    # The operator's held-term list (the reference's LiveChatHoldTerms): a
+    # chat line carrying one is held for the host, after the link rule.
+    entity HeldTerm:
+        id: int
+        term: text
+    # Presence: a viewer is in the room while holding its event stream
+    # (connect joins, disconnect leaves) — the count is who is here, not a
+    # number the broadcaster reports.
+    entity Viewer @ephemeral:
+        id: int
+        stream: Stream
+        who: text
+        joined: int
+    # "Remind me" on a scheduled broadcast, sent once when it is near.
+    entity Reminder:
+        id: int
+        stream: Stream
+        user: text
+        notified: bool
+    # What the reminder job delivered, for the reminded account's inbox.
+    entity LiveNotice:
+        id: int
+        user: text
+        stream: Stream
+        body: text
+        at: int
+    type ViewersEvent:
+        count: int
     entity StreamKey:
         id: int
         stream: Stream
@@ -59,6 +91,9 @@ app F33D3RLive:
         # Held by the chat scan: shown to its sender and the host only until
         # the host releases it (live/chatpanel.fct, live/chatmessage.fct).
         held: bool
+        # The line lowercased with its whitespace collapsed — what the repeat
+        # rule compares (the reference's strings.Fields join).
+        norm: text
     entity Tip:
         id: int
         stream: Stream
@@ -117,10 +152,12 @@ app F33D3RLive:
                     upper = upper + 1
             i = i + 1
         return letters >= 12 && upper * 10 >= letters * 9
-    proc heldFor(isHost: bool, body: text, saidBefore: int) -> bool:
+    proc heldFor(isHost: bool, body: text, saidBefore: int, flagged: bool) -> bool:
         if isHost:
             return false
         if contains(lower(body), "http://") || contains(lower(body), "https://") || contains(lower(body), "www."):
+            return true
+        if flagged:
             return true
         let shout = do shouting(body)
         if shout:
@@ -130,7 +167,7 @@ app F33D3RLive:
     # ── channel lifecycle (the creator's) ──
     action createChannel(title: text, category: text):
         requires member
-        add Stream { owner: actor, verified: false, title: title, category: category, tags: "", hls: "", thumb: "https://picsum.photos/seed/" + actor + "/1280/720", live: false, mature: false, viewers: 0, startedAt: 0, pinned: "", goalLabel: "Tip goal", goalTarget: 10000, audience: "" }
+        add Stream { owner: actor, verified: false, title: title, category: category, tags: "", hls: "", thumb: "https://picsum.photos/seed/" + actor + "/1280/720", live: false, mature: false, viewers: 0, startedAt: 0, pinned: "", goalLabel: "Tip goal", goalTarget: 10000, audience: "", scheduledAt: 0 }
     action mintKey(stream: int):
         requires owner(stream)
         add StreamKey { stream: stream, owner: actor, key: "live_" + actor + "_" + rand(1000000000) }
@@ -148,15 +185,13 @@ app F33D3RLive:
         requires owner(id)
         set Stream(id).live = true
         set Stream(id).startedAt = now()
+        set Stream(id).scheduledAt = 0
     action endStream(id: int):
         requires owner(id)
         set Stream(id).live = false
     action pin(id: int, body: text):
         requires moderator(id)
         set Stream(id).pinned = body
-    action heartbeat(id: int, viewers: int):
-        requires owner(id)
-        set Stream(id).viewers = viewers
 
     # ── the audience ──
     action say(stream: int, body: text):
@@ -164,12 +199,63 @@ app F33D3RLive:
         requires notBanned(stream)
         check trim(body) != "" "say something"
         let isHost = actor == Stream(stream).owner
-        let said = count(c in Chat where c.stream == stream && c.author == actor && c.body == body)
-        let held = do heldFor(isHost, body, said)
-        add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now(), held: held }
+        let n0 = do seSearchNorm(body)
+        let norm = lower(n0)
+        let said = count(c in Chat where c.stream == stream && c.author == actor && c.norm == norm)
+        let flagged = exists(h in HeldTerm where h.term != "" && contains(lower(body), h.term))
+        let held = do heldFor(isHost, body, said, flagged)
+        add Chat { stream: stream, author: actor, role: "viewer", body: body, sent: now(), held: held, norm: norm }
     action releaseHeld(id: int):
         requires moderator(Chat(id).stream)
         set Chat(id).held = false
+    # The operator's list: admins only, stored lowercased, each once.
+    action addHeldTerm(term: text):
+        check role == "admin" "only an operator edits the held-term list" status 403
+        check trim(term) != "" "a term is required"
+        check !exists(h in HeldTerm where h.term == lower(trim(term))) "already on the list"
+        add HeldTerm { term: lower(trim(term)) }
+    action removeHeldTerm(term: text):
+        check role == "admin" "only an operator edits the held-term list" status 403
+        remove h in HeldTerm where h.term == lower(trim(term))
+    # The room stream's hooks: connecting is joining, disconnecting leaving;
+    # the count is the room's, sent to the joiner first and to the room.
+    action joinRoom(id: int) -> ViewersEvent:
+        requires member
+        check exists(s in Stream where s.id == id) "no such stream" status 404
+        if !exists(v in Viewer where v.stream == id && v.who == actor):
+            add Viewer { stream: id, who: actor, joined: now() }
+            set Stream(id).viewers = count(v in Viewer where v.stream == id)
+            emit viewers ViewersEvent{count: Stream(id).viewers} on id
+        return ViewersEvent{count: Stream(id).viewers}
+    action leaveRoom(id: int):
+        remove v in Viewer where v.stream == id && v.who == actor
+        set Stream(id).viewers = count(v in Viewer where v.stream == id)
+        emit viewers ViewersEvent{count: Stream(id).viewers} on id
+    # Announce a broadcast for later: 5 minutes to 30 days out (the
+    # reference's liveSchedule window).
+    action schedule(id: int, at: int):
+        requires owner(id)
+        check !Stream(id).live "the stream is already live"
+        let t0 = now()
+        check at >= t0 + 300 && at <= t0 + 2592000 "schedule between 5 minutes and 30 days from now"
+        set Stream(id).scheduledAt = at
+    # "Remind me": only on a scheduled broadcast, once per person.
+    action remind(id: int):
+        requires member
+        check exists(s in Stream where s.id == id && s.scheduledAt > 0 && !s.live) "only a scheduled broadcast takes a reminder"
+        check !exists(r in Reminder where r.stream == id && r.user == actor) "you will already be reminded"
+        add Reminder { stream: id, user: actor, notified: false }
+    action unremind(id: int):
+        requires member
+        remove r in Reminder where r.stream == id && r.user == actor
+    # The reminder sweep: every reminder for a scheduled broadcast starting
+    # within 15 minutes and not yet sent is delivered once.
+    action sendDueReminders:
+        let t0 = now()
+        for r in Reminder where !r.notified && Stream(r.stream).scheduledAt > 0 && !Stream(r.stream).live && Stream(r.stream).scheduledAt <= t0 + 900:
+            add LiveNotice { user: r.user, stream: r.stream, body: Stream(r.stream).owner + " goes live soon: " + Stream(r.stream).title, at: t0 }
+            set Reminder(r.id).notified = true
+    job reminders every 60s -> sendDueReminders
     action setAudience(id: int, audience: text):
         requires owner(id)
         check audience == "" || audience == "followers" || audience == "subscribers" "audience is everyone, followers or subscribers"
@@ -177,7 +263,7 @@ app F33D3RLive:
     action tip(stream: int, cents: money, note: text):
         requires member
         add Tip { stream: stream, from: actor, cents: cents, note: note, at: now() }
-        add Chat { stream: stream, author: actor, role: "sub", body: "tipped " + money(cents) + " " + note, sent: now(), held: false }
+        add Chat { stream: stream, author: actor, role: "sub", body: "tipped " + money(cents) + " " + note, sent: now(), held: false, norm: "" }
     action subscribe(stream: int):
         requires member
         add Sub { stream: stream, user: actor }
@@ -240,24 +326,30 @@ app F33D3RLive:
                 if actor == "guest":
                     use SignUpCard("New to F33D3R Live?", "/login")
 
+    stream "/live/{id}/events" requires member:
+        id: text "Stream id."
+        connect -> joinRoom as viewers
+        disconnect -> leaveRoom
+        viewers: ViewersEvent "Who is in the room now; also sent once on connect."
     view Theater at "/live/:id":
-        if !mayWatch(id):
-            box class "x-empty":
-                if Stream(id).audience == "followers":
-                    text "This stream is for {Stream(id).owner}'s followers."
-                if Stream(id).audience == "subscribers":
-                    text "This stream is for {Stream(id).owner}'s subscribers."
-        if mayWatch(id):
-          use AgeGate(Stream(id).mature, ageOk, confirmAge):
-              row class "x-theater":
-                  box class "x-stagecol":
-                      use LivePlayer(Stream(id))
-                      use StreamInfo(Stream(id), exists(f in Follow where f.follower == actor && f.followee == Stream(id).owner), exists(s in Sub where s.stream == id && s.user == actor), openTip)
-                      use GoalBar(Stream(id).goalLabel, sum(t.cents in Tip where t.stream == id), Stream(id).goalTarget)
-                      use RecentTips(Stream(id))
-                  box class "x-chatcol":
-                      use ChatPanel(Stream(id), chatDraft, actor == Stream(id).owner || role == "admin")
-              use TipSheet(Stream(id), tipOpen, tipNote, closeTip)
+        use AgeGate(Stream(id).mature, ageOk, confirmAge):
+            # liveMayWatch: a walled viewer gets the sentence and no player.
+            if !mayWatch(id):
+                box class "x-empty":
+                    if Stream(id).audience == "followers":
+                        text "This stream is for {Stream(id).owner}'s followers."
+                    if Stream(id).audience == "subscribers":
+                        text "This stream is for {Stream(id).owner}'s subscribers."
+            if mayWatch(id):
+                row class "x-theater":
+                    box class "x-stagecol":
+                        use LivePlayer(Stream(id))
+                        use StreamInfo(Stream(id), exists(f in Follow where f.follower == actor && f.followee == Stream(id).owner), exists(s in Sub where s.stream == id && s.user == actor), openTip)
+                        use GoalBar(Stream(id).goalLabel, sum(t.cents in Tip where t.stream == id), Stream(id).goalTarget)
+                        use RecentTips(Stream(id))
+                    box class "x-chatcol":
+                        use ChatPanel(Stream(id), chatDraft, actor == Stream(id).owner || role == "admin")
+                use TipSheet(Stream(id), tipOpen, tipNote, closeTip)
         if actor == "guest":
             use GuestBanner("/login")
 

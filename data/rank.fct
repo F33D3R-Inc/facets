@@ -1,0 +1,172 @@
+# Rank — the feed's scoring model, ported from the reference's aethyrrank
+# engine (aethyrrank-engine/src/scoring/aesq.rs, freshness.rs, the network
+# boost and creator boost in src/api/handlers.rs, config/default.toml) as
+# ordinary procs. A host scores a work with `do aesqTotal(…)` and adds the
+# in-network boost; its sidecar holds every component to the engine's own
+# formulas on fixed inputs (parity in micro-units).
+#
+# AESQ, the engine's constraint layer, weights five components:
+#   A alignment 0.30  cosine(interest, topic) mapped from [-1,1] to [0,1]
+#   E expansion 0.20  Gaussian bump over the vectors' distance, μ 0.40 σ 0.35
+#   S shadow    0.15  boost for under-exposed content and creators, capped 0.15
+#   Q quality   0.25  sigmoid(20 × weighted engagement per impression), times a
+#                     media ×1.5, a long-form ×1.10/×1.25, a burst dilution
+#   F freshness 0.10  e^(−ln2 × age / 24h)
+# The final score adds the in-network boost (0.08) when the viewer follows
+# the author. The creator boost blends follow affinity (0.30 for a followed
+# account, the feed's followAffinity) with realm trust ((realm−1)/4), 0.7/0.3.
+#
+# The neural stage: the reference ships no trained weights — its
+# pipeline/neural.rs is a fixed heuristic standing in for the model
+# (alignment 0.35, quality 0.25, completion 0.15, early retention 0.10,
+# creator affinity 0.10, minus fatigue 0.15). It is ported as neuralScore, and
+# the pipeline's combination as pipelineScore: neural × clamp(AESQ × 0.40 +
+# 0.60), plus the in-network boost. Not ported: the velocity and revenue
+# adjustments, which read lifecycle and conversion signals the apps lack.
+app FacetData:
+    proc clamp01(x: float) -> float:
+        if x < 0.0:
+            return 0.0
+        if x > 1.0:
+            return 1.0
+        return x
+    proc alignment(u: [float], c: [float]) -> float:
+        if len(u) != len(c) || len(u) == 0:
+            return 0.0
+        let mut dot = 0.0
+        let mut nu = 0.0
+        let mut nc = 0.0
+        let mut i = 0
+        loop i < len(u):
+            dot = dot + u[i] * c[i]
+            nu = nu + u[i] * u[i]
+            nc = nc + c[i] * c[i]
+            i = i + 1
+        if nu == 0.0 || nc == 0.0:
+            return 0.0
+        return (dot / (sqrt(nu) * sqrt(nc)) + 1.0) / 2.0
+    proc expansion(u: [float], c: [float]) -> float:
+        if len(u) != len(c) || len(u) == 0:
+            return 0.0
+        let mut d2 = 0.0
+        let mut i = 0
+        loop i < len(u):
+            d2 = d2 + (u[i] - c[i]) * (u[i] - c[i])
+            i = i + 1
+        let dist = sqrt(d2)
+        return exp(0.0 - (dist - 0.40) * (dist - 0.40) / (2.0 * 0.35 * 0.35))
+    proc lnFloor0(n: int) -> float:
+        if n <= 1:
+            return 0.0
+        return ln(toFloat(n))
+    proc shadow(contentExposure: int, creatorExposure: int) -> float:
+        let cf = 1.0 / (1.0 + lnFloor0(contentExposure))
+        let kf = 1.0 / (1.0 + lnFloor0(creatorExposure))
+        return clamp01(cf * 0.6 + kf * 0.4) * 0.15
+    proc qualityRaw(likes: float, shares: float, comments: float, saves: float, viewSeconds: float, impressions: float) -> float:
+        if impressions == 0.0:
+            return 0.0
+        let raw = 1.0 * likes + 3.0 * shares + 2.0 * comments + 4.0 * saves + 0.5 * (viewSeconds / 60.0)
+        return 1.0 / (1.0 + exp(0.0 - raw / impressions * 20.0))
+    proc mediaMult(contentType: text) -> float:
+        if contentType == "video" || contentType == "audio" || contentType == "image":
+            return 1.5
+        return 1.0
+    proc longformMult(chars: int) -> float:
+        if chars >= 1000:
+            return 1.25
+        if chars >= 280:
+            return 1.10
+        return 1.0
+    proc dilution(postsLast24h: int) -> float:
+        if postsLast24h > 4:
+            let d = 1.0 - 0.10 * toFloat(postsLast24h - 4)
+            if d < 0.5:
+                return 0.5
+            return d
+        return 1.0
+    proc quality(likes: float, shares: float, comments: float, saves: float, viewSeconds: float, impressions: float, contentType: text, chars: int, postsLast24h: int) -> float:
+        let q = qualityRaw(likes, shares, comments, saves, viewSeconds, impressions)
+        return clamp01(q * mediaMult(contentType) * longformMult(chars) * dilution(postsLast24h))
+    proc freshness(ageSeconds: int) -> float:
+        let age = toFloat(ageSeconds) / 3600.0
+        if age < 0.0:
+            return 1.0
+        return exp(0.0 - ln(2.0) / 24.0 * age)
+    # The weighted AESQ total, clamped to [0, 1].
+    proc aesqTotal(u: [float], c: [float], contentExposure: int, creatorExposure: int, likes: float, shares: float, comments: float, saves: float, viewSeconds: float, impressions: float, contentType: text, chars: int, postsLast24h: int, ageSeconds: int) -> float:
+        let a = alignment(u, c)
+        let e = expansion(u, c)
+        let s = shadow(contentExposure, creatorExposure)
+        let q = quality(likes, shares, comments, saves, viewSeconds, impressions, contentType, chars, postsLast24h)
+        let f = freshness(ageSeconds)
+        return clamp01(0.30 * a + 0.20 * e + 0.15 * s + 0.25 * q + 0.10 * f)
+    # The in-network boost the engine adds for an author the viewer follows.
+    proc networkBoost(inNetwork: bool) -> float:
+        if inNetwork:
+            return 0.08
+        return 0.0
+    proc finalScore(aesq: float, inNetwork: bool) -> float:
+        return clamp01(aesq + networkBoost(inNetwork))
+    # Follow affinity (0.30 for a followed author) blended with realm trust.
+    proc creatorBoost(followed: bool, realm: int) -> float:
+        let mut affinity = 0.0
+        if followed:
+            affinity = 0.30
+        let r = realm - 1
+        let mut trust = 0.0
+        if r > 0:
+            trust = toFloat(r) / 4.0
+        return clamp01(affinity * 0.7 + trust * 0.3)
+    # The neural stub (pipeline/neural.rs score_item). Its quality term has no
+    # view-time component, unlike AESQ's; fatigue is how much of the viewer's
+    # recent history this item already is.
+    proc neuralQuality(likes: float, shares: float, comments: float, saves: float, impressions: float) -> float:
+        if impressions > 0.0:
+            let raw = likes + 3.0 * shares + 2.0 * comments + 4.0 * saves
+            return 1.0 / (1.0 + exp(0.0 - raw / impressions * 20.0))
+        return 0.0
+    proc fatigue(seen: int, window: int) -> float:
+        let mut w = window
+        if w < 1:
+            w = 1
+        return clamp01(toFloat(seen) / toFloat(w))
+    proc neuralScore(u: [float], c: [float], likes: float, shares: float, comments: float, saves: float, impressions: float, completion: float, retention: float, affinity: float, seen: int, window: int) -> float:
+        let raw = 0.35 * alignment(u, c) + 0.25 * neuralQuality(likes, shares, comments, saves, impressions) + 0.15 * completion + 0.10 * retention + 0.10 * affinity - 0.15 * fatigue(seen, window)
+        return clamp01(raw)
+    proc aesqMultiplier(aesq: float) -> float:
+        return clamp01(aesq * 0.40 + 0.60)
+    proc pipelineScore(neural: float, aesq: float, inNetwork: bool) -> float:
+        return clamp01(neural * aesqMultiplier(aesq) + networkBoost(inNetwork))
+    # A score as integer micro-units, for exact parity.
+    proc micro(x: float) -> int:
+        return round(x * 1000000.0)
+    # ── parity surface ─────────────────────────────────────────────────────
+    action rankAlignment(u: [float], c: [float]) -> int:
+        let v = do alignment(u, c)
+        return micro(v)
+    action rankExpansion(u: [float], c: [float]) -> int:
+        let v = do expansion(u, c)
+        return micro(v)
+    action rankShadow(contentExposure: int, creatorExposure: int) -> int:
+        let v = do shadow(contentExposure, creatorExposure)
+        return micro(v)
+    action rankQuality(likes: float, shares: float, comments: float, saves: float, viewSeconds: float, impressions: float, contentType: text, chars: int, postsLast24h: int) -> int:
+        let v = do quality(likes, shares, comments, saves, viewSeconds, impressions, contentType, chars, postsLast24h)
+        return micro(v)
+    action rankFreshness(ageSeconds: int) -> int:
+        let v = do freshness(ageSeconds)
+        return micro(v)
+    action rankTotal(u: [float], c: [float], contentExposure: int, creatorExposure: int, likes: float, shares: float, comments: float, saves: float, viewSeconds: float, impressions: float, contentType: text, chars: int, postsLast24h: int, ageSeconds: int, inNetwork: bool) -> int:
+        let a = do aesqTotal(u, c, contentExposure, creatorExposure, likes, shares, comments, saves, viewSeconds, impressions, contentType, chars, postsLast24h, ageSeconds)
+        let f = do finalScore(a, inNetwork)
+        return micro(f)
+    action rankCreatorBoost(followed: bool, realm: int) -> int:
+        let v = do creatorBoost(followed, realm)
+        return micro(v)
+    action rankNeural(u: [float], c: [float], likes: float, shares: float, comments: float, saves: float, impressions: float, completion: float, retention: float, affinity: float, seen: int, window: int) -> int:
+        let v = do neuralScore(u, c, likes, shares, comments, saves, impressions, completion, retention, affinity, seen, window)
+        return micro(v)
+    action rankPipeline(neural: float, aesq: float, inNetwork: bool) -> int:
+        let v = do pipelineScore(neural, aesq, inNetwork)
+        return micro(v)
