@@ -44,6 +44,9 @@
 # makes for its own default grid.
 import "../ui/sheet.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+    expect action tip(stream: int, cents: money, note: text)
     css:
         [data-fa-mount] .x-gifts { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
         [data-fa-mount] .x-gift { display: flex; align-items: center; gap: 12px;

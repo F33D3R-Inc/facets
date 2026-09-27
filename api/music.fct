@@ -1,5 +1,6 @@
 import "entities.fct"
 import "core.fct"
+import "account.fct"
 
 app F33D3RMusic:
     # A track as every music surface answers with it, for the viewer `me`.
@@ -33,11 +34,22 @@ app F33D3RMusic:
         requires member
         let me = max(a.id in Account where a.handle == actor)
         return V2MyTracksDTO{artist_stats: V2ArtistStatsDTO{total_tracks: count(t in Track where t.author == me), total_plays: sum(t.play_count in Track where t.author == me), total_likes: count(l in TrackLike where exists(t in Track where t.id == l.track && t.author == me))}, tracks: list(trackDTO(t, me) in Track where t.author == me by id desc)}
-    action createTrack(title: text, description: text?, genre: text?, audio_url: text?, cover_url: text?, duration_secs: int?, price_cents: int?, is_free: bool?) -> TrackDTO:
+    # The audio formats the reference accepts, by the uploaded file's
+    # extension (the stored URL keeps it — runtime/upload.go's safeExt).
+    proc audioOk(url: text) -> bool:
+        let parts = split(lower(url), ".")
+        if len(parts) < 2:
+            return false
+        return contains("|mp3|wav|flac|ogg|aac|opus|m4a|mp4|webm|mov|", "|" + parts[len(parts) - 1] + "|")
+    # A multipart upload: `audio` (the file, required) and `cover` (optional
+    # image) arrive as stored media URLs; the other fields are the form's.
+    action createTrack(audio: bytes, title: text, cover: bytes?, description: text?, genre: text?, duration_secs: int?, price_cents: int?, is_free: bool?) -> TrackDTO:
         requires member
         check title != "" "a title is required" status 400
+        let ok = do audioOk(audio)
+        check ok "audio must be an mp3, wav, flac, ogg, aac, opus, m4a, mp4, webm or mov file" status 400 code "unsupported_audio"
         let me = max(a.id in Account where a.handle == actor)
-        let tid = add Track { author: me, title: title, description: description, genre: genre, audio_url: audio_url, cover_url: cover_url, duration_secs: duration_secs, price_cents: price_cents, is_free: is_free, play_count: 0, created: now() }
+        let tid = add Track { author: me, title: title, description: description, genre: genre, audio_url: audio, cover_url: cover, duration_secs: duration_secs, price_cents: price_cents, is_free: is_free, play_count: 0, created: now() }
         return trackDTO(Track(tid), me)
     action getTrack(id: int) -> TrackDTO:
         requires member

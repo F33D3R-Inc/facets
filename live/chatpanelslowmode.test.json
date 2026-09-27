@@ -1,0 +1,27 @@
+{
+  "tests": [
+    {
+      "name": "chatpanelslowmode: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Stream": [
+              {
+                "viewers": 1,
+                "pinned": "x"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "expect": "Stream(1).viewers",
+          "equals": 1
+        }
+      ]
+    }
+  ]
+}

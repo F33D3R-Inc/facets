@@ -29,6 +29,8 @@ import "../ui/verifiedbadge.fct"
 import "../ui/icon.fct"
 import "../social/followbutton.fct"
 app FacetProfile:
+    expect action unfollow(handle: text)
+    expect action follow(handle: text)
     css:
         [data-fa-mount] .x-profile { padding: 0 0 12px; border-bottom: 1px solid var(--x-line, #2f3336); }
         [data-fa-mount] .x-profile-banner { display: block; width: 100%; height: auto; aspect-ratio: 3 / 1;

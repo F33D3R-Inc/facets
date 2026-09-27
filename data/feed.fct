@@ -22,6 +22,9 @@ data Feed in feed:
         body: text
         media: text
         created: int
+        # When the work last reached a feed — its posting or its newest repost
+        # (the reference's feed_ts): a fresh repost lifts it to the top.
+        surfaced: int
     entity Like:
         id: int
         tweet: Tweet
@@ -47,20 +50,32 @@ data Feed in feed:
     policy member:
         actor != "guest"
 
+    derive follows(who: text): bool = exists(f in Follow where f.follower == actor && f.followee == who)
     action post(body: text):
         requires member
-        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", created: now() }
+        check trim(body) != "" "say something"
+        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", created: now(), surfaced: now() }
+    # One reaction per person and work; a repost is a feed item that lifts the
+    # work back to the top of the feeds.
     action like(id: int):
         requires member
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        check !exists(l in Like where l.tweet == id && l.user == actor) "you already liked this"
         add Like { tweet: id, user: actor }
     action repost(id: int):
         requires member
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        check !exists(r in Repost where r.tweet == id && r.user == actor) "you already reposted this"
         add Repost { tweet: id, user: actor }
+        set Tweet(id).surfaced = now()
     action bookmark(id: int):
         requires member
+        check !exists(b in Bookmark where b.tweet == id && b.user == actor) "already bookmarked"
         add Bookmark { tweet: id, user: actor }
     action follow(handle: text):
         requires member
+        check handle != actor "you cannot follow yourself"
+        check !exists(f in Follow where f.follower == actor && f.followee == handle) "already following"
         add Follow { follower: actor, followee: handle }
     action unfollow(handle: text):
         requires member
@@ -71,10 +86,10 @@ data Feed in feed:
         use SearchBox()
         tabs bind feedTab:
             tab "For you" -> "foryou":
-                for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
+                for t in Tweet where contains(lower(t.body), lower(q)) by surfaced desc limit shown:
                     use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id), 0)
             tab "Following" -> "following":
-                for t in Tweet where exists(f in Follow where f.follower == actor && f.followee == t.author) by created desc limit shown:
+                for t in Tweet where (t.author == actor || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == actor || follows(r.user)))) by surfaced desc limit shown:
                     use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id), 0)
         text "Who to follow"
         use WhoToFollow("Grace Hopper", "grace", true, exists(f in Follow where f.follower == actor && f.followee == "grace"))

@@ -4,6 +4,14 @@
 # InboxList). `other` is the participant who is not the actor.
 import "../notify/unreadbadge.fct"
 app FacetChat:
+    expect entity Thread:
+        id: int
+    expect entity Message:
+        id: int
+        body: text
+        sent: int
+        thread: Thread
+    expect view at "/dm/:id"
     component InboxItem(t: Thread, other: text, unread: int):
         row class "x-inbox-item":
             image "https://api.dicebear.com/7.x/thumbs/svg?seed={other}" alt "{other}"

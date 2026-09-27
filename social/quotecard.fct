@@ -18,6 +18,8 @@
 import "../ui/avatar.fct"
 import "../ui/userchip.fct"
 app FacetSocial:
+    expect view at "/post/:id"
+    expect view at "/profile/:handle"
     css:
         [data-fa-mount] .x-quote { border: 1px solid var(--x-line, #2f3336); border-radius: 12px;
                     padding: 12px; margin: 8px 0; }

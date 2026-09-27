@@ -1,5 +1,6 @@
 # SearchBox — a pill, not a bordered input. Lives at the top of the right rail.
 app FacetForms:
+    expect state q: text
     css:
         [data-fa-mount] .x-search { padding: 6px 12px; }
         [data-fa-mount] .x-search input { width: 100%; background: var(--x-panel, #16181c);

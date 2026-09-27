@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "emotepicker: the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "insertEmote",
+          "args": [
+            "x"
+          ]
+        }
+      ]
+    }
+  ]
+}

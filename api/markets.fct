@@ -1,6 +1,7 @@
 import "entities.fct"
 import "core.fct"
 import "social.fct"
+import "account.fct"
 
 # Markets: the cashtag quote card, the GIF picker and the sports scoreboard.
 #

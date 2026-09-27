@@ -37,6 +37,7 @@
 # checkout flow (that is `commerce/Checkout`, a slower deliberate purchase, not
 # a tap-to-pay).
 app FacetCommerce:
+    expect action pay(merchant: text, cents: money)
     css:
         [data-fa-mount] .x-pay-inline { display: flex; flex-direction: column; gap: 4px;
                        align-items: flex-start; border: none; background: none; padding: 0; }

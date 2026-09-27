@@ -5,6 +5,11 @@
 # thread for free: the authority only ever holds ciphertext and the bubble opens
 # it on the reader's device.
 app FacetChat:
+    expect entity Message:
+        id: int
+        body: text
+        from: text
+        sent: int
     component MessageBubble(m: Message, mine: bool, seen: bool):
         row class "x-msg x-mine-{mine}":
             if !mine:

@@ -1,0 +1,17 @@
+{
+  "tests": [
+    {
+      "name": "NewsletterForm: an address must look like one and joins the list once",
+      "as": { "actor": "guest", "role": "guest" },
+      "steps": [
+        { "run": "subscribe", "args": [""], "fails": "email address is required" },
+        { "run": "subscribe", "args": ["not-an-address"], "fails": "does not look like an email" },
+        { "run": "subscribe", "args": ["ada@example.com"] },
+        { "expect": "count(Subscriber)", "equals": 1 },
+        { "expect": "Subscriber(1).created > 0", "equals": true },
+        { "run": "subscribe", "args": ["ada@example.com"], "fails": "already subscribed" },
+        { "expect": "count(Subscriber)", "equals": 1 }
+      ]
+    }
+  ]
+}

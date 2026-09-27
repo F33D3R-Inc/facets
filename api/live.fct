@@ -1,7 +1,11 @@
 import "entities.fct"
 import "core.fct"
+import "social.fct"
+import "communities.fct"
 
 app F33D3RLive:
+    expect event live_start: LiveStartEventDTO
+    expect event live_state: LiveStateEventDTO
     policy hostsStream(id: int):
         LiveStream(id).author == max(a.id in Account where a.handle == actor)
     policy hostsFrequency(id: int):

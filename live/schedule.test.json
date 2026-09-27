@@ -1,0 +1,30 @@
+{
+  "tests": [
+    {
+      "name": "schedule: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Stream": [
+              {
+                "category": "x",
+                "live": true,
+                "owner": "x",
+                "startedAt": 1,
+                "title": "x"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "expect": "Stream(1).category",
+          "equals": "x"
+        }
+      ]
+    }
+  ]
+}

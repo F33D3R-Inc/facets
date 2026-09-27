@@ -26,6 +26,7 @@ import "../ui/emptystate.fct"
 import "unreadbadge.fct"
 import "notificationitem.fct"
 app FacetNotify:
+    expect action markRead(id: int)
     css:
         [data-fa-mount] .x-notifpage { display: flex; flex-direction: column; gap: 0;
                         border: none; background: none; padding: 0; }

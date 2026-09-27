@@ -2,6 +2,7 @@ import "entities.fct"
 import "core.fct"
 import "social.fct"
 import "polls.fct"
+import "live.fct"
 
 # The social half of the mutation lane (POST /events), one action per event:
 # reactions on works, a work's lifecycle (edit, labels, delete, pins), the
@@ -11,21 +12,8 @@ import "polls.fct"
 # codes, side effects and the stream events it owes — and answers the golden
 # result type projected from the rows it just wrote.
 app F33D3RSocialEvents:
-    # An interest surface of the home feed (legacy feed_surfaces): a tab a
-    # reader pins, snoozes as a whole, and whose tags route works onto it.
-    # tags is comma-separated; parent names the general surface a child
-    # (a league under sports) also belongs to.
-    entity FeedSurface:
-        id: int
-        slug: text @unique
-        label: text
-        emoji: text
-        surface_type: text
-        tags: text
-        content_type: text
-        sort_order: int
-        parent: text
-        is_active: bool
+    expect event work_engagement: WorkEngagementEventDTO
+    expect event poll_result: PollResultEventDTO
     # A surface pinned to a reader's home tab strip (legacy user_surface_pins).
     entity SurfacePin:
         id: int
@@ -134,87 +122,14 @@ app F33D3RSocialEvents:
         all_count: count(b in Bookmark where b.account == me),
         folders: list(BookmarkFolderDTO{id: "" + f.id, name: f.name, position: f.position, count: count(b in Bookmark where b.account == me && b.folder == f.id), created_at: iso(f.created)} in BookmarkFolder where f.account == me by position)
         }
-    # The reader's saved searches, oldest first, each with how many works
-    # arrived for it since it was last looked at (counted to 100) when its
-    # lane shows works.
-    derive savedSearchListV1(me: int): SavedSearchListDTO = SavedSearchListDTO{
-        max: 50,
-        saved: list(SavedSearchDTO{id: "" + s.id, query: s.query, lane: s.lane, name: s.name, new_count: seCap(count(w in Work where seLaneCounts(s.lane) && !w.deleted && w.created > seLaterOf(s.last_seen, s.created) && contains(lower(w.body), lower(s.query)) && (s.lane != "media" || w.media_urls != "")), 100), last_seen_at: iso(seLaterOf(s.last_seen, s.created)), created_at: iso(s.created)} in SavedSearch where s.account == me by id)
-        }
-    # The reader's recent searches, newest first.
-    derive searchHistoryV1(me: int): SearchHistoryDTO = SearchHistoryDTO{
-        recent: list(SearchHistoryEntryDTO{query: h.query, lane: h.lane, searched_at: iso(h.searched)} in SearchHistoryEntry where h.account == me by searched desc limit 50)
-        }
-    # The reader's topic snoozes still in force at `at`, soonest to expire
-    # first.
-    derive topicSnoozesV1(me: int, at: int): TopicSnoozesDTO = TopicSnoozesDTO{
-        snoozes: list(TopicSnoozeDTO{tag: t.tag, until: iso(t.until)} in TopicSnooze where t.account == me && t.until > at by until)
-        }
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
-    proc seCap(n: int, cap: int) -> int:
-        if n > cap:
-            return cap
-        return n
-    proc seLaterOf(a: int, b: int) -> int:
-        if a > b:
-            return a
-        return b
-    # A saved search's lane counts arrivals when it lists works.
-    proc seLaneCounts(lane: text) -> bool:
-        return lane == "top" || lane == "latest" || lane == "posts" || lane == "media"
     # The next position after the largest one, or 0 for the first.
     proc seNextPos(has: bool, largest: int) -> int:
         if has:
             return largest + 1
         return 0
-    # search.Normalize: trimmed, inner whitespace collapsed to one space,
-    # at most 200 characters.
-    proc seSearchNorm(raw: text) -> text:
-        let mut out = ""
-        let mut gap = false
-        let mut i = 0
-        let n = len(raw)
-        loop i < n:
-            let c = charAt(raw, i)
-            if c == " " || c == "\t" || c == "\n" || c == "\r":
-                gap = true
-            else:
-                if gap && out != "":
-                    out = out + " "
-                gap = false
-                out = out + c
-            i = i + 1
-        if len(out) > 200:
-            return trim(slice(out, 0, 200))
-        return out
-    # search.ParseLane: a known lane, "works" for posts, anything else top.
-    proc seLane(raw: text) -> text:
-        let l = lower(trim(raw))
-        if l == "top" || l == "latest" || l == "people" || l == "posts" || l == "media" || l == "music" || l == "live" || l == "articles" || l == "communities" || l == "tags":
-            return l
-        if l == "works":
-            return "posts"
-        return "top"
-    # Whether every character of s is one of allowed, and s is 1..max long.
-    proc seOnly(s: text, allowed: text, max: int) -> bool:
-        if len(s) == 0 || len(s) > max:
-            return false
-        let mut i = 0
-        loop i < len(s):
-            if !contains(allowed, charAt(s, i)):
-                return false
-            i = i + 1
-        return true
-    # A #tag as typed: lowercased, without the #.
-    proc seTag(raw: text) -> text:
-        let mut t = trim(raw)
-        if slice(t, 0, 1) == "#":
-            t = slice(t, 1, len(t))
-        return lower(trim(t))
-    proc seValidTag(t: text) -> bool:
-        return seOnly(t, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", 100)
     # Whether k reads as a P-256 public key in DER SPKI form, standard base64
     # padded (124) or not (122): every such key is 91 bytes opening with the
     # same 27-byte header (id-ecPublicKey, prime256v1, an uncompressed point).
@@ -224,29 +139,6 @@ app F33D3RSocialEvents:
         return slice(k, 0, 36) == "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" && (len(k) == 124 || len(k) == 122)
     proc seValidDeviceId(d: text) -> bool:
         return len(d) == 32 && seOnly(d, "0123456789abcdef", 32)
-    # A surface's snooze set: its tags and its own id, normalised, each once.
-    proc seSurfaceTags(tags: text, id: text) -> [text]:
-        let parts = append(split(tags, ","), id)
-        let mut out = []
-        let mut i = 0
-        loop i < len(parts):
-            let t = seTag(parts[i])
-            if t != "" && !seHas(out, t):
-                out = append(out, t)
-            i = i + 1
-        return out
-    # What a snooze covers: a surface's whole set, else the one tag.
-    proc seTopicSet(surface: text, covered: [text], tag: text) -> [text]:
-        if surface != "":
-            return covered
-        return [tag]
-    proc seHas(xs: [text], x: text) -> bool:
-        let mut i = 0
-        loop i < len(xs):
-            if xs[i] == x:
-                return true
-            i = i + 1
-        return false
     # Texts in ascending byte order (the canonical payload's media_urls).
     proc seSorted(xs: [text]) -> [text]:
         let mut out = []
@@ -342,10 +234,6 @@ app F33D3RSocialEvents:
         if master != "":
             all = append(all, master)
         return join(all, " ")
-    proc seTruncate(s: text, n: int) -> text:
-        if len(s) > n:
-            return slice(s, 0, n)
-        return s
     # An article's tags from the comma list: lowercased, trimmed, each once,
     # at most 6.
     proc seArticleTags(raw: text) -> text:

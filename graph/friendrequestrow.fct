@@ -3,6 +3,12 @@
 # addressee(id)`.
 import "../ui/avatar.fct"
 app FacetGraph:
+    expect entity FriendRequest:
+        id: int
+        at: int
+        from: text
+    expect action accept(id: int)
+    expect action decline(id: int)
     component FriendRequestRow(r: FriendRequest):
         row class "x-contact":
             use Avatar(r.from)

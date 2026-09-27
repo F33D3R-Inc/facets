@@ -29,6 +29,7 @@
 import "../ui/aspectbox.fct"
 import "../ui/avatar.fct"
 app FacetMedia:
+    expect view at "/watch/:id"
     css:
         [data-fa-mount] .x-vtile { display: flex; flex-direction: column; gap: 8px;
                     border: none; background: none; padding: 0; }

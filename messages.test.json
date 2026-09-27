@@ -1,0 +1,1082 @@
+{
+  "tests": [
+    {
+      "name": "a thread is between two people; only participants send, and a send stamps the sender's read mark",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "ada"
+          ],
+          "fails": "yourself"
+        },
+        {
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ],
+          "fails": "member"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "Thread(1).a",
+          "equals": "ada"
+        },
+        {
+          "expect": "Thread(1).b",
+          "equals": "bob"
+        },
+        {
+          "expect": "Thread(1).readB",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "intruder"
+          ],
+          "fails": "participant"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            ""
+          ],
+          "fails": "write something"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "hey ada"
+          ]
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 1
+        },
+        {
+          "expect": "Message(1).from",
+          "equals": "bob"
+        },
+        {
+          "expect": "Thread(1).readB > 0",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "name": "markRead stamps only the caller's side; typing keeps one heartbeat per person",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "markRead",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "Thread(1).readB > 0",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "markRead",
+          "args": [
+            1
+          ],
+          "fails": "participant"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "typing",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "typing",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "typing",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(Typing)",
+          "equals": 2
+        },
+        {
+          "expect": "count(t in Typing where t.who == \"bob\")",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "friend requests: not to yourself, only the addressee answers, status follows the answer",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "request",
+          "args": [
+            "ada"
+          ],
+          "fails": "own friend"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "request",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "request",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "expect": "FriendRequest(1).status",
+          "equals": "pending"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "accept",
+          "args": [
+            1
+          ],
+          "fails": "addressee"
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "accept",
+          "args": [
+            1
+          ],
+          "fails": "addressee"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "accept",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "decline",
+          "args": [
+            2
+          ]
+        },
+        {
+          "expect": "FriendRequest(1).status",
+          "equals": "accepted"
+        },
+        {
+          "expect": "FriendRequest(2).status",
+          "equals": "declined"
+        }
+      ]
+    },
+    {
+      "name": "a block stops chats and requests in both directions until it is lifted",
+      "steps": [
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "expect": "count(Block)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ],
+          "fails": "notBlockedBy"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "request",
+          "args": [
+            "bob"
+          ],
+          "fails": "notBlockedBy"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "ada"
+          ],
+          "fails": "notBlockedBy"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "unblock",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "expect": "count(Block)",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "request",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "expect": "count(FriendRequest)",
+          "equals": 1
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "mute and unmute are the actor's own list; a report records who reported whom",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "mute",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "mute",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unmute",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "count(Mute)",
+          "equals": 1
+        },
+        {
+          "expect": "Mute(2).user",
+          "equals": "cy"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "report",
+          "args": [
+            "bob",
+            "spam"
+          ]
+        },
+        {
+          "expect": "Report(1).by",
+          "equals": "ada"
+        },
+        {
+          "expect": "Report(1).target",
+          "equals": "bob"
+        },
+        {
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          },
+          "run": "report",
+          "args": [
+            "bob",
+            "spam"
+          ],
+          "fails": "member"
+        }
+      ]
+    },
+    {
+      "name": "the menu and report sheet are client cells driven by their actions",
+      "steps": [
+        {
+          "run": "openMenu",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "menuOpen",
+          "equals": true
+        },
+        {
+          "expect": "menuTarget",
+          "equals": "bob"
+        },
+        {
+          "run": "openReport"
+        },
+        {
+          "expect": "menuOpen",
+          "equals": false
+        },
+        {
+          "expect": "reportOpen",
+          "equals": true
+        },
+        {
+          "run": "closeReport"
+        },
+        {
+          "expect": "reportOpen",
+          "equals": false
+        }
+      ]
+    },
+    {
+      "name": "a block in either direction makes a conversation undeliverable: no send, mark or typing from either side, and neither may start a new one",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "before"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "ada"
+          ],
+          "fails": "yourself"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "bob"
+          ],
+          "fails": "already blocked"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "after"
+          ],
+          "fails": "deliverable"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "after"
+          ],
+          "fails": "deliverable"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "typing",
+          "args": [
+            1
+          ],
+          "fails": "deliverable"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "markRead",
+          "args": [
+            1
+          ],
+          "fails": "deliverable"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "ada"
+          ],
+          "fails": "notBlockedBy"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ],
+          "fails": "notBlockedBy"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "request",
+          "args": [
+            "ada"
+          ],
+          "fails": "notBlockedBy"
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unblock",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "after"
+          ]
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 2
+        }
+      ]
+    },
+    {
+      "name": "a message is trimmed non-empty and at most 8000 bytes",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "   "
+          ],
+          "fails": "write something"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ],
+          "fails": "too long"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "contact policy: open allows; followers and mutuals leave exactly one request and no thread until the relationship holds; closed and capability_only deny; the policy must be a known one",
+      "steps": [
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "vip"
+          ],
+          "fails": "policy is open"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ],
+          "fails": "already have a conversation"
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "followers"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 1
+        },
+        {
+          "expect": "count(r in FriendRequest where r.from == \"ada\" && r.to == \"cy\" && r.status == \"pending\")",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "cy"
+          ],
+          "fails": "already waiting"
+        },
+        {
+          "expect": "count(FriendRequest)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "accept",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(g in ContactGrant where g.owner == \"cy\" && g.peer == \"ada\")",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "mutuals"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "dee"
+          ]
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "eve",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "closed"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "eve"
+          ],
+          "fails": "does not accept messages"
+        },
+        {
+          "as": {
+            "actor": "fay",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "capability_only"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "fay"
+          ],
+          "fails": "does not accept messages"
+        },
+        {
+          "as": {
+            "actor": "gus",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "number_only"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "gus"
+          ]
+        },
+        {
+          "expect": "count(r in FriendRequest where r.to == \"gus\" && r.status == \"pending\")",
+          "equals": 1
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 2
+        }
+      ]
+    },
+    {
+      "name": "a standing grant beats a closed policy: once eve accepted ada's request, ada may open a conversation with eve",
+      "steps": [
+        {
+          "as": {
+            "actor": "eve",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "followers"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "eve"
+          ]
+        },
+        {
+          "as": {
+            "actor": "eve",
+            "role": "member"
+          },
+          "run": "accept",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "eve",
+            "role": "member"
+          },
+          "run": "setContactPolicy",
+          "args": [
+            "closed"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "eve"
+          ]
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "eve"
+          ],
+          "fails": "does not accept messages"
+        }
+      ]
+    },
+    {
+      "name": "sealed conversations: two verified adults open a sealed thread that refuses a plain send and takes a client-sealed one; a thread with an unverified party stays plain and refuses the sealed path",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "verifyAdult"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "verifyAdult",
+          "fails": "already verified"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "verifyAdult"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "Thread(1).mode",
+          "equals": "sealed"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            1,
+            "plain text"
+          ],
+          "fails": "sealed conversation"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "sendSealed",
+          "args": [
+            1,
+            "AGE3...ciphertext"
+          ]
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 1
+        },
+        {
+          "expect": "Message(1).sealed",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "startChat",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "expect": "Thread(2).mode",
+          "equals": "plain"
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "send",
+          "args": [
+            2,
+            "hello"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "sendSealed",
+          "args": [
+            2,
+            "xx"
+          ],
+          "fails": "not sealed"
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 2
+        }
+      ]
+    }
+  ]
+}

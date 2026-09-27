@@ -895,6 +895,16 @@ app F33D3RTypes:
         charge_mode: text
         price_aet: number
         vip_min_price_aet: number
+    type V2DevAppRegisteredDTO:
+        client_id: text
+        client_secret: text
+        name: text
+        redirect_uri: text
+        scope: text
+    type V2DevAuthorizationDTO:
+        code: text
+        expires_in: int
+        scope: text
     type V2DevTokenDTO:
         access_token: text
         expires_in: int

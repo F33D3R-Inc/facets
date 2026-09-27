@@ -33,6 +33,7 @@
 # has not built a custom emote table yet still ships a working picker.
 import "../ui/sheet.fct"
 app FacetLive:
+    expect action insertEmote(token: text)
     css:
         [data-fa-mount] .x-emotes { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
                     gap: 4px; padding: 8px 4px; }

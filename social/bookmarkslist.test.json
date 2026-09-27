@@ -1,0 +1,49 @@
+{
+  "tests": [
+    {
+      "name": "bookmarkslist: the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unbookmark",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

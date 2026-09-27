@@ -1,6 +1,7 @@
 import "entities.fct"
 import "core.fct"
 import "dealings.fct"
+import "account.fct"
 
 # The secure-drop inbox's owner events: its public intro and retention,
 # pausing the drop page, the deadman switch (check in, or what fires when a

@@ -1,0 +1,29 @@
+{
+  "tests": [
+    {
+      "name": "community: the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "leaveCommunity",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "joinCommunity",
+          "args": [
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

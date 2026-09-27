@@ -6,6 +6,10 @@
 # only browser that ever holds one is its owner's. `reveal` is a host `@client`
 # bool.
 app FacetLive:
+    expect entity StreamKey:
+        id: int
+        key: text
+        owner: text
     component StreamKeyBox(k: StreamKey, reveal: cell bool):
         row class "x-console-row":
             text "Stream key" class "x-strong"

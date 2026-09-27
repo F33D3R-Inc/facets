@@ -1,0 +1,146 @@
+# Handle and amount helpers every module may need — pure procs with no
+# entity or action of their own, kept in a leaf module so that core.fct (which
+# validates a signup's handle) and the modules that import core.fct all see
+# one definition without an import cycle: account.fct imports core.fct, so
+# core.fct could never import account.fct for them.
+app F33D3RApi:
+    # Signup's handle rule: 1–30 of letters, digits, underscore, hyphen.
+    proc handleOk(h: text) -> bool:
+        let n = len(h)
+        if n < 1 || n > 30:
+            return false
+        let mut i = 0
+        loop i < n:
+            if !contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", charAt(h, i)):
+                return false
+            i = i + 1
+        return true
+    # Top-level path segments owned by real routes (profiles live at /{handle}).
+    proc reservedHandle(h: text) -> bool:
+        return contains("|onboard|login|logout|signin|signup|register|auth|oauth|deactivated|forgot-password|backup-codes|kyc|verity|explore|music|create|nsfw|video|visions|works|work|communities|lists|spheres|spaces|marketplace|buyer-library|notifications|messages|bookmarks|profile|settings|search|wallet|post|feed|shop|stocks|events|library|ledger|upload|react-video|tag|org|achievements|analytics|leaderboard|ainsoph|thessalon|api|static|media|facets|partials|_atlas|u|admin|article|articles|sw|robots|sitemap|favicon|assets|app|www|legal|privacy|terms|dmca|about|help|support|home|root|", "|" + lower(h) + "|")
+    proc charsIn(s: text, alphabet: text) -> bool:
+        let mut i = 0
+        loop i < len(s):
+            if !contains(alphabet, charAt(s, i)):
+                return false
+            i = i + 1
+        return true
+    # An amount of AET as typed ("12.50") in uAET; -1 when it is not one.
+    proc aetToUaet(v: text) -> int:
+        let s = trim(v)
+        let numeric = charsIn(s, "0123456789.")
+        if s == "" || !numeric || len(split(s, ".")) > 2:
+            return -1
+        return round(toFloat(s) * 1000000.0)
+    proc truncText(t: text, n: int) -> text:
+        let s = trim(t)
+        if len(s) > n:
+            return slice(s, 0, n)
+        return s
+    # Backup codes: XXXX-XXXX-XXXX from the base32 alphabet, eight at a time.
+    proc backupCode() -> text:
+        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        let mut out = ""
+        let mut i = 0
+        loop i < 12:
+            if i == 4 || i == 8:
+                out = out + "-"
+            out = out + charAt(alphabet, rand(32))
+            i = i + 1
+        return out
+    proc freshBackupCodes(n: int) -> [text]:
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            let c = backupCode()
+            out = out + [c]
+            i = i + 1
+        return out
+    # Contact policy: the six words the contact authority knows (elohim-veni
+    # contact::POLICIES); an account that never chose is open.
+    proc isContactPolicy(p: text) -> bool:
+        return p == "open" || p == "followers" || p == "mutuals" || p == "number_only" || p == "capability_only" || p == "closed"
+    # A #tag as typed: lowercased, without the #.
+    proc seTag(raw: text) -> text:
+        let mut t = trim(raw)
+        if slice(t, 0, 1) == "#":
+            t = slice(t, 1, len(t))
+        return lower(trim(t))
+    proc seValidTag(t: text) -> bool:
+        return seOnly(t, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", 100)
+    # Whether every character of s is one of allowed, and s is 1..max long.
+    proc seOnly(s: text, allowed: text, max: int) -> bool:
+        if len(s) == 0 || len(s) > max:
+            return false
+        let mut i = 0
+        loop i < len(s):
+            if !contains(allowed, charAt(s, i)):
+                return false
+            i = i + 1
+        return true
+    # A surface's snooze set: its tags and its own id, normalised, each once.
+    proc seSurfaceTags(tags: text, id: text) -> [text]:
+        let parts = append(split(tags, ","), id)
+        let mut out = []
+        let mut i = 0
+        loop i < len(parts):
+            let t = seTag(parts[i])
+            if t != "" && !seHas(out, t):
+                out = append(out, t)
+            i = i + 1
+        return out
+    proc seHas(xs: [text], x: text) -> bool:
+        let mut i = 0
+        loop i < len(xs):
+            if xs[i] == x:
+                return true
+            i = i + 1
+        return false
+    # What a snooze covers: a surface's whole set, else the one tag.
+    proc seTopicSet(surface: text, covered: [text], tag: text) -> [text]:
+        if surface != "":
+            return covered
+        return [tag]
+    proc seCap(n: int, cap: int) -> int:
+        if n > cap:
+            return cap
+        return n
+    # A saved search's lane counts arrivals when it lists works.
+    proc seLaneCounts(lane: text) -> bool:
+        return lane == "top" || lane == "latest" || lane == "posts" || lane == "media"
+    proc seLaterOf(a: int, b: int) -> int:
+        if a > b:
+            return a
+        return b
+    # search.Normalize: trimmed, inner whitespace collapsed to one space,
+    # at most 200 characters.
+    proc seSearchNorm(raw: text) -> text:
+        let mut out = ""
+        let mut gap = false
+        let mut i = 0
+        let n = len(raw)
+        loop i < n:
+            let c = charAt(raw, i)
+            if c == " " || c == "\t" || c == "\n" || c == "\r":
+                gap = true
+            else:
+                if gap && out != "":
+                    out = out + " "
+                gap = false
+                out = out + c
+            i = i + 1
+        if len(out) > 200:
+            return trim(slice(out, 0, 200))
+        return out
+    # search.ParseLane: a known lane, "works" for posts, anything else top.
+    proc seLane(raw: text) -> text:
+        let l = lower(trim(raw))
+        if l == "top" || l == "latest" || l == "people" || l == "posts" || l == "media" || l == "music" || l == "live" || l == "articles" || l == "communities" || l == "tags":
+            return l
+        if l == "works":
+            return "posts"
+        return "top"
+    proc seTruncate(s: text, n: int) -> text:
+        if len(s) > n:
+            return slice(s, 0, n)
+        return s

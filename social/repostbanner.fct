@@ -14,6 +14,7 @@
 # author's name starts rather than where the avatar does. That alignment is the
 # difference between a caption and a stray line of text.
 app FacetSocial:
+    expect view at "/profile/:handle"
     css:
         [data-fa-mount] .x-repost-of { display: flex; align-items: center; gap: 8px;
                         padding: 8px 16px 0 68px;

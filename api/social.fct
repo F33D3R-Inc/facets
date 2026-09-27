@@ -6,6 +6,12 @@ import "polls.fct"
 # timeline surface layered on the Work/Follow/Like/Notification rows from
 # entities.fct and the Account rows from core.fct.
 app F33D3RSocial:
+    expect event notification: NotificationDTO
+    expect event notify: NotifyEventDTO
+    expect event new_post: NewPostEventDTO
+    expect event post_deleted: WorkRemovedEventDTO
+    expect event work_removed: WorkRemovedEventDTO
+    expect event work_edited: WorkEventDTO
     policy ownsWork(id: int):
         Work(id).author == max(a.id in Account where a.handle == actor)
     policy notDeleted(id: int):
@@ -117,11 +123,41 @@ app F33D3RSocial:
         let replyIds = list(w.id in Work where w.parent_cid == id && !w.deleted by id desc limit 20)
         let next = do nextCursor(replyIds, 20)
         return V2WorkThreadDTO{work: workDTO(Work(id), me), ancestors: list(workDTO(w, me) in Work where w.id == Work(id).parent_cid), replies: V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in replyIds by id desc), next_cursor: next, server_time: iso(now())}}
+    # The hydration contract: "up to 100 rows in one call, in the order asked,
+    # omitting what does not exist or may not be seen". A comprehension's `by`
+    # is a field, so it can order by id but never by a caller's list position;
+    # the reorder is a proc over the rows the comprehension already admitted.
+    proc worksInOrder(rows: [V2WorkDTO], ids: [int]) -> [V2WorkDTO]:
+        let mut out = []
+        let mut i = 0
+        loop i < len(ids):
+            let want = "" + ids[i]
+            let mut j = 0
+            loop j < len(rows):
+                if rows[j].id == want:
+                    out = out + [rows[j]]
+                j = j + 1
+            i = i + 1
+        return out
+    proc accountsInOrder(rows: [V2AccountDTO], handles: [text]) -> [V2AccountDTO]:
+        let mut out = []
+        let mut i = 0
+        loop i < len(handles):
+            let want = lower(handles[i])
+            let mut j = 0
+            loop j < len(rows):
+                if rows[j].handle == want:
+                    out = out + [rows[j]]
+                j = j + 1
+            i = i + 1
+        return out
     action getWorks(ids: [int]) -> V2PageOfV2WorkDTO:
         requires member
         check len(ids) >= 1 && len(ids) <= 100 "between 1 and 100 ids are required" status 400 code "ids_required"
         let me = max(a.id in Account where a.handle == actor)
-        return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in ids && !w.deleted by id), next_cursor: "", server_time: iso(now())}
+        let found = list(workDTO(w, me) in Work where w.id in ids && !w.deleted by id)
+        let items = do worksInOrder(found, ids)
+        return V2PageOfV2WorkDTO{items: items, next_cursor: "", server_time: iso(now())}
     # Replies and quotes, newest first: a work id is its creation order, so the
     # id cursor pages them exactly as cursorStart/nextCursor page every feed.
     action getWorkReplies(id: int, cursor: text?, limit: int?) -> V2PageOfV2WorkDTO:
@@ -414,7 +450,9 @@ app F33D3RSocial:
         check len(handles) >= 1 && len(handles) <= 100 "between 1 and 100 handles are required" status 400 code "handles_required"
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return V2PageOfV2AccountDTO{items: list(accountDTO(a, me) in Account where a.handle in handles && !a.deactivated by id), next_cursor: "", server_time: iso(now())}
+        let found = list(accountDTO(a, me) in Account where a.handle in handles && !a.deactivated by id)
+        let items = do accountsInOrder(found, handles)
+        return V2PageOfV2AccountDTO{items: items, next_cursor: "", server_time: iso(now())}
     action getProfile(handle: text) -> V2ProfileDTO:
         requires member
         check exists(a in Account where a.handle == handle) "no such user" status 404
@@ -815,3 +853,19 @@ app F33D3RSocial:
     api GET "/api/v2/bookmarks/folders" -> bookmarkFolders rate read since "2026-09-18":
         errors 401
         summary "The account's bookmark folders."
+    # The reader's topic snoozes still in force at `at`, soonest to expire
+    # first.
+    derive topicSnoozesV1(me: int, at: int): TopicSnoozesDTO = TopicSnoozesDTO{
+        snoozes: list(TopicSnoozeDTO{tag: t.tag, until: iso(t.until)} in TopicSnooze where t.account == me && t.until > at by until)
+        }
+    # The reader's recent searches, newest first.
+    derive searchHistoryV1(me: int): SearchHistoryDTO = SearchHistoryDTO{
+        recent: list(SearchHistoryEntryDTO{query: h.query, lane: h.lane, searched_at: iso(h.searched)} in SearchHistoryEntry where h.account == me by searched desc limit 50)
+        }
+    # The reader's saved searches, oldest first, each with how many works
+    # arrived for it since it was last looked at (counted to 100) when its
+    # lane shows works.
+    derive savedSearchListV1(me: int): SavedSearchListDTO = SavedSearchListDTO{
+        max: 50,
+        saved: list(SavedSearchDTO{id: "" + s.id, query: s.query, lane: s.lane, name: s.name, new_count: seCap(count(w in Work where seLaneCounts(s.lane) && !w.deleted && w.created > seLaterOf(s.last_seen, s.created) && contains(lower(w.body), lower(s.query)) && (s.lane != "media" || w.media_urls != "")), 100), last_seen_at: iso(seLaterOf(s.last_seen, s.created)), created_at: iso(s.created)} in SavedSearch where s.account == me by id)
+        }

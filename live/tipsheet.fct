@@ -5,6 +5,10 @@
 # action that hides it again. One facet also serves
 # Kick/TikTok-style gifts: a gift is a preset with a picture.
 app FacetLive:
+    expect entity Stream:
+        id: int
+        owner: text
+    expect action tip(stream: int, cents: money, note: text)
     component TipSheet(s: Stream, open: cell bool, note: cell text, close: action):
         overlay bind open:
             box class "x-sheet":

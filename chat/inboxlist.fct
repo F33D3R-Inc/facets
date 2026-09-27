@@ -2,6 +2,15 @@
 # unread count: messages from the other side sent after this side's read marker.
 import "inboxitem.fct"
 app FacetChat:
+    expect entity Thread:
+        id: int
+        a: text
+        b: text
+        readA: int
+        readB: int
+    expect entity Message:
+        id: int
+        from: text
     component InboxList():
         box class "x-inbox":
             for t in Thread where t.a == actor || t.b == actor by id desc limit 50:

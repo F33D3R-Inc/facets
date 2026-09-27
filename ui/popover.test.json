@@ -1,0 +1,13 @@
+{
+  "tests": [
+    {
+      "name": "popover: the cells it expects start at their type's zero value",
+      "steps": [
+        {
+          "expect": "open",
+          "equals": false
+        }
+      ]
+    }
+  ]
+}

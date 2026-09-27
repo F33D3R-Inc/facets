@@ -1,5 +1,8 @@
 import "entities.fct"
 import "core.fct"
+import "account.fct"
+import "affiliations.fct"
+import "sanctum.fct"
 
 # POST /events — the mutation lane: one event_type per call, as a JSON object
 # or a form. Every variant is the golden contract's (its wire name, fields,

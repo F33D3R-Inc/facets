@@ -11,32 +11,6 @@ import "commerce.fct"
 # a shop, listing content, plans, onboarding — asks the identity bar
 # (kyc_status "full", or the system authority); buying never does.
 app F33D3RDealings:
-    # A sponsorship a brand account proposed to a creator. status moves
-    # pending -> accepted | declined | cancelled; accepted -> live when the
-    # creator links one of their own works (the only way a work ever gains
-    # the non-removable sponsored disclosure); live -> paid when the brand
-    # releases the amount through the wallet. amount_uaet is µAET; tx is the
-    # brand's wallet entry that paid it.
-    entity BrandDeal:
-        id: int
-        brand: int
-        creator: int
-        amount_uaet: int
-        terms: text
-        status: text
-        work: int
-        tx: int
-        proposed: int
-        responded: int
-        linked: int
-        paid: int
-    # One priced work an account bought in AET.
-    entity WorkPurchase:
-        id: int
-        work: int
-        buyer: int
-        amount_uaet: int
-        created: int
 
     # ── Shared validation ──────────────────────────────────────────────────
 

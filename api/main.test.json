@@ -1,0 +1,775 @@
+{
+  "tests": [
+    {
+      "name": "signup refuses a bad handle, a weak password, unaccepted terms and a taken handle, in the contract's words",
+      "as": {
+        "actor": "guest",
+        "role": "guest"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "fails": "Handle must be"
+        },
+        {
+          "run": "signup",
+          "args": [
+            "ada!",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "fails": "Handle must be"
+        },
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "short",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "fails": "at least 8 characters"
+        },
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            false
+          ],
+          "fails": "Terms of Service"
+        },
+        {
+          "expect": "count(Account)",
+          "equals": 0
+        },
+        {
+          "run": "signup",
+          "args": [
+            "Ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ]
+        },
+        {
+          "expect": "count(Account)",
+          "equals": 1
+        },
+        {
+          "expect": "Account(1).handle",
+          "equals": "ada"
+        },
+        {
+          "expect": "Account(1).has_password",
+          "equals": true
+        },
+        {
+          "expect": "Account(1).two_factor_enabled",
+          "equals": false
+        },
+        {
+          "expect": "count(Session)",
+          "equals": 1
+        },
+        {
+          "expect": "count(NotificationPrefs)",
+          "equals": 1
+        },
+        {
+          "expect": "count(SanctumState)",
+          "equals": 1
+        },
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password2",
+            "Ada 2",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "fails": "already taken"
+        }
+      ]
+    },
+    {
+      "name": "a stored password is hashed, never the plaintext, and createSession verifies it",
+      "as": {
+        "actor": "guest",
+        "role": "guest"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ]
+        },
+        {
+          "expect": "Account(1).password == \"password1\"",
+          "equals": false
+        },
+        {
+          "run": "createSession",
+          "args": [
+            "ada",
+            "wrong-password",
+            "laptop",
+            ""
+          ],
+          "fails": "Invalid handle or password"
+        },
+        {
+          "run": "createSession",
+          "args": [
+            "nobody",
+            "password1",
+            "laptop",
+            ""
+          ],
+          "fails": "Invalid handle or password"
+        },
+        {
+          "expect": "count(Session)",
+          "equals": 1
+        },
+        {
+          "run": "createSession",
+          "args": [
+            "ADA",
+            "password1",
+            "laptop",
+            ""
+          ]
+        },
+        {
+          "expect": "count(Session)",
+          "equals": 2
+        },
+        {
+          "expect": "Session(2).device_name",
+          "equals": "laptop"
+        }
+      ]
+    },
+    {
+      "name": "two-factor: enrollment is pending until confirmed, and a wrong code never confirms or signs in",
+      "as": {
+        "actor": "guest",
+        "role": "guest"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "confirmTwoFactor",
+          "args": [
+            "000000"
+          ],
+          "fails": "start enrollment first"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "enrollTwoFactor"
+        },
+        {
+          "expect": "Account(1).two_factor_pending != \"\"",
+          "equals": true
+        },
+        {
+          "expect": "Account(1).two_factor_enabled",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "confirmTwoFactor",
+          "args": [
+            "000000"
+          ],
+          "fails": "invalid two-factor code"
+        },
+        {
+          "expect": "Account(1).two_factor_enabled",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "enrollTwoFactor"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "disableTwoFactor",
+          "args": [
+            "000000"
+          ],
+          "fails": "not enabled"
+        }
+      ]
+    },
+    {
+      "name": "backup codes are minted per account and a password reset needs a valid one",
+      "as": {
+        "actor": "guest",
+        "role": "guest"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "backupCodes"
+        },
+        {
+          "expect": "count(b in BackupCode where b.account == 1)",
+          "equals": 8
+        },
+        {
+          "expect": "count(b in BackupCode where b.used)",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "backupCodes"
+        },
+        {
+          "expect": "count(BackupCode)",
+          "equals": 8
+        },
+        {
+          "run": "requestPasswordReset",
+          "args": [
+            "ada",
+            "not-a-code"
+          ],
+          "fails": "Invalid handle or backup code"
+        },
+        {
+          "run": "requestPasswordReset",
+          "args": [
+            "nobody",
+            "whatever"
+          ],
+          "fails": "Invalid handle or backup code"
+        },
+        {
+          "expect": "count(PasswordReset)",
+          "equals": 0
+        },
+        {
+          "run": "redeemPasswordReset",
+          "args": [
+            "1.bogus",
+            "password2",
+            "phone"
+          ],
+          "fails": "expired"
+        },
+        {
+          "run": "redeemPasswordReset",
+          "args": [
+            "1.bogus",
+            "short",
+            "phone"
+          ],
+          "fails": "at least 8 characters"
+        }
+      ]
+    },
+    {
+      "name": "OAuth token exchange: Basic client credentials plus a form grant redeem a consent code exactly once, for the scopes consented",
+      "as": {
+        "actor": "guest",
+        "role": "guest"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ]
+        },
+        {
+          "seed": {
+            "DevApp": [
+              {
+                "owner": 1,
+                "client_id": "app-1",
+                "client_secret": "s3cret-s3cret",
+                "scope": "read:public_profile read:public_works",
+                "name": "App",
+                "description": "",
+                "redirect_uri": "https://app.example/cb"
+              }
+            ]
+          }
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "devAuthorize",
+          "args": [
+            "nope",
+            ""
+          ],
+          "fails": "no such app"
+        },
+        {
+          "seed": {
+            "DevAuthorization": [
+              {
+                "app": 1,
+                "account": 1,
+                "code": "code-one",
+                "scope": "read:public_profile",
+                "redirect_uri": "",
+                "expires": 9999999999,
+                "used": false
+              },
+              {
+                "app": 1,
+                "account": 1,
+                "code": "code-old",
+                "scope": "read:public_profile",
+                "redirect_uri": "",
+                "expires": 1,
+                "used": false
+              }
+            ]
+          }
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "app-1",
+            "s3cret-s3cret",
+            "password",
+            "code-one"
+          ],
+          "fails": "grant_type must be authorization_code"
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "app-1",
+            "s3cret-s3cret",
+            "authorization_code",
+            ""
+          ],
+          "fails": "code is required"
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "nobody",
+            "s3cret-s3cret",
+            "authorization_code",
+            "code-one"
+          ],
+          "fails": "Unknown client_id or client_secret"
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "app-1",
+            "wrong",
+            "authorization_code",
+            "code-one"
+          ],
+          "fails": "Unknown client_id or client_secret"
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "app-1",
+            "s3cret-s3cret",
+            "authorization_code",
+            "made-up"
+          ],
+          "fails": "unknown, already used, or expired"
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "app-1",
+            "s3cret-s3cret",
+            "authorization_code",
+            "code-old"
+          ],
+          "fails": "unknown, already used, or expired"
+        },
+        {
+          "expect": "count(DevToken)",
+          "equals": 0
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "app-1",
+            "s3cret-s3cret",
+            "authorization_code",
+            "code-one"
+          ]
+        },
+        {
+          "expect": "count(DevToken)",
+          "equals": 1
+        },
+        {
+          "expect": "DevToken(1).scope",
+          "equals": "read:public_profile"
+        },
+        {
+          "expect": "DevToken(1).account",
+          "equals": 1
+        },
+        {
+          "expect": "DevAuthorization(1).used",
+          "equals": true
+        },
+        {
+          "run": "devToken",
+          "args": [
+            "app-1",
+            "s3cret-s3cret",
+            "authorization_code",
+            "code-one"
+          ],
+          "fails": "unknown, already used, or expired"
+        },
+        {
+          "expect": "count(DevToken)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "devAuthorize",
+          "args": [
+            "app-1",
+            "https://app.example/cb"
+          ]
+        },
+        {
+          "expect": "count(DevAuthorization)",
+          "equals": 3
+        },
+        {
+          "expect": "DevAuthorization(3).scope",
+          "equals": "read:public_profile read:public_works"
+        },
+        {
+          "expect": "DevAuthorization(3).used",
+          "equals": false
+        },
+        {
+          "expect": "DevAuthorization(3).code == \"\"",
+          "equals": false
+        }
+      ]
+    },
+    {
+      "name": "Track upload: the audio part must be a supported format and a title is required",
+      "as": {
+        "actor": "guest",
+        "role": "guest"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createTrack",
+          "args": [
+            "/media/abc.mp3",
+            "",
+            "",
+            "",
+            "",
+            0,
+            0,
+            true
+          ],
+          "fails": "title is required"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createTrack",
+          "args": [
+            "/media/abc.txt",
+            "Song",
+            "",
+            "",
+            "",
+            0,
+            0,
+            true
+          ],
+          "fails": "must be an mp3"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createTrack",
+          "args": [
+            "/media/abc.MP3",
+            "Song",
+            "/media/cover.png",
+            "a song",
+            "lofi",
+            180,
+            0,
+            true
+          ]
+        },
+        {
+          "expect": "count(Track)",
+          "equals": 1
+        },
+        {
+          "expect": "Track(1).audio_url",
+          "equals": "/media/abc.MP3"
+        },
+        {
+          "expect": "Track(1).cover_url",
+          "equals": "/media/cover.png"
+        },
+        {
+          "expect": "Track(1).author",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "Developer app registration: name, an http(s) redirect and a known scope; the secret is answered once and stored hashed",
+      "as": {
+        "actor": "guest",
+        "role": "guest"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "ada",
+            "password1",
+            "Ada",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ]
+        },
+        {
+          "run": "devAppRegister",
+          "args": [
+            "App",
+            "https://app.example/cb",
+            "read:public_profile",
+            ""
+          ],
+          "fails": "member"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "devAppRegister",
+          "args": [
+            "",
+            "https://app.example/cb",
+            "read:public_profile",
+            ""
+          ],
+          "fails": "1-80 characters"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "devAppRegister",
+          "args": [
+            "App",
+            "app.example/cb",
+            "read:public_profile",
+            ""
+          ],
+          "fails": "http(s) URL"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "devAppRegister",
+          "args": [
+            "App",
+            "https://app.example/cb",
+            "write:everything",
+            ""
+          ],
+          "fails": "at least one scope"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "devAppRegister",
+          "args": [
+            "App",
+            "https://app.example/cb",
+            "read:public_works bogus read:public_profile read:public_works",
+            "my app"
+          ]
+        },
+        {
+          "expect": "count(DevApp)",
+          "equals": 1
+        },
+        {
+          "expect": "DevApp(1).owner",
+          "equals": 1
+        },
+        {
+          "expect": "DevApp(1).scope",
+          "equals": "read:public_works read:public_profile"
+        },
+        {
+          "expect": "take(DevApp(1).client_id, 7)",
+          "equals": "f33d3r_"
+        },
+        {
+          "expect": "DevApp(1).client_secret == \"\"",
+          "equals": false
+        }
+      ]
+    }
+  ]
+}

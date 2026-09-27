@@ -32,6 +32,7 @@ import "../ui/relativetime.fct"
 import "../ui/emptystate.fct"
 import "../navigation/link.fct"
 app FacetCommerce:
+    expect view at "/orders/:id"
     css:
         [data-fa-mount] .x-orders { display: flex; flex-direction: column; gap: 0;
                     border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);

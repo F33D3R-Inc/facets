@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "ReportForm: a guest cannot report; a member needs a subject and a reason, and reports a thing once",
+      "steps": [
+        { "as": { "actor": "guest", "role": "guest" }, "run": "submitReport", "args": ["post:1", "spam", ""], "fails": "sign in to report" },
+        { "as": { "actor": "ada", "role": "member" }, "run": "submitReport", "args": ["", "spam", ""], "fails": "nothing to report" },
+        { "as": { "actor": "ada", "role": "member" }, "run": "submitReport", "args": ["post:1", "", ""], "fails": "pick a reason" },
+        { "as": { "actor": "ada", "role": "member" }, "run": "submitReport", "args": ["post:1", "spam", "it is"] },
+        { "expect": "count(Report)", "equals": 1 },
+        { "expect": "Report(1).reporter", "equals": "ada" },
+        { "as": { "actor": "ada", "role": "member" }, "run": "submitReport", "args": ["post:1", "abuse", ""], "fails": "already reported" },
+        { "as": { "actor": "bob", "role": "member" }, "run": "submitReport", "args": ["post:1", "abuse", ""] },
+        { "expect": "count(Report)", "equals": 2 },
+        { "expect": "reportReason", "equals": "spam" }
+      ]
+    }
+  ]
+}

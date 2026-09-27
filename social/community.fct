@@ -12,6 +12,9 @@
 # a community is joined or left, never partially, so there is nothing for a
 # parameter to carry that the id does not already say.
 app FacetSocial:
+    expect action leaveCommunity(id: int)
+    expect action joinCommunity(id: int)
+    expect view at "/community/:id"
     css:
         [data-fa-mount] .x-community-grid { display: grid; gap: 12px;
                         grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));

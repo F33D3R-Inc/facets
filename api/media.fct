@@ -1,6 +1,7 @@
 import "entities.fct"
 import "core.fct"
 import "social.fct"
+import "account.fct"
 
 # Real multipart uploads, now that `bytes`-typed action parameters exist:
 # a `bytes` parameter is bound to the uploaded file's stored URL by the

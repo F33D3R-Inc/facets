@@ -2,6 +2,9 @@ import "entities.fct"
 import "core.fct"
 
 app F33D3RMessaging:
+    expect event gnosis_message: MessagePushDTO
+    expect event gnosis_typing: TypingEventDTO
+    expect event gnosis_call: CallSignalDTO
     # A conversation as the inbox answers with it, for the member `me`.
     derive conversationDTO(c: Conversation, me: int): V2ConversationDTO = V2ConversationDTO{
         id: "" + c.id,

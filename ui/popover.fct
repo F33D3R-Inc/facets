@@ -38,6 +38,7 @@
 # native `<dialog popover>`.
 import "../navigation/link.fct"
 app FacetUI:
+    expect state open: bool
     css:
         [data-fa-mount] .x-popover { display: inline-flex; border: none; background: none; padding: 0; }
         # The trigger is a `toggle`, which the runtime paints as a switch by

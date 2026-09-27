@@ -8,6 +8,7 @@
 # that grid's second column.
 import "verifiedbadge.fct"
 app FacetUI:
+    expect view at "/profile/:handle"
     css:
         # The identity line, and the two text roles it is built from. Repeated by
         # the other atoms that render a byline rather than being imported from

@@ -25,6 +25,12 @@
 import "postcard.fct"
 import "../ui/emptystate.fct"
 app FacetSocial:
+    expect action unbookmark(id: int)
+    expect action repost(id: int)
+    expect action like(id: int)
+    expect action bookmark(id: int)
+    expect view at "/profile/:handle"
+    expect view at "/post/:id"
     css:
         [data-fa-mount] .x-bookmarks { display: flex; flex-direction: column; gap: 0;
                        border: none; background: none; padding: 0; }

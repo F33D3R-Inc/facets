@@ -36,6 +36,7 @@
 # is for a count that is absent, not a price that is deliberately free.
 import "paybutton.fct"
 app FacetCommerce:
+    expect action pay(merchant: text, cents: money)
     css:
         [data-fa-mount] .x-checkout { display: flex; flex-direction: column; gap: 0;
                        border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);

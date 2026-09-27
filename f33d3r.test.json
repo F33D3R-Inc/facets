@@ -1,0 +1,318 @@
+{
+  "tests": [
+    {
+      "name": "the composed feed: guests read only, members post under their own handle",
+      "steps": [
+        {
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          },
+          "run": "post",
+          "args": [
+            "nope"
+          ],
+          "fails": "member"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "hello from the shell"
+          ]
+        },
+        {
+          "expect": "count(Tweet)",
+          "equals": 1
+        },
+        {
+          "expect": "Tweet(1).handle",
+          "equals": "ada"
+        },
+        {
+          "expect": "Tweet(1).kind",
+          "equals": "text"
+        }
+      ]
+    },
+    {
+      "name": "like, repost and bookmark are per actor rows on the post",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "p"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(l in Like where l.tweet == 1 && l.user == \"bob\")",
+          "equals": 1
+        },
+        {
+          "expect": "count(r in Repost where r.tweet == 1)",
+          "equals": 1
+        },
+        {
+          "expect": "count(b in Bookmark where b.user == \"bob\")",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "follow adds the actor's edge and unfollow removes only it",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unfollow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "count(Follow)",
+          "equals": 1
+        },
+        {
+          "expect": "Follow(2).follower",
+          "equals": "cy"
+        }
+      ]
+    },
+    {
+      "name": "feeds: own posts and reposts by followed accounts are Following items, ordered by newest surfacing; reactions are one per person and work; no self-follow",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "ada one"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "bob one"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "cy one"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "  "
+          ],
+          "fails": "say something"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "ada"
+          ],
+          "fails": "yourself"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ],
+          "fails": "already following"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where t.author == actor || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == actor || follows(r.user))))",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            3
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            3
+          ],
+          "fails": "already reposted"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where t.author == actor || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == actor || follows(r.user))))",
+          "equals": 3
+        },
+        {
+          "expect": "Tweet(3).surfaced >= Tweet(2).surfaced",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ],
+          "fails": "already liked"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            99
+          ],
+          "fails": "doesn't exist"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ],
+          "fails": "already bookmarked"
+        },
+        {
+          "expect": "count(Like)",
+          "equals": 1
+        }
+      ]
+    }
+  ]
+}

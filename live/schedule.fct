@@ -36,6 +36,14 @@
 import "../ui/avatar.fct"
 import "categorychip.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+        category: text
+        live: bool
+        owner: text
+        startedAt: int
+        title: text
+    expect view at "/live/:id"
     css:
         [data-fa-mount] .x-schedule { display: flex; flex-direction: column; gap: 4px;
                      border: none; background: none; padding: 0; }

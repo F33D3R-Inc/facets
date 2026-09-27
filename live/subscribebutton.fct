@@ -20,6 +20,10 @@
 #         use SubscribeTier(s.id, 2, "Tier 2", "$9.99/mo", mySub == 2)
 #         use SubscribeTier(s.id, 3, "Tier 3", "$24.99/mo", mySub == 3)
 app FacetLive:
+    expect action unsubscribe(stream: int)
+    expect action subscribe(stream: int)
+    expect action unsubscribeTier(stream: int)
+    expect action subscribeTier(stream: int, tier: int)
     css:
         [data-fa-mount] .x-subtiers { display: flex; flex-direction: column; gap: 8px; }
         [data-fa-mount] .x-subtier { display: flex; align-items: center; gap: 12px;

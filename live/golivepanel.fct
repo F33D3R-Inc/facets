@@ -19,6 +19,13 @@
 import "liveplayer.fct"
 import "../forms/uploadfield.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+        live: bool
+        viewers: int
+    expect entity Tip:
+        id: int
+        stream: Stream
     component GoLivePanel(s: Stream, title: cell text, category: cell text, thumbnail: cell text):
         box class "x-console":
             use LivePlayer(s)

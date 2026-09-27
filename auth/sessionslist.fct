@@ -29,6 +29,14 @@
 # different word and a different place entirely. `s.current` only ever
 # renders the badge that says which row that is; it decides nothing else.
 app FacetAuth:
+    expect entity Session:
+        id: int
+        current: bool
+        device: text
+        lastActive: int
+        location: text
+        user: text
+    expect action revokeSession(id: int)
     css:
         [data-fa-mount] .x-session { display: flex; flex-direction: row; align-items: center;
                      gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--x-line, #2f3336); }

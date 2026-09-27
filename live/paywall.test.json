@@ -1,0 +1,50 @@
+{
+  "tests": [
+    {
+      "name": "paywall: the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unsubscribe",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "subscribe",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unsubscribeTier",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "subscribeTier",
+          "args": [
+            1,
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

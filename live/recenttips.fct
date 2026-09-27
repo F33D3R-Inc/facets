@@ -3,6 +3,14 @@
 # animate; it is also the "top supporters" strip when sorted by amount.
 import "../ui/icon.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+    expect entity Tip:
+        id: int
+        cents: money
+        from: text
+        note: text
+        stream: Stream
     component RecentTips(s: Stream):
         box class "x-tips":
             for t in Tip where t.stream == s.id by id desc limit 5:

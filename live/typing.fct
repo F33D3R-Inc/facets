@@ -13,7 +13,7 @@
 # seconds; a stored `typing: bool` is a dot that never goes away when a tab
 # closes mid-sentence.
 #
-#     if exists(t in Typing where t.thread == id && t.who != actor && asOf - t.at < 5):
+#     if exists(t in Typing where t.thread == id && t.who != actor && asOf - t.at < 4):
 #         use TypingIndicator("Ada")
 #
 # `asOf` is supplied by the caller — a view cannot read the clock (see

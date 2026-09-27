@@ -1,0 +1,42 @@
+{
+  "tests": [
+    {
+      "name": "inboxlist: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Thread": [
+              {
+                "a": "x",
+                "b": "x",
+                "readA": 1,
+                "readB": 1
+              }
+            ],
+            "Message": [
+              {
+                "from": "x"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 1
+        },
+        {
+          "expect": "Thread(1).a",
+          "equals": "x"
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 1
+        },
+        {
+          "expect": "Message(1).from",
+          "equals": "x"
+        }
+      ]
+    }
+  ]
+}

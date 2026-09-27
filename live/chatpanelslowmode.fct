@@ -103,6 +103,10 @@
 # composer (gated on `secondsLeft <= 0`) reappears.
 import "chatmessage.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+        viewers: int
+        pinned: text
     component SlowModeComposer(s: Stream, draft: cell text, mod: bool, secondsLeft: int):
         box class "x-chat":
             row class "x-chat-head":

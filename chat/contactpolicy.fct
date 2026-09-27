@@ -1,0 +1,78 @@
+# Contact policy — who may open a direct conversation with an account, and
+# whether that conversation is sealed. Ported from the reference's contact
+# brain (elohim-veni/src/contact.rs `decide`) and gnosis's `modeFor`: both
+# are pure decisions, so they live here as procs a host binds with `do`,
+# and the reference's own unit cases are this facet's sidecar.
+#
+#     let verdict = do contactDecide(policy, false, follows, mutual, granted, false)
+#     # "allow" opens a channel; "request" permits exactly one contact
+#     # request and no conversation; "deny" yields nothing.
+#
+# The six policies, in the account's words: open (anyone), followers (people
+# who follow you), mutuals (people you follow back), number_only (only by a
+# contact number you handed out), capability_only (only by a capability you
+# minted), closed (nobody). A standing grant — the account once accepted this
+# person's request — and a redeemed capability both win over the policy.
+app FacetChat:
+    proc contactDecide(policy: text, viaNumber: bool, follows: bool, mutual: bool, granted: bool, capabilityOk: bool) -> text:
+        if granted:
+            return "allow"
+        if capabilityOk:
+            return "allow"
+        if policy == "open":
+            return "allow"
+        if policy == "followers":
+            if follows:
+                return "allow"
+            return "request"
+        if policy == "mutuals":
+            if mutual:
+                return "allow"
+            return "request"
+        if policy == "number_only":
+            if viaNumber:
+                return "allow"
+            return "request"
+        return "deny"
+    # The reason the reference names for each verdict, for the copy a host shows.
+    proc contactReason(policy: text, viaNumber: bool, follows: bool, mutual: bool, granted: bool, capabilityOk: bool) -> text:
+        if granted:
+            return "standing_grant"
+        if capabilityOk:
+            return "capability_redeemed"
+        if policy == "open":
+            return "policy_open"
+        if policy == "followers":
+            if follows:
+                return "follows_owner"
+            return "not_a_follower"
+        if policy == "mutuals":
+            if mutual:
+                return "mutual_follow"
+            return "not_mutual"
+        if policy == "number_only":
+            if viaNumber:
+                return "number_presented"
+            return "number_required"
+        if policy == "capability_only":
+            return "capability_required"
+        if policy == "closed":
+            return "policy_closed"
+        return "unknown_policy"
+    # A conversation is sealed iff every participant is a verified adult;
+    # otherwise plain. Once sealed it never downgrades (gnosis guardAddMember).
+    proc dmMode(everyAdult: bool) -> text:
+        if everyAdult:
+            return "sealed"
+        return "plain"
+    # The decisions as invocable actions, so a sidecar can hold this facet to
+    # the reference's own unit cases (contact.rs's tests).
+    action decideContact(policy: text, viaNumber: bool, follows: bool, mutual: bool, granted: bool, capabilityOk: bool) -> text:
+        let v = do contactDecide(policy, viaNumber, follows, mutual, granted, capabilityOk)
+        return v
+    action contactVerdictReason(policy: text, viaNumber: bool, follows: bool, mutual: bool, granted: bool, capabilityOk: bool) -> text:
+        let r = do contactReason(policy, viaNumber, follows, mutual, granted, capabilityOk)
+        return r
+    action conversationMode(everyAdult: bool) -> text:
+        let m = do dmMode(everyAdult)
+        return m

@@ -7,6 +7,19 @@ import "../social/followbutton.fct"
 import "subscribebutton.fct"
 import "categorychip.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+        category: text
+        owner: text
+        tags: text
+        title: text
+        verified: bool
+    expect action unfollow(handle: text)
+    expect action follow(handle: text)
+    expect action unsubscribe(stream: int)
+    expect action subscribe(stream: int)
+    expect action unsubscribeTier(stream: int)
+    expect action subscribeTier(stream: int, tier: int)
     component StreamInfo(s: Stream, following: bool, subscribed: bool, open: action):
         row class "x-streaminfo":
             use Avatar(s.owner)

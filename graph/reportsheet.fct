@@ -2,6 +2,7 @@
 # action and the sheet closes via the host's `close`. One facet for a person, a
 # post, a stream: the target is a text key the host interprets.
 app FacetGraph:
+    expect action report(target: text, reason: text)
     component ReportSheet(target: text, open: cell bool, close: action):
         overlay bind open:
             box class "x-sheet x-usermenu":

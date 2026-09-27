@@ -1,0 +1,43 @@
+{
+  "tests": [
+    {
+      "name": "wallet: the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "topUp",
+          "args": [
+            100
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "transfer",
+          "args": [
+            "x",
+            100,
+            "x"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "sendRedPacket",
+          "args": [
+            "x",
+            100,
+            "x"
+          ]
+        }
+      ]
+    }
+  ]
+}

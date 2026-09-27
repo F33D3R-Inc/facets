@@ -1,5 +1,6 @@
 import "entities.fct"
 import "types.fct"
+import "handles.fct"
 # Accounts, sessions, identity, settings — the account-scoped half of the
 # golden contract, over Account rows keyed by handle.
 app F33D3RCore:
@@ -189,6 +190,9 @@ app F33D3RCore:
     entity DevApp:
         id: int
         owner: Account
+        name: text
+        description: text
+        redirect_uri: text
         client_id: text @unique
         client_secret: text @password
         scope: text
@@ -198,6 +202,22 @@ app F33D3RCore:
         account: Account
         access_token: text @password
         expires: int
+        # The scopes the consenting account granted, space-separated — the
+        # token's own, not the app's registration: a later re-registration
+        # of the app cannot widen a token already issued.
+        scope: text
+    # A one-time authorization code Facet(dev_consent) mints when an account
+    # approves an app: bound to the app, the account and the scopes agreed,
+    # five minutes to live, redeemed exactly once by the token exchange.
+    entity DevAuthorization:
+        id: int
+        app: DevApp
+        account: Account
+        code: text @password
+        scope: text
+        redirect_uri: text
+        expires: int
+        used: bool
     entity AiConsent:
         id: int
         account: Account
@@ -636,20 +656,79 @@ app F33D3RCore:
         let s = max(x.id in SanctumState where x.account == id)
         return V2SanctumStatusDTO{handle: actor, is_open: SanctumState(s).is_open && !SanctumState(s).paused, has_inbox: SanctumState(s).is_open, retention_days: SanctumState(s).retention_days, deadman_action: SanctumState(s).deadman_action, deadman_interval_days: SanctumState(s).deadman_interval_days, deadman_grace_days: SanctumState(s).deadman_grace_days, deadman_warned: SanctumState(s).deadman_warned, deadman_fired: SanctumState(s).deadman_fired, last_checkin_at: "" + SanctumState(s).last_checkin_at, max_escrow_recipients: 5, escrow: list(V2SanctumEscrowRecipientDTO{id: "" + e.id, label: e.label, email: e.email} in SanctumEscrow where e.account == id by id)}
 
-    action devToken(client_id: text, client_secret: text) -> V2DevTokenDTO:
+    # Settings → Developer's registration (legacy's developer_app.register
+    # event): the owner names the app, where to send people back to, and the
+    # scopes it may ever ask for; the client id is minted and the secret is
+    # answered once and stored hashed.
+    action devAppRegister(name: text, redirect_uri: text, scope: text, description: text?) -> V2DevAppRegisteredDTO:
+        requires member
+        check trim(name) != "" && len(trim(name)) <= 80 "app name must be 1-80 characters" status 400 code "invalid_name"
+        check take(redirect_uri, 7) == "http://" || take(redirect_uri, 8) == "https://" "redirect_uri must be an http(s) URL" status 400 code "invalid_redirect_uri"
+        let scopes = do devScopes(scope)
+        check scopes != "" "select at least one scope" status 400 code "invalid_scope"
+        let me = max(a.id in Account where a.handle == actor)
+        let client_id = "f33d3r_" + randomToken(24)
+        let secret = randomToken(32)
+        add DevApp { owner: me, name: trim(name), description: description, redirect_uri: redirect_uri, client_id: client_id, client_secret: secret, scope: scopes }
+        return V2DevAppRegisteredDTO{client_id: client_id, client_secret: secret, name: trim(name), redirect_uri: redirect_uri, scope: scopes}
+    # The scopes an app may hold, from a space-separated request: the known
+    # ones, each once, in the request's order; "" when none is known.
+    proc devScopes(requested: text) -> text:
+        let parts = split(trim(requested), " ")
+        let mut out = ""
+        let mut seen = "|"
+        let mut i = 0
+        loop i < len(parts):
+            let sc = trim(parts[i])
+            if contains("|read:public_profile|read:public_works|", "|" + sc + "|") && !contains(seen, "|" + sc + "|"):
+                seen = seen + sc + "|"
+                if out == "":
+                    out = sc
+                else:
+                    out = out + " " + sc
+            i = i + 1
+        return out
+    # Facet(dev_consent)'s Allow: the signed-in account approves an app for
+    # the scopes it registered, and the code the app's redirect carries is
+    # minted here. The code is the only secret; it is stored hashed and
+    # answered once, to the account that consented.
+    action devAuthorize(client_id: text, redirect_uri: text?) -> V2DevAuthorizationDTO:
+        requires member
+        check exists(d in DevApp where d.client_id == client_id) "no such app" status 404 code "unknown_client"
+        let app = max(d.id in DevApp where d.client_id == client_id)
+        let me = max(a.id in Account where a.handle == actor)
+        let code = randomToken(32)
+        add DevAuthorization { app: app, account: me, code: code, scope: DevApp(app).scope, redirect_uri: redirect_uri, expires: now() + 300, used: false }
+        return V2DevAuthorizationDTO{code: code, scope: DevApp(app).scope, expires_in: 300}
+    # The token exchange, server to server: HTTP Basic client credentials
+    # (the route's `auth dev_client basic`), a form body (`body form`) of
+    # grant_type=authorization_code&code=…, and one branch for every way a
+    # code can be no good — unknown, already used, expired, another app's —
+    # so a replayed code fails exactly like a made-up one.
+    action devToken(client_id: text, client_secret: text, grant_type: text, code: text) -> V2DevTokenDTO:
+        check grant_type == "authorization_code" "grant_type must be authorization_code." status 400 code "unsupported_grant_type"
+        check trim(code) != "" "code is required." status 400 code "invalid_request"
         check exists(d in DevApp where d.client_id == client_id) "Unknown client_id or client_secret." status 401 code "invalid_client"
         let app = max(d.id in DevApp where d.client_id == client_id)
         check verifyPassword(DevApp(app).client_secret, client_secret) "Unknown client_id or client_secret." status 401 code "invalid_client"
+        let t0 = now()
+        let unused = count(g in DevAuthorization where g.app == app && !g.used && g.expires > t0)
+        for g in DevAuthorization where g.app == app && !g.used && g.expires > t0:
+            if verifyPassword(g.code, trim(code)):
+                set DevAuthorization(g.id).used = true
+        check count(g in DevAuthorization where g.app == app && !g.used && g.expires > t0) < unused "That code is unknown, already used, or expired." status 400 code "invalid_grant"
+        let gid = max(g.id in DevAuthorization where g.app == app && g.used)
         let secret = randomToken(40)
-        let tid = add DevToken { app: app, account: DevApp(app).owner, access_token: secret, expires: now() + 3600 }
-        return V2DevTokenDTO{access_token: "" + tid + "." + secret, token_type: "bearer", expires_in: 3600, scope: DevApp(app).scope}
+        let tid = add DevToken { app: app, account: DevAuthorization(gid).account, access_token: secret, expires: t0 + 7776000, scope: DevAuthorization(gid).scope }
+        return V2DevTokenDTO{access_token: "" + tid + "." + secret, token_type: "bearer", expires_in: 7776000, scope: DevAuthorization(gid).scope}
     action devProfile(access_token: text) -> V2ProfileDTO:
         let t1 = now()
         let sel = do tokenPart(access_token, 0)
         let secret = do tokenPart(access_token, 1)
-        check exists(t in DevToken where "" + t.id == sel && t.expires > t1) "invalid token" status 401
+        check exists(t in DevToken where "" + t.id == sel && t.expires > t1) "This access token is unknown, revoked, or expired." status 401 code "invalid_token"
         let tid = max(t.id in DevToken where "" + t.id == sel)
-        check verifyPassword(DevToken(tid).access_token, secret) "invalid token" status 401
+        check verifyPassword(DevToken(tid).access_token, secret) "This access token is unknown, revoked, or expired." status 401 code "invalid_token"
+        check contains("|" + replace(DevToken(tid).scope, " ", "|") + "|", "|read:public_profile|") "This access token was not granted the \"read:public_profile\" scope." status 403 code "insufficient_scope"
         let id = DevToken(tid).account
         return V2ProfileDTO{account: accountDTO(Account(id), id), viewer_follows: false, follows_viewer: false, viewer_is_blocked: false}
 
@@ -763,7 +842,8 @@ app F33D3RCore:
         errors 401
         summary "The account's secure drop: whether one is open, its deadman switch, and its escrow recipients."
         description "Read-only. Opening a drop, and reading or sending anything inside one, needs the browser's sealed-key crypto and has no API yet. Writes here (check-in, the deadman policy, escrow recipients) go through POST /events: sanctum.checkin, sanctum.deadman, sanctum.escrow.add, sanctum.escrow.remove."
-    api POST "/api/v2/dev/oauth/token" -> devToken rate auth since "2026-09-21":
+    api POST "/api/v2/dev/oauth/token" -> devToken auth dev_client basic client_id client_secret rate auth since "2026-09-21":
+        body form
         summary "Exchange an authorization code from Facet(dev_consent) for a scoped access token."
         description "Server to server: HTTP Basic client_id/client_secret from app registration (Settings → Developer), form body grant_type=authorization_code&code=. No refresh-token lane in v1 — re-consent is the refresh."
         errors 400, 401
@@ -771,3 +851,35 @@ app F33D3RCore:
         summary "The authorizing account's own public profile, for a third-party app holding a read:public_profile access token."
         description "The bearer must be a third-party access token from POST /api/v2/dev/oauth/token, not a first-party session — see x-auth."
         errors 403
+    proc numberDisplay(canonical: text) -> text:
+        return replace(canonical, "-", " ")
+    proc newNumber() -> text:
+        let mut payload = ""
+        let mut i = 0
+        loop i < 11:
+            payload = payload + rand(10)
+            i = i + 1
+        let mut digit = 0
+        loop digit < 10:
+            if luhnOk(payload + digit):
+                return slice(payload, 0, 4) + "-" + slice(payload, 4, 8) + "-" + slice(payload, 8, 11) + digit
+            digit = digit + 1
+        return ""
+    # A F33D3R Number: twelve digits, the last a Luhn check digit, written
+    # 0412-8837-2919. numberCanonical folds what a person typed (spaces,
+    # hyphens, underscores, full stops, a number: prefix) into that form, or
+    # answers "" for anything that is not a Number.
+    proc luhnOk(digits: text) -> bool:
+        let mut sum = 0
+        let mut i = len(digits) - 1
+        let mut dbl = false
+        loop i >= 0:
+            let mut d = toInt(charAt(digits, i))
+            if dbl:
+                d = d * 2
+                if d > 9:
+                    d = d - 9
+            sum = sum + d
+            dbl = !dbl
+            i = i - 1
+        return sum % 10 == 0

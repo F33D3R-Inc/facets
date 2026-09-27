@@ -1,0 +1,38 @@
+{
+  "tests": [
+    {
+      "name": "tipsheet: the row shape it expects seeds and reads; the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "seed": {
+            "Stream": [
+              {
+                "owner": "x"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "expect": "Stream(1).owner",
+          "equals": "x"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "tip",
+          "args": [
+            1,
+            100,
+            "x"
+          ]
+        }
+      ]
+    }
+  ]
+}

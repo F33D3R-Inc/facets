@@ -1,5 +1,6 @@
 import "entities.fct"
 import "core.fct"
+import "account.fct"
 
 app F33D3RArticles:
     # The caller's own articles, every status, most recently edited first.

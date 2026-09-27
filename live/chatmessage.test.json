@@ -1,0 +1,57 @@
+{
+  "tests": [
+    {
+      "name": "chatmessage: the row shape it expects seeds and reads; the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "seed": {
+            "Chat": [
+              {
+                "author": "x",
+                "body": "x",
+                "role": "x",
+                "stream": 1
+              }
+            ],
+            "Stream": [
+              {}
+            ]
+          }
+        },
+        {
+          "expect": "count(Chat)",
+          "equals": 1
+        },
+        {
+          "expect": "Chat(1).author",
+          "equals": "x"
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "deleteChat",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "ban",
+          "args": [
+            1,
+            "x"
+          ]
+        }
+      ]
+    }
+  ]
+}

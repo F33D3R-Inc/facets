@@ -1,8 +1,21 @@
 import "entities.fct"
 import "core.fct"
 import "live.fct"
+import "misc.fct"
+import "social_events.fct"
 
 app F33D3RCommerce:
+    expect event balance: BalanceEventDTO
+    expect event live_start: LiveStartEventDTO
+    expect event live_state: LiveStateEventDTO
+    expect event notification: NotificationDTO
+    expect event notify: NotifyEventDTO
+    expect event new_post: NewPostEventDTO
+    expect event post_deleted: WorkRemovedEventDTO
+    expect event work_removed: WorkRemovedEventDTO
+    expect event work_edited: WorkEventDTO
+    expect event work_engagement: WorkEngagementEventDTO
+    expect event poll_result: PollResultEventDTO
     # What the caller has bought: its delivered purchases, most recently
     # delivered first, each joined to the listing's title and content.
     action library() -> V2PageOfThemisPurchaseDTO:

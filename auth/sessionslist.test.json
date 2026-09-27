@@ -1,0 +1,40 @@
+{
+  "tests": [
+    {
+      "name": "sessionslist: the row shape it expects seeds and reads; the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "seed": {
+            "Session": [
+              {
+                "current": true,
+                "device": "x",
+                "lastActive": 1,
+                "location": "x",
+                "user": "x"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Session)",
+          "equals": 1
+        },
+        {
+          "expect": "Session(1).current",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "revokeSession",
+          "args": [
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

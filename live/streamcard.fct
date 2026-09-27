@@ -4,6 +4,15 @@ import "../ui/avatar.fct"
 import "../ui/icon.fct"
 import "../ui/mediacard.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+        category: text
+        live: bool
+        owner: text
+        thumb: text
+        title: text
+        viewers: int
+    expect view at "/live/:id"
     component StreamCard(s: Stream):
         box class "x-streamcard":
             box class "x-media x-aspect x-aspect-16x9":

@@ -1,0 +1,23 @@
+{
+  "tests": [
+    {
+      "name": "composebox: the actions it expects are invocable with the declared signature; the cells it expects start at their type's zero value",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "x"
+          ]
+        },
+        {
+          "expect": "draft",
+          "equals": ""
+        }
+      ]
+    }
+  ]
+}

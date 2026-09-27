@@ -1,0 +1,1629 @@
+{
+  "tests": [
+    {
+      "name": "a guest cannot post; a member posts and the post carries their handle",
+      "steps": [
+        {
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          },
+          "run": "post",
+          "args": [
+            "hi"
+          ],
+          "fails": "member"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            ""
+          ],
+          "fails": "say something"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "first light"
+          ]
+        },
+        {
+          "expect": "count(Tweet)",
+          "equals": 1
+        },
+        {
+          "expect": "Tweet(1).author",
+          "equals": "ada"
+        },
+        {
+          "expect": "Tweet(1).handle",
+          "equals": "ada"
+        },
+        {
+          "expect": "Tweet(1).body",
+          "equals": "first light"
+        }
+      ]
+    },
+    {
+      "name": "like, repost and reply each notify the post's author, never the actor",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "hello"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "reply",
+          "args": [
+            1,
+            "welcome"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "reply",
+          "args": [
+            1,
+            ""
+          ],
+          "fails": "say something"
+        },
+        {
+          "expect": "count(Like)",
+          "equals": 1
+        },
+        {
+          "expect": "count(Repost)",
+          "equals": 1
+        },
+        {
+          "expect": "count(Reply)",
+          "equals": 1
+        },
+        {
+          "expect": "count(n in Notification where n.user == \"ada\")",
+          "equals": 3
+        },
+        {
+          "expect": "count(n in Notification where n.user == \"bob\")",
+          "equals": 0
+        },
+        {
+          "expect": "Notification(1).verb",
+          "equals": "liked your post"
+        },
+        {
+          "expect": "Notification(3).subject",
+          "equals": "welcome"
+        }
+      ]
+    },
+    {
+      "name": "bookmarks are per actor and unbookmark removes only the actor's own",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "keep me"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(Bookmark)",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "unbookmark",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(Bookmark)",
+          "equals": 1
+        },
+        {
+          "expect": "Bookmark(1).user",
+          "equals": "ada"
+        }
+      ]
+    },
+    {
+      "name": "follow notifies the followee; unfollow removes just that edge",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "expect": "count(Follow)",
+          "equals": 2
+        },
+        {
+          "expect": "count(n in Notification where n.user == \"bob\" && n.verb == \"followed you\")",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unfollow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "count(Follow)",
+          "equals": 1
+        },
+        {
+          "expect": "Follow(2).followee",
+          "equals": "cy"
+        }
+      ]
+    },
+    {
+      "name": "notifications: only the addressee marks read; clear drops only the actor's",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "p"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "cy"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "markRead",
+          "args": [
+            1
+          ],
+          "fails": "ownsNotification"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "markRead",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "Notification(1).read",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "clearNotifications"
+        },
+        {
+          "expect": "count(Notification)",
+          "equals": 1
+        },
+        {
+          "expect": "Notification(2).user",
+          "equals": "cy"
+        }
+      ]
+    },
+    {
+      "name": "saveProfile requires both fields and replaces the actor's single profile row",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "saveProfile",
+          "args": [
+            "",
+            "bio"
+          ],
+          "fails": "display name"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "saveProfile",
+          "args": [
+            "Ada",
+            ""
+          ],
+          "fails": "bio is required"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "saveProfile",
+          "args": [
+            "Ada",
+            "first"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "saveProfile",
+          "args": [
+            "Ada L.",
+            "second"
+          ]
+        },
+        {
+          "expect": "count(p in Profile where p.handle == \"ada\")",
+          "equals": 1
+        },
+        {
+          "expect": "Profile(2).bio",
+          "equals": "second"
+        },
+        {
+          "expect": "Profile(2).verified",
+          "equals": false
+        }
+      ]
+    },
+    {
+      "name": "a channel belongs to its creator: only the owner updates, goes live and ends it",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "",
+            "Music"
+          ],
+          "fails": "title"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "Ada live",
+            "Music"
+          ]
+        },
+        {
+          "expect": "Stream(1).owner",
+          "equals": "ada"
+        },
+        {
+          "expect": "Stream(1).live",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "goLive",
+          "args": [
+            1
+          ],
+          "fails": "owner"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "updateStream",
+          "args": [
+            1,
+            "x",
+            "y",
+            "z"
+          ],
+          "fails": "owner"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "updateStream",
+          "args": [
+            1,
+            "Ada plays",
+            "Games",
+            "https://img/1"
+          ]
+        },
+        {
+          "expect": "Stream(1).title",
+          "equals": "Ada plays"
+        },
+        {
+          "expect": "Stream(1).thumb",
+          "equals": "https://img/1"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "goLive",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "Stream(1).live",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "endStream",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "Stream(1).live",
+          "equals": false
+        }
+      ]
+    },
+    {
+      "name": "chat: links are held, the owner moderates (release, delete, ban), a banned viewer is silent",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "Ada live",
+            "Music"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            ""
+          ],
+          "fails": "say something"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "hello"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "see http://spam"
+          ]
+        },
+        {
+          "expect": "Chat(1).held",
+          "equals": false
+        },
+        {
+          "expect": "Chat(2).held",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "releaseHeld",
+          "args": [
+            2
+          ],
+          "fails": "moderator"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "releaseHeld",
+          "args": [
+            2
+          ]
+        },
+        {
+          "expect": "Chat(2).held",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "deleteChat",
+          "args": [
+            1
+          ],
+          "fails": "moderator"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "deleteChat",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(Chat)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "ban",
+          "args": [
+            1,
+            "ada"
+          ],
+          "fails": "moderator"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "ban",
+          "args": [
+            1,
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "again"
+          ],
+          "fails": "notBanned"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "unban",
+          "args": [
+            1,
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "say",
+          "args": [
+            1,
+            "again"
+          ]
+        },
+        {
+          "expect": "count(Chat)",
+          "equals": 2
+        }
+      ]
+    },
+    {
+      "name": "tips land as a Tip row plus a chat line; subscribe and tiers are one Sub per actor",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "createChannel",
+          "args": [
+            "Ada live",
+            "Music"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "tip",
+          "args": [
+            1,
+            500,
+            "great set"
+          ]
+        },
+        {
+          "expect": "count(Tip)",
+          "equals": 1
+        },
+        {
+          "expect": "Tip(1).from",
+          "equals": "bob"
+        },
+        {
+          "expect": "sum(t.cents in Tip where t.stream == 1)",
+          "equals": 500
+        },
+        {
+          "expect": "count(Chat)",
+          "equals": 1
+        },
+        {
+          "expect": "Chat(1).role",
+          "equals": "sub"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "subscribe",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "subscribeTier",
+          "args": [
+            1,
+            2
+          ]
+        },
+        {
+          "expect": "count(Sub)",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "unsubscribe",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "unsubscribeTier",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(Sub)",
+          "equals": 0
+        }
+      ]
+    },
+    {
+      "name": "post tips accumulate per post",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "tip me"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "tipPost",
+          "args": [
+            1,
+            500
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "tipPost",
+          "args": [
+            1,
+            250
+          ]
+        },
+        {
+          "expect": "sum(pt.cents in PostTip where pt.tweet == 1)",
+          "equals": 750
+        }
+      ]
+    },
+    {
+      "name": "algorithm weight is one row per actor; interests belong to whoever added them",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "setAlgoFollowPct",
+          "args": [
+            30
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "setAlgoFollowPct",
+          "args": [
+            70
+          ]
+        },
+        {
+          "expect": "count(a in AlgoWeight where a.user == \"ada\")",
+          "equals": 1
+        },
+        {
+          "expect": "AlgoWeight(2).followPct",
+          "equals": 70
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "addInterest",
+          "args": [
+            ""
+          ],
+          "fails": "interested"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "addInterest",
+          "args": [
+            "synths"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "removeInterest",
+          "args": [
+            1
+          ],
+          "fails": "ownsInterest"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "removeInterest",
+          "args": [
+            1
+          ]
+        },
+        {
+          "expect": "count(Interest)",
+          "equals": 0
+        }
+      ]
+    },
+    {
+      "name": "feeds: your own posts and reposts by people you follow are feed items, and a repost lifts the work to the top (surfaced order)",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "ada one"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "bob one"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "cy one"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "count(t in Tweet where t.author == \"ada\" || follows(t.author))",
+          "equals": 2,
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          }
+        },
+        {
+          "expect": "count(t in Tweet where t.author == \"ada\" || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == \"ada\" || follows(r.user))))",
+          "equals": 2,
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          }
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            3
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where t.author == \"ada\" || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == \"ada\" || follows(r.user))))",
+          "equals": 3
+        },
+        {
+          "expect": "Tweet(3).surfaced >= Tweet(1).surfaced",
+          "equals": true,
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          }
+        },
+        {
+          "expect": "Tweet(3).surfaced >= Tweet(2).surfaced",
+          "equals": true,
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          }
+        }
+      ]
+    },
+    {
+      "name": "reactions: one like and one repost per person and work; the author is never notified of their own reaction or reply",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "mine"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "reply",
+          "args": [
+            1,
+            "me again"
+          ]
+        },
+        {
+          "expect": "count(Notification)",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ],
+          "fails": "already liked"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            1
+          ],
+          "fails": "already liked"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "repost",
+          "args": [
+            1
+          ],
+          "fails": "already reposted"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "like",
+          "args": [
+            99
+          ],
+          "fails": "doesn't exist"
+        },
+        {
+          "expect": "count(n in Notification where n.user == \"ada\")",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "bookmark",
+          "args": [
+            1
+          ],
+          "fails": "already bookmarked"
+        }
+      ]
+    },
+    {
+      "name": "follows: never yourself, never twice, never across a block; a block ends the follows both ways",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "ada"
+          ],
+          "fails": "yourself"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ],
+          "fails": "already following"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "expect": "count(Follow)",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "bob"
+          ],
+          "fails": "yourself"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "ada"
+          ],
+          "fails": "already blocked"
+        },
+        {
+          "expect": "count(Follow)",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ],
+          "fails": "cannot follow this account"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "ada"
+          ],
+          "fails": "cannot follow this account"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "unblock",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "expect": "count(Follow)",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "visibility: a block hides works both ways (the post 'doesn't exist'); a mute hides them for the muter only; a private account shows only to followers",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "ada's post"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "bob's post"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "block",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "blockedEither(\"bob\")",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "expect": "blockedEither(\"ada\")",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "blockedEither(\"ada\")",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where t.id == 2 && !blockedEither(t.author) && !walled(t.author))",
+          "equals": 0
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where t.id == 2 && !blockedEither(t.author) && !walled(t.author))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "mute",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "mute",
+          "args": [
+            "bob"
+          ],
+          "fails": "already muted"
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where !hidden(t.author))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "dee",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where !hidden(t.author))",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "unmute",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where !hidden(t.author))",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "setPrivate",
+          "args": [
+            true
+          ],
+          "fails": "save a profile first"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "saveProfile",
+          "args": [
+            "Ada",
+            "bio"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "setPrivate",
+          "args": [
+            true
+          ]
+        },
+        {
+          "expect": "Profile(1).private",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "walled(\"ada\")",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "walled(\"ada\")",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "run": "follow",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "walled(\"ada\")",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "saveProfile",
+          "args": [
+            "Ada L.",
+            "new bio"
+          ]
+        },
+        {
+          "expect": "count(p in Profile where p.handle == \"ada\" && p.private)",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "work flags: a circle work reaches only the circle, a subscriber-only work only active subscribers, an NSFW work is gated by the viewer's prefs; a muted keyword or snoozed #tag leaves the feed for that viewer",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "postWork",
+          "args": [
+            "circle only",
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "postWork",
+          "args": [
+            "subs only",
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "postWork",
+          "args": [
+            "spicy",
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "post",
+          "args": [
+            "plain #garden"
+          ]
+        },
+        {
+          "expect": "Tweet(1).visibility",
+          "equals": "circle"
+        },
+        {
+          "expect": "Tweet(4).visibility",
+          "equals": "public"
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where feedVisible(t, now()))",
+          "equals": 4
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where feedVisible(t, now()))",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "addToCircle",
+          "args": [
+            "bob"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "subscribeCreator",
+          "args": [
+            "ada"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "setViewerPrefs",
+          "args": [
+            true,
+            true
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where feedVisible(t, now()))",
+          "equals": 4
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "muteKeyword",
+          "args": [
+            "spicy"
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "snoozeTopic",
+          "args": [
+            "garden",
+            3
+          ]
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "expect": "count(t in Tweet where feedVisible(t, now()))",
+          "equals": 2
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "reachable(Tweet(1))",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "cy",
+            "role": "member"
+          },
+          "expect": "gated(\"ada\", true)",
+          "equals": true
+        }
+      ]
+    }
+  ]
+}

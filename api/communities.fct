@@ -1,7 +1,14 @@
 import "entities.fct"
 import "core.fct"
+import "social.fct"
 
 app F33D3RCommunities:
+    expect event notification: NotificationDTO
+    expect event notify: NotifyEventDTO
+    expect event new_post: NewPostEventDTO
+    expect event post_deleted: WorkRemovedEventDTO
+    expect event work_removed: WorkRemovedEventDTO
+    expect event work_edited: WorkEventDTO
     # A place listing as every places surface answers with it.
     derive placeDTO(p: Place): V2PlaceListingDTO = V2PlaceListingDTO{
         id: "" + p.id,
@@ -107,11 +114,6 @@ app F33D3RCommunities:
         if trim(pial) != "":
             return pialAccount(pial)
         return byHandle
-    proc truncText(t: text, n: int) -> text:
-        let s = trim(t)
-        if len(s) > n:
-            return slice(s, 0, n)
-        return s
     proc rulesOk(rules: [text]) -> bool:
         if len(rules) < 1 || len(rules) > 10:
             return false

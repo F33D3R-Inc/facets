@@ -1,4 +1,5 @@
 # CategoryChip — one category or tag pill that links to its browse page.
 app FacetLive:
+    expect view at "/browse/:category"
     component CategoryChip(name: text):
         link "{name}" -> "/browse/{name}" class "x-chip-pill"

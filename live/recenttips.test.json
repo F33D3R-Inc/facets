@@ -1,0 +1,36 @@
+{
+  "tests": [
+    {
+      "name": "recenttips: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Stream": [
+              {}
+            ],
+            "Tip": [
+              {
+                "cents": 100,
+                "from": "x",
+                "note": "x",
+                "stream": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "expect": "count(Tip)",
+          "equals": 1
+        },
+        {
+          "expect": "Tip(1).cents",
+          "equals": 100
+        }
+      ]
+    }
+  ]
+}

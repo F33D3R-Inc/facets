@@ -1,0 +1,20 @@
+{
+  "tests": [
+    {
+      "name": "reportsheet: the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "report",
+          "args": [
+            "x",
+            "x"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -19,6 +19,8 @@ import "graph/contactcard.fct"
 import "graph/friendrequestrow.fct"
 import "graph/usermenu.fct"
 import "graph/reportsheet.fct"
+import "chat/contactpolicy.fct"
+import "api/handles.fct"
 
 app F33D3RMessages:
     auth
@@ -32,12 +34,37 @@ app F33D3RMessages:
         readA: int
         readB: int
         created: int
+        # "plain" or "sealed": sealed iff every participant is a verified
+        # adult when the conversation opens (chat/contactpolicy.fct dmMode),
+        # and never downgraded. A sealed thread refuses a plain send; the
+        # client seals the body and sends it through sendSealed.
+        mode: text
     entity Message:
         id: int
         thread: Thread
         from: text
         body: text
         sent: int
+        sealed: bool
+    # Who may open a conversation with this account (default "open"; the six
+    # policies chat/contactpolicy.fct decides on), and a standing grant: the
+    # account accepted this person's contact request, which wins over policy.
+    entity ContactSetting:
+        id: int
+        user: text
+        policy: text
+    entity ContactGrant:
+        id: int
+        owner: text
+        peer: text
+        source: text
+        created: int
+    # Adult verification (the reference's eKYC 18+ flag): declared once, never
+    # withdrawn, the only fact a sealed conversation depends on.
+    entity Verified:
+        id: int
+        user: text
+        adult: bool
     # A heartbeat, not a flag — see chat/dmthread.fct and live/typing.fct's own
     # header. @ephemeral because nobody wants a history of who was typing;
     # `typing` upserts by (thread, actor) so there is at most one live row per
@@ -91,25 +118,80 @@ app F33D3RMessages:
         actor == Thread(id).a || actor == Thread(id).b
     policy addressee(id: int):
         actor == FriendRequest(id).to
+    # A block stands in both directions: neither party can start, send into,
+    # mark or type in a conversation with the other (the reference's
+    # undeliverableTo), and a conversation already open stops delivering.
     policy notBlockedBy(handle: text):
-        !exists(b in Block where b.user == handle && b.blocked == actor)
+        !exists(b in Block where (b.user == handle && b.blocked == actor) || (b.user == actor && b.blocked == handle))
+    # The stored policy, or the default "open" when the account never set one.
+    proc policyOr(stored: [text]) -> text:
+        if len(stored) == 0:
+            return "open"
+        return stored[0]
+    derive followsMe(who: text): bool = exists(f in FriendRequest where f.from == who && f.to == actor && f.status == Status.accepted)
+    derive granted(who: text): bool = exists(g in ContactGrant where g.owner == who && g.peer == actor)
+    derive adult(who: text): bool = exists(v in Verified where v.user == who && v.adult)
+    policy deliverable(id: int):
+        !exists(b in Block where (b.user == Thread(id).a && b.blocked == Thread(id).b) || (b.user == Thread(id).b && b.blocked == Thread(id).a))
 
     # ── threads ──
+    # Opening a conversation runs the recipient's contact policy (the
+    # reference's contact brain): "allow" opens the thread — sealed iff both
+    # are verified adults — "request" leaves exactly one contact request and
+    # no thread, "deny" yields nothing.
     action startChat(handle: text):
         requires member
         requires notBlockedBy(handle)
         check handle != actor "you cannot message yourself"
-        add Thread { a: actor, b: handle, readA: now(), readB: 0, created: now() }
+        check !exists(t in Thread where (t.a == actor && t.b == handle) || (t.a == handle && t.b == actor)) "you already have a conversation"
+        let stored = list(c.policy in ContactSetting where c.user == handle)
+        let pol = do policyOr(stored)
+        let iFollowThem = exists(g in ContactGrant where g.owner == actor && g.peer == handle) || exists(f in FriendRequest where f.from == actor && f.to == handle && f.status == Status.accepted)
+        let theyFollowMe = exists(f in FriendRequest where f.from == handle && f.to == actor && f.status == Status.accepted)
+        let verdict = do contactDecide(pol, false, iFollowThem, iFollowThem && theyFollowMe, granted(handle), false)
+        check verdict != "deny" "this account does not accept messages" status 403 code "contact_denied"
+        if verdict == "request":
+            check !exists(r in FriendRequest where r.from == actor && r.to == handle && r.status == Status.pending) "your contact request is already waiting" status 409 code "contact_requested"
+            add FriendRequest { from: actor, to: handle, status: Status.pending, at: now() }
+        if verdict == "allow":
+            let mode = do dmMode(adult(actor) && adult(handle))
+            add Thread { a: actor, b: handle, readA: now(), readB: 0, created: now(), mode: mode }
+    action setContactPolicy(policy: text):
+        requires member
+        let ok = do isContactPolicy(policy)
+        check ok "policy is open, followers, mutuals, number_only, capability_only or closed"
+        remove c in ContactSetting where c.user == actor
+        add ContactSetting { user: actor, policy: policy }
+    action verifyAdult:
+        requires member
+        check !adult(actor) "already verified"
+        add Verified { user: actor, adult: true }
+    # The client-sealed path: only a sealed thread takes it, and the body is
+    # what the client sealed — the authority never holds the plaintext.
+    action sendSealed(thread: int, body: text):
+        requires participant(thread)
+        requires deliverable(thread)
+        check Thread(thread).mode == "sealed" "this conversation is not sealed" status 409
+        check trim(body) != "" "write something first"
+        add Message { thread: thread, from: actor, body: body, sent: now(), sealed: true }
+        set t in Thread where t.id == thread && t.a == actor:
+            readA = now()
+        set t in Thread where t.id == thread && t.b == actor:
+            readB = now()
     action send(thread: int, body: text):
         requires participant(thread)
-        check body != "" "write something first"
-        add Message { thread: thread, from: actor, body: body, sent: now() }
+        requires deliverable(thread)
+        check Thread(thread).mode != "sealed" "sealed conversation: send via the encrypted client path" status 409
+        check trim(body) != "" "write something first"
+        check byteLen(body) <= 8000 "message too long" status 413
+        add Message { thread: thread, from: actor, body: body, sent: now(), sealed: false }
         set t in Thread where t.id == thread && t.a == actor:
             readA = now()
         set t in Thread where t.id == thread && t.b == actor:
             readB = now()
     action markRead(thread: int):
         requires participant(thread)
+        requires deliverable(thread)
         set t in Thread where t.id == thread && t.a == actor:
             readA = now()
         set t in Thread where t.id == thread && t.b == actor:
@@ -119,6 +201,7 @@ app F33D3RMessages:
     # typing keeps refreshing one row's `at` instead of piling up rows.
     action typing(thread: int):
         requires participant(thread)
+        requires deliverable(thread)
         remove ty in Typing where ty.thread == thread && ty.who == actor
         add Typing { thread: thread, who: actor, at: now() }
 
@@ -128,14 +211,20 @@ app F33D3RMessages:
         requires notBlockedBy(handle)
         check handle != actor "you are already your own friend"
         add FriendRequest { from: actor, to: handle, status: Status.pending, at: now() }
+    # Accepting a contact request is the standing grant: the requester may
+    # open a conversation from now on whatever the policy says.
     action accept(id: int):
         requires addressee(id)
         set FriendRequest(id).status = Status.accepted
+        remove g in ContactGrant where g.owner == actor && g.peer == FriendRequest(id).from
+        add ContactGrant { owner: actor, peer: FriendRequest(id).from, source: "request", created: now() }
     action decline(id: int):
         requires addressee(id)
         set FriendRequest(id).status = Status.declined
     action block(handle: text):
         requires member
+        check handle != actor "you cannot block yourself"
+        check !exists(b in Block where b.user == actor && b.blocked == handle) "already blocked"
         add Block { user: actor, blocked: handle }
     action unblock(handle: text):
         requires member
@@ -223,6 +312,16 @@ app F33D3RMessages:
             box class "x-l-app3-main":
                 use TopBar("People", "", "/")
                 if actor != "guest":
+                    row class "x-contactpolicy":
+                        text "Who can message you:" class "x-muted x-small"
+                        button "Anyone" -> setContactPolicy("open")
+                        button "Followers" -> setContactPolicy("followers")
+                        button "Mutuals" -> setContactPolicy("mutuals")
+                        button "Nobody" -> setContactPolicy("closed")
+                        if !adult(actor):
+                            button "Verify 18+" -> verifyAdult
+                        if adult(actor):
+                            text "18+ verified — conversations with other verified adults are sealed" class "x-muted x-small"
                     row class "x-newchat":
                         input bind addHandle placeholder "Add a friend by handle"
                         button "Add friend" -> request(addHandle) class "x-pill x-light"

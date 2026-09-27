@@ -1,0 +1,37 @@
+{
+  "tests": [
+    {
+      "name": "the reference's contact decision, case for case: standing grant and capability win; open allows; followers/mutuals/number_only request until the fact holds; capability_only and closed deny",
+      "steps": [
+        { "run": "decideContact", "args": ["closed", true, true, true, false, false], "returns": "deny" },
+        { "run": "contactVerdictReason", "args": ["closed", false, false, false, false, false], "returns": "policy_closed" },
+        { "run": "decideContact", "args": ["capability_only", true, true, true, false, false], "returns": "deny" },
+        { "run": "contactVerdictReason", "args": ["capability_only", false, false, false, false, false], "returns": "capability_required" },
+        { "run": "decideContact", "args": ["capability_only", false, false, false, false, true], "returns": "allow" },
+        { "run": "contactVerdictReason", "args": ["capability_only", false, false, false, false, true], "returns": "capability_redeemed" },
+        { "run": "decideContact", "args": ["number_only", true, false, false, false, false], "returns": "allow" },
+        { "run": "decideContact", "args": ["number_only", false, false, false, false, false], "returns": "request" },
+        { "run": "contactVerdictReason", "args": ["number_only", false, false, false, false, false], "returns": "number_required" },
+        { "run": "decideContact", "args": ["followers", false, false, false, false, false], "returns": "request" },
+        { "run": "contactVerdictReason", "args": ["followers", false, false, false, false, false], "returns": "not_a_follower" },
+        { "run": "decideContact", "args": ["followers", false, true, false, false, false], "returns": "allow" },
+        { "run": "decideContact", "args": ["mutuals", false, true, false, false, false], "returns": "request" },
+        { "run": "contactVerdictReason", "args": ["mutuals", false, true, false, false, false], "returns": "not_mutual" },
+        { "run": "decideContact", "args": ["mutuals", false, true, true, false, false], "returns": "allow" },
+        { "run": "decideContact", "args": ["open", false, false, false, false, false], "returns": "allow" },
+        { "run": "contactVerdictReason", "args": ["open", false, false, false, false, false], "returns": "policy_open" },
+        { "run": "decideContact", "args": ["closed", false, false, false, true, false], "returns": "allow" },
+        { "run": "contactVerdictReason", "args": ["closed", false, false, false, true, false], "returns": "standing_grant" },
+        { "run": "decideContact", "args": ["bogus", false, false, false, false, false], "returns": "deny" },
+        { "run": "contactVerdictReason", "args": ["bogus", false, false, false, false, false], "returns": "unknown_policy" }
+      ]
+    },
+    {
+      "name": "a conversation is sealed only when every participant is a verified adult",
+      "steps": [
+        { "run": "conversationMode", "args": [true], "returns": "sealed" },
+        { "run": "conversationMode", "args": [false], "returns": "plain" }
+      ]
+    }
+  ]
+}

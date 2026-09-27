@@ -1,0 +1,36 @@
+{
+  "tests": [
+    {
+      "name": "golivepanel: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Stream": [
+              {
+                "live": true,
+                "viewers": 1
+              }
+            ],
+            "Tip": [
+              {
+                "stream": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "expect": "Stream(1).live",
+          "equals": true
+        },
+        {
+          "expect": "count(Tip)",
+          "equals": 1
+        }
+      ]
+    }
+  ]
+}

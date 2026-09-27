@@ -1,0 +1,28 @@
+{
+  "tests": [
+    {
+      "name": "messagebubble: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Message": [
+              {
+                "body": "x",
+                "from": "x",
+                "sent": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 1
+        },
+        {
+          "expect": "Message(1).body",
+          "equals": "x"
+        }
+      ]
+    }
+  ]
+}

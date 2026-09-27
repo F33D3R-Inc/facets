@@ -6,6 +6,14 @@
 import "../ui/icon.fct"
 import "../ui/mediacard.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+        hls: text
+        live: bool
+        startedAt: int
+        thumb: text
+        title: text
+        viewers: int
     component LivePlayer(s: Stream):
         box class "x-media x-aspect x-aspect-16x9 x-stage":
             video "{s.hls}" poster "{s.thumb}" alt "{s.title}" autoplay loop

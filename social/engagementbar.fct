@@ -23,6 +23,10 @@
 # all it takes: the mark is `currentColor`.
 import "../ui/icon.fct"
 app FacetSocial:
+    expect action repost(id: int)
+    expect action like(id: int)
+    expect action bookmark(id: int)
+    expect view at "/post/:id"
     css:
         [data-fa-mount] .x-actions { display: flex; justify-content: space-between; align-items: center;
                      max-width: 425px; margin-top: 4px; color: var(--fa-muted); }

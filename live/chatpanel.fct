@@ -5,6 +5,14 @@
 # `@client` text; `say(stream, body)` the host action (`requires member`).
 import "chatmessage.fct"
 app FacetLive:
+    expect entity Stream:
+        id: int
+        viewers: int
+        pinned: text
+    expect entity Chat:
+        id: int
+        author: text
+        held: bool
     component ChatPanel(s: Stream, draft: cell text, mod: bool):
         box class "x-chat":
             row class "x-chat-head":
@@ -15,7 +23,10 @@ app FacetLive:
                     icon "pin"
                     text "{s.pinned}" class "x-small"
             box class "x-chat-list":
-                for m in Chat where m.stream == s.id by id desc limit 100:
+                # A held line reaches the room only once the host releases it;
+                # until then its sender and the moderators are the only ones
+                # who see it (the reference's chat scan).
+                for m in Chat where m.stream == s.id && (!m.held || m.author == actor || mod) by id desc limit 100:
                     use ChatMessage(m, mod)
             if actor == "guest":
                 text "Log in to chat." class "x-muted x-chat-gate"

@@ -42,6 +42,7 @@
 # page calls.
 import "../ui/progress.fct"
 app FacetSocial:
+    expect action vote(option: int)
     css:
         [data-fa-mount] .x-poll { display: flex; flex-direction: column; gap: 8px;
                    border: 1px solid var(--x-line, #2f3336); border-radius: var(--fa-radius, 16px);

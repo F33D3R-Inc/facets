@@ -1,0 +1,13 @@
+{
+  "tests": [
+    {
+      "name": "searchbox: the cells it expects start at their type's zero value",
+      "steps": [
+        {
+          "expect": "q",
+          "equals": ""
+        }
+      ]
+    }
+  ]
+}

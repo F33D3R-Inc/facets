@@ -6,6 +6,8 @@
 # follower+followee) — expressible since v1.17.0's `remove … where`. The host
 # action is `remove f in Follow where f.follower == actor && f.followee == handle`.
 app FacetSocial:
+    expect action unfollow(handle: text)
+    expect action follow(handle: text)
     component FollowButton(handle: text, following: bool):
         if following:
             button "Following" -> unfollow(handle)

@@ -1,0 +1,31 @@
+{
+  "tests": [
+    {
+      "name": "streamcard: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Stream": [
+              {
+                "category": "x",
+                "live": true,
+                "owner": "x",
+                "thumb": "x",
+                "title": "x",
+                "viewers": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "expect": "Stream(1).category",
+          "equals": "x"
+        }
+      ]
+    }
+  ]
+}

@@ -28,6 +28,9 @@
 # `social/PostCard` for an identical-looking grid.
 import "../ui/avatar.fct"
 app FacetGraph:
+    expect action removeFromList(list: int, handle: text)
+    expect action addToList(list: int, handle: text)
+    expect view at "/list/:id"
     css:
         [data-fa-mount] .x-listcard { display: flex; flex-direction: column; gap: 4px;
                       padding: 16px; border: 1px solid var(--x-line, #2f3336);

@@ -1,5 +1,7 @@
 import "core.fct"
 import "social.fct"
+import "misc.fct"
+import "account.fct"
 
 # The account's own event stream and its connect/disconnect hooks. The
 # mutation lane (POST /events) is the Mutation union in mutations.fct.

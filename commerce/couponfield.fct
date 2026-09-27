@@ -15,6 +15,7 @@
 # `applyCoupon(code: text)` action (a `check` against whatever coupon table it
 # keeps) and this field calls it by that name.
 app FacetCommerce:
+    expect action applyCoupon(code: text)
     css:
         [data-fa-mount] .x-coupon { display: flex; flex-direction: row; gap: 8px; align-items: center; }
         [data-fa-mount] .x-coupon input { flex: 1; min-width: 0; box-sizing: border-box;

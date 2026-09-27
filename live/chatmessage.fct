@@ -4,6 +4,18 @@
 # `ban(stream, user)`; both `requires moderator` in the host.
 import "../ui/icon.fct"
 app FacetLive:
+    expect entity Chat:
+        id: int
+        author: text
+        body: text
+        role: text
+        stream: Stream
+        held: bool
+    expect entity Stream:
+        id: int
+    expect action deleteChat(id: int)
+    expect action releaseHeld(id: int)
+    expect action ban(stream: int, user: text)
     component ChatMessage(m: Chat, mod: bool):
         row class "x-chatline":
             if m.role == "broadcaster":
@@ -14,7 +26,13 @@ app FacetLive:
                 icon "heart" class "x-role"
             text "{m.author}" class "x-strong x-chat-name"
             richtext "{m.body}" class "x-chat-body"
+            # A line the chat scan held: its sender sees it marked, the host
+            # sees it in the moderation queue and may release it to the room.
+            if m.held:
+                text "held by scan" class "x-muted x-small x-chat-held"
             if mod:
                 row class "x-modtools":
+                    if m.held:
+                        button "" -> releaseHeld(m.id) class "x-glyph-check"
                     button "" -> deleteChat(m.id) class "x-glyph-close"
                     button "" -> ban(m.stream, m.author) class "x-glyph-settings"

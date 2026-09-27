@@ -585,3 +585,60 @@ app F33D3REntities:
         account: int
         price_aet: int
         created: int
+    # One priced work an account bought in AET.
+    entity WorkPurchase:
+        id: int
+        work: int
+        buyer: int
+        amount_uaet: int
+        created: int
+    # A queued deletion: the deletion itself is deferred (2257 records outlive
+    # the account), so what the request writes is the pending instruction.
+    entity DeletionRequest:
+        id: int
+        account: int
+        reason: text
+        status: text
+        requested: int
+    # An account bound to a person's identity (their PIAL, named by the id of
+    # the account that holds it): the accounts a session may switch between.
+    entity AccountBinding:
+        id: int
+        pial: int
+        account: int
+        status: text
+        created: int
+    # A sponsorship a brand account proposed to a creator. status moves
+    # pending -> accepted | declined | cancelled; accepted -> live when the
+    # creator links one of their own works (the only way a work ever gains
+    # the non-removable sponsored disclosure); live -> paid when the brand
+    # releases the amount through the wallet. amount_uaet is µAET; tx is the
+    # brand's wallet entry that paid it.
+    entity BrandDeal:
+        id: int
+        brand: int
+        creator: int
+        amount_uaet: int
+        terms: text
+        status: text
+        work: int
+        tx: int
+        proposed: int
+        responded: int
+        linked: int
+        paid: int
+    # An interest surface of the home feed (legacy feed_surfaces): a tab a
+    # reader pins, snoozes as a whole, and whose tags route works onto it.
+    # tags is comma-separated; parent names the general surface a child
+    # (a league under sports) also belongs to.
+    entity FeedSurface:
+        id: int
+        slug: text @unique
+        label: text
+        emoji: text
+        surface_type: text
+        tags: text
+        content_type: text
+        sort_order: int
+        parent: text
+        is_active: bool

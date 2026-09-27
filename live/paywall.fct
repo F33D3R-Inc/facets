@@ -19,6 +19,10 @@
 import "../ui/icon.fct"
 import "subscribebutton.fct"
 app FacetLive:
+    expect action unsubscribe(stream: int)
+    expect action subscribe(stream: int)
+    expect action unsubscribeTier(stream: int)
+    expect action subscribeTier(stream: int, tier: int)
     css:
         [data-fa-mount] .x-paywall { display: flex; flex-direction: column; align-items: center;
                       gap: 10px; text-align: center; padding: 48px 24px;

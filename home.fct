@@ -77,6 +77,7 @@ import "ui/icon.fct"
 import "layout/vocabulary.fct"
 import "navigation/sidebaritem.fct"
 import "ui/trend.fct"
+import "social/visibility.fct"
 
 app F33D3RHome:
     auth
@@ -207,6 +208,15 @@ app F33D3RHome:
         media: text
         created: int
         aiAssisted: bool
+        # When this work last reached a feed: its posting, or its newest
+        # repost. The reference orders both feeds by this "feed_ts" so a
+        # fresh repost lifts the original back to the top; a repost is a
+        # first-class feed item and a work appears once, at its newest surfacing.
+        surfaced: int
+        # The reference's work flags social/visibility.fct gates on.
+        nsfw: bool
+        subscriberOnly: bool
+        visibility: text
     entity Like:
         id: int
         tweet: Tweet
@@ -241,6 +251,20 @@ app F33D3RHome:
         name: text
         bio: text
         verified: bool
+        # A private account's works are withheld from everyone but the owner
+        # and their followers (the reference's privateWall).
+        private: bool
+    # A block stands between two accounts in both directions: neither sees the
+    # other's works, and a blocked work "doesn't exist". A mute is the viewer's
+    # own preference: the muted account's works leave the viewer's feeds only.
+    entity Block:
+        id: int
+        user: text
+        blocked: text
+    entity Mute:
+        id: int
+        user: text
+        muted: text
     # Notification — one row of "someone did something to you". Written by the same
     # actions that cause it (like/repost/follow/reply each fan one out), read back
     # by /notifications through the notify/ atoms.
@@ -326,6 +350,10 @@ app F33D3RHome:
 
     state draft: text = "" @client
     state feedTab: text = "foryou" @client
+    # The instant the feed's snoozes are measured against: a snooze is a
+    # preference with an end, and a where filter is pure, so the view carries
+    # the moment it was read (the same shape messages.fct's dmAsOf takes).
+    state feedAsOf: int = now() @client
     state q: text = "" @client
     state shown: int = 20 @client
     state replyDraft: text = "" @client
@@ -345,6 +373,13 @@ app F33D3RHome:
 
     policy member:
         actor != "guest"
+    # The account-level read rules, one answer each read path asks (the
+    # reference's authorWall): a block in either direction, a private account
+    # the viewer does not follow, a mute the viewer set.
+    derive blockedEither(who: text): bool = exists(b in Block where (b.user == actor && b.blocked == who) || (b.user == who && b.blocked == actor))
+    derive walled(who: text): bool = who != actor && exists(p in Profile where p.handle == who && p.private) && !exists(f in Follow where f.follower == actor && f.followee == who)
+    derive hidden(who: text): bool = blockedEither(who) || walled(who) || exists(m in Mute where m.user == actor && m.muted == who)
+    derive follows(who: text): bool = exists(f in Follow where f.follower == actor && f.followee == who)
 
     # A row-level policy: the argument is the row being acted on, so the check is
     # about *this* notification rather than about the caller in general. Without
@@ -367,33 +402,85 @@ app F33D3RHome:
     action post(body: text):
         requires member
         check body != "" "say something"
-        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", created: now(), aiAssisted: false }
+        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", created: now(), aiAssisted: false, surfaced: now(), nsfw: false, subscriberOnly: false, visibility: "public" }
+    # A work with the reference's flags: NSFW (gated for guests and for
+    # viewers not showing sensitive content), subscriber-only (the author and
+    # active subscribers), and circle visibility (the author's circle).
+    action postWork(body: text, nsfw: bool, subscriberOnly: bool, circle: bool):
+        requires member
+        check trim(body) != "" "say something"
+        let vis = do visibilityOf(circle)
+        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", created: now(), aiAssisted: false, surfaced: now(), nsfw: nsfw, subscriberOnly: subscriberOnly, visibility: vis }
+    proc visibilityOf(circle: bool) -> text:
+        if circle:
+            return "circle"
+        return "public"
+    # A reaction is one per person and work, and the author is never told
+    # about their own (the reference's notifyReaction returns early for the
+    # author). A repost lifts the work back to the top of the feeds.
     action like(id: int):
         requires member
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        check !exists(l in Like where l.tweet == id && l.user == actor) "you already liked this"
         add Like { tweet: id, user: actor }
-        add Notification { user: Tweet(id).author, who: actor, verb: "liked your post", subject: Tweet(id).body, read: false, created: now() }
+        if Tweet(id).author != actor:
+            add Notification { user: Tweet(id).author, who: actor, verb: "liked your post", subject: Tweet(id).body, read: false, created: now() }
     action repost(id: int):
         requires member
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        check !exists(r in Repost where r.tweet == id && r.user == actor) "you already reposted this"
         add Repost { tweet: id, user: actor }
-        add Notification { user: Tweet(id).author, who: actor, verb: "reposted", subject: Tweet(id).body, read: false, created: now() }
+        set Tweet(id).surfaced = now()
+        if Tweet(id).author != actor:
+            add Notification { user: Tweet(id).author, who: actor, verb: "reposted", subject: Tweet(id).body, read: false, created: now() }
     action bookmark(id: int):
         requires member
+        check !exists(b in Bookmark where b.tweet == id && b.user == actor) "already bookmarked"
         add Bookmark { tweet: id, user: actor }
     action unbookmark(id: int):
         requires member
         remove b in Bookmark where b.tweet == id && b.user == actor
     action follow(handle: text):
         requires member
+        check handle != actor "you cannot follow yourself"
+        check !exists(f in Follow where f.follower == actor && f.followee == handle) "already following"
+        check !blockedEither(handle) "you cannot follow this account"
         add Follow { follower: actor, followee: handle }
         add Notification { user: handle, who: actor, verb: "followed you", subject: "", read: false, created: now() }
+    # A block ends the follow relationship in both directions and hides each
+    # from the other; a mute only quiets the muted account for the muter.
+    action block(handle: text):
+        requires member
+        check handle != actor "you cannot block yourself"
+        check !exists(b in Block where b.user == actor && b.blocked == handle) "already blocked"
+        add Block { user: actor, blocked: handle }
+        remove f in Follow where (f.follower == actor && f.followee == handle) || (f.follower == handle && f.followee == actor)
+    action unblock(handle: text):
+        requires member
+        remove b in Block where b.user == actor && b.blocked == handle
+    action mute(handle: text):
+        requires member
+        check handle != actor "you cannot mute yourself"
+        check !exists(m in Mute where m.user == actor && m.muted == handle) "already muted"
+        add Mute { user: actor, muted: handle }
+    action unmute(handle: text):
+        requires member
+        remove m in Mute where m.user == actor && m.muted == handle
+    action setPrivate(flag: bool):
+        requires member
+        check exists(p in Profile where p.handle == actor) "save a profile first"
+        set p in Profile where p.handle == actor:
+            private = flag
     action unfollow(handle: text):
         requires member
         remove f in Follow where f.follower == actor && f.followee == handle
     action reply(id: int, body: text):
         requires member
         check body != "" "say something"
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
         add Reply { tweet: id, author: actor, body: body, created: now() }
-        add Notification { user: Tweet(id).author, who: actor, verb: "replied to your post", subject: body, read: false, created: now() }
+        if Tweet(id).author != actor:
+            add Notification { user: Tweet(id).author, who: actor, verb: "replied to your post", subject: body, read: false, created: now() }
     # saveProfile is an upsert spelled in two statements: drop the actor's old row,
     # write the new one. The handle is always the actor's — you edit your own card.
     # The two `check`s are load-bearing, not politeness. `nameDraft`/`bioDraft` are
@@ -408,8 +495,10 @@ app F33D3RHome:
         requires member
         check name != "" "a display name is required"
         check bio != "" "a bio is required"
+        let wasVerified = exists(p in Profile where p.handle == actor && p.verified)
+        let wasPrivate = exists(p in Profile where p.handle == actor && p.private)
         remove p in Profile where p.handle == actor
-        add Profile { handle: actor, name: name, bio: bio, verified: exists(p in Profile where p.handle == actor && p.verified) }
+        add Profile { handle: actor, name: name, bio: bio, verified: wasVerified, private: wasPrivate }
     action markRead(id: int):
         requires ownsNotification(id)
         set Notification(id).read = true
@@ -633,11 +722,11 @@ app F33D3RHome:
             use ComposeBox()
             tabs bind feedTab class "x-tabs":
                 tab "For you" -> "foryou":
-                    for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown:
+                    for t in Tweet where !hidden(t.author) && feedVisible(t, feedAsOf) && contains(lower(t.body), lower(q)) by surfaced desc limit shown:
                         use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
                             use PostExtras(t.id, t.aiAssisted)
                 tab "Following" -> "following":
-                    for t in Tweet where exists(f in Follow where f.follower == actor && f.followee == t.author) by created desc limit shown:
+                    for t in Tweet where !hidden(t.author) && feedVisible(t, feedAsOf) && (t.author == actor || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == actor || follows(r.user)))) by surfaced desc limit shown:
                         use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
                             use PostExtras(t.id, t.aiAssisted)
                 tab "Live · {count(s in Stream where s.live)}" -> "live":
@@ -667,7 +756,11 @@ app F33D3RHome:
                     input bind bioDraft placeholder "bio"
                     button "Save profile" -> saveProfile(nameDraft, bioDraft)
             text "Posts" class "x-section"
-            for t in Tweet where t.author == handle by created desc limit shown:
+            if walled(handle):
+                text "This account is private." class "x-empty"
+            if blockedEither(handle):
+                text "You can't see this account's posts." class "x-empty"
+            for t in Tweet where t.author == handle && !walled(handle) && !blockedEither(handle) by created desc limit shown:
                 use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0):
                     use PostExtras(t.id, t.aiAssisted)
 
@@ -679,7 +772,12 @@ app F33D3RHome:
         meta title "{Tweet(id).author} on F33D3R"
         meta description "{Tweet(id).body}"
         box:
-            for t in Tweet where t.id == id by id desc limit 1:
+            if exists(t in Tweet where t.id == id && gated(t.author, t.nsfw)):
+                if nsfwGateAuth(Tweet(id).author, Tweet(id).nsfw):
+                    text "Sign in to view this work." class "x-empty"
+                if nsfwGateRestricted(Tweet(id).author, Tweet(id).nsfw):
+                    text "This work is not available to you." class "x-empty"
+            for t in Tweet where t.id == id && !blockedEither(t.author) && !walled(t.author) && reachable(t) && !gated(t.author, t.nsfw) by id desc limit 1:
                 use FocusedPost(t.author, t.handle, t.verified, t.kind, t.body, t.media)
                 use PostStats(count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), count(l in Like where l.tweet == t.id))
                 use EngagementBar(t.id, count(l in Like where l.tweet == t.id), count(r in Reply where r.tweet == t.id), count(r in Repost where r.tweet == t.id), 0)
@@ -690,7 +788,7 @@ app F33D3RHome:
                 use ReplyComposer("Post your reply", replyDraft):
                     use CharCounter(280, replyDraft)
                     button "Reply" -> reply(t.id, replyDraft)
-            if !exists(t in Tweet where t.id == id):
+            if !exists(t in Tweet where t.id == id && !blockedEither(t.author) && !walled(t.author) && reachable(t)):
                 text "This post no longer exists." class "x-empty"
             text "Replies" class "x-section"
             for r in Reply where r.tweet == id by created desc limit 50:

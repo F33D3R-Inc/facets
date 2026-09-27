@@ -1,0 +1,31 @@
+{
+  "tests": [
+    {
+      "name": "userlist: the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "removeFromList",
+          "args": [
+            1,
+            "x"
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "addToList",
+          "args": [
+            1,
+            "x"
+          ]
+        }
+      ]
+    }
+  ]
+}

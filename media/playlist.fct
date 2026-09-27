@@ -25,6 +25,7 @@
 import "../ui/aspectbox.fct"
 import "../ui/progress.fct"
 app FacetMedia:
+    expect view at "/watch/:id"
     css:
         [data-fa-mount] .x-playlist { display: flex; flex-direction: column; gap: 2px;
                     border: none; background: none; padding: 0; }

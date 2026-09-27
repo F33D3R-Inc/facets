@@ -37,6 +37,10 @@
 import "../ui/verifiedbadge.fct"
 import "../live/subscribebutton.fct"
 app FacetContent:
+    expect action unsubscribe(stream: int)
+    expect action subscribe(stream: int)
+    expect action unsubscribeTier(stream: int)
+    expect action subscribeTier(stream: int, tier: int)
     css:
         [data-fa-mount] .x-oa-head { display: flex; align-items: center; gap: 14px;
                      padding: 16px 0; border-bottom: 1px solid var(--x-line, #2f3336); }

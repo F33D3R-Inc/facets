@@ -20,6 +20,7 @@
 import "../ui/avatar.fct"
 import "../ui/userchip.fct"
 app FacetSocial:
+    expect view at "/profile/:handle"
     css:
         [data-fa-mount] .x-focus { padding: 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
         [data-fa-mount] .x-focus-head { display: flex; align-items: center; gap: 12px; }

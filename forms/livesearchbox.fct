@@ -77,6 +77,8 @@
 # library reads off its own action (see `forms/form.fct`, `social/composebox.fct`).
 import "../ui/spinner.fct"
 app FacetForms:
+    expect state q: text
+    expect action liveSearch(term: text)
     css:
         [data-fa-mount] .x-livesearch { display: flex; align-items: center; gap: 8px;
                        padding: 6px 12px; }

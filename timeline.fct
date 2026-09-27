@@ -22,6 +22,7 @@ import "social/composebox.fct"
 import "social/whotofollow.fct"
 import "profile/profileheader.fct"
 import "forms/searchbox.fct"
+import "social/visibility.fct"
 
 app F33D3RTimeline:
     auth
@@ -39,6 +40,13 @@ app F33D3RTimeline:
         quoted: int
         pinned: bool
         created: int
+        # When the work last reached a feed — its posting or its newest repost
+        # (the reference's feed_ts): a fresh repost lifts it to the top.
+        surfaced: int
+        # The reference's work flags social/visibility.fct gates on.
+        nsfw: bool
+        subscriberOnly: bool
+        visibility: text
     entity Like:
         id: int
         tweet: Tweet
@@ -58,6 +66,10 @@ app F33D3RTimeline:
 
     state draft: text = "" @client
     state feedTab: text = "foryou" @client
+    # The instant the feed's snoozes are measured against: a snooze is a
+    # preference with an end, and a where filter is pure, so the view carries
+    # the moment it was read (the same shape messages.fct's dmAsOf takes).
+    state feedAsOf: int = now() @client
     state profileTab: text = "posts" @client
     state q: text = "" @client
     state shown: int = 20 @client
@@ -67,26 +79,50 @@ app F33D3RTimeline:
     policy member:
         actor != "guest"
 
+    derive follows(who: text): bool = exists(f in Follow where f.follower == actor && f.followee == who)
     action post(body: text):
         requires member
-        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", quoted: 0, pinned: false, created: now() }
+        check trim(body) != "" "say something"
+        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", quoted: 0, pinned: false, created: now(), surfaced: now(), nsfw: false, subscriberOnly: false, visibility: "public" }
+    # A work with the reference's flags: NSFW (gated for guests and for
+    # viewers not showing sensitive content), subscriber-only (the author and
+    # active subscribers), and circle visibility (the author's circle).
+    action postWork(body: text, nsfw: bool, subscriberOnly: bool, circle: bool):
+        requires member
+        check trim(body) != "" "say something"
+        let vis = do visibilityOf(circle)
+        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", quoted: 0, pinned: false, created: now(), surfaced: now(), nsfw: nsfw, subscriberOnly: subscriberOnly, visibility: vis }
+    proc visibilityOf(circle: bool) -> text:
+        if circle:
+            return "circle"
+        return "public"
     action quote(body: text, quoted: int):
         requires member
-        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", quoted: quoted, pinned: false, created: now() }
+        add Tweet { author: actor, handle: actor, verified: false, kind: Kind.text, body: body, media: "", quoted: quoted, pinned: false, created: now(), surfaced: now(), nsfw: false, subscriberOnly: false, visibility: "public" }
     action postVideo(body: text, media: text):
         requires member
-        add Tweet { author: actor, handle: actor, verified: true, kind: Kind.video, body: body, media: media, quoted: 0, pinned: true, created: now() }
+        add Tweet { author: actor, handle: actor, verified: true, kind: Kind.video, body: body, media: media, quoted: 0, pinned: true, created: now(), surfaced: now(), nsfw: false, subscriberOnly: false, visibility: "public" }
+    # One reaction per person and work; a repost is a feed item that lifts the
+    # work back to the top of the feeds.
     action like(id: int):
         requires member
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        check !exists(l in Like where l.tweet == id && l.user == actor) "you already liked this"
         add Like { tweet: id, user: actor }
     action repost(id: int):
         requires member
+        check exists(t in Tweet where t.id == id) "that post doesn't exist"
+        check !exists(r in Repost where r.tweet == id && r.user == actor) "you already reposted this"
         add Repost { tweet: id, user: actor }
+        set Tweet(id).surfaced = now()
     action bookmark(id: int):
         requires member
+        check !exists(b in Bookmark where b.tweet == id && b.user == actor) "already bookmarked"
         add Bookmark { tweet: id, user: actor }
     action follow(handle: text):
         requires member
+        check handle != actor "you cannot follow yourself"
+        check !exists(f in Follow where f.follower == actor && f.followee == handle) "already following"
         add Follow { follower: actor, followee: handle }
     action unfollow(handle: text):
         requires member
@@ -105,7 +141,7 @@ app F33D3RTimeline:
                 use SearchBox()
                 tabs bind feedTab:
                     tab "For you" -> "foryou":
-                        for t in Tweet where contains(lower(t.body), lower(q)) by created desc limit shown more loadMore:
+                        for t in Tweet where feedVisible(t, feedAsOf) && contains(lower(t.body), lower(q)) by surfaced desc limit shown more loadMore:
                             if t.pinned:
                                 row class "x-pinned":
                                     icon "pin"
@@ -114,7 +150,7 @@ app F33D3RTimeline:
                                 if t.quoted != 0:
                                     use QuoteCard(t.quoted, Tweet(t.quoted).author, Tweet(t.quoted).handle, Tweet(t.quoted).verified, Tweet(t.quoted).body)
                     tab "Following" -> "following":
-                        for t in Tweet where exists(f in Follow where f.follower == actor && f.followee == t.author) by created desc limit shown more loadMore:
+                        for t in Tweet where feedVisible(t, feedAsOf) && (t.author == actor || follows(t.author) || exists(r in Repost where r.tweet == t.id && (r.user == actor || follows(r.user)))) by surfaced desc limit shown more loadMore:
                             if t.pinned:
                                 row class "x-pinned":
                                     icon "pin"
@@ -169,7 +205,9 @@ app F33D3RTimeline:
                 use NavRail(actor, actor, false, "/")
             box class "x-l-app3-main":
                 use TopBar("Post", "", "/")
-                for t in Tweet where t.id == id by id desc limit 1:
+                if exists(t in Tweet where t.id == id && gated(t.author, t.nsfw)):
+                    text "This work is not available to you." class "x-empty"
+                for t in Tweet where t.id == id && reachable(t) && !gated(t.author, t.nsfw) by id desc limit 1:
                     use PostCard(t.id, t.author, t.handle, t.verified, t.kind, t.body, t.media, t.created, count(l in Like where l.tweet == t.id), 0, count(r in Repost where r.tweet == t.id), 0):
                         if t.quoted != 0:
                             use QuoteCard(t.quoted, Tweet(t.quoted).author, Tweet(t.quoted).handle, Tweet(t.quoted).verified, Tweet(t.quoted).body)

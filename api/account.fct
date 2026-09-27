@@ -3,19 +3,29 @@ import "core.fct"
 import "social.fct"
 import "messaging.fct"
 import "misc.fct"
+import "live.fct"
+import "dealings.fct"
+import "social_events.fct"
+import "communities.fct"
 # The account's own lane on POST /events: lifecycle (delete, deactivate,
 # rename, password), the settings toggles, the security events (2FA, sessions,
 # step-up, switching accounts), Numbers and contact, the plaintext messaging
 # vocabulary, and this device's push subscription.
 app F33D3RAccount:
-    # A queued deletion: the deletion itself is deferred (2257 records outlive
-    # the account), so what the request writes is the pending instruction.
-    entity DeletionRequest:
-        id: int
-        account: int
-        reason: text
-        status: text
-        requested: int
+    expect event balance: BalanceEventDTO
+    expect event notification: NotificationDTO
+    expect event notify: NotifyEventDTO
+    expect event gnosis_message: MessagePushDTO
+    expect event new_post: NewPostEventDTO
+    expect event post_deleted: WorkRemovedEventDTO
+    expect event work_removed: WorkRemovedEventDTO
+    expect event work_edited: WorkEventDTO
+    expect event gnosis_typing: TypingEventDTO
+    expect event gnosis_call: CallSignalDTO
+    expect event live_start: LiveStartEventDTO
+    expect event live_state: LiveStateEventDTO
+    expect event work_engagement: WorkEngagementEventDTO
+    expect event poll_result: PollResultEventDTO
     # One device's Web Push subscription, as the platform issued it.
     entity PushSubscription:
         id: int
@@ -50,14 +60,6 @@ app F33D3RAccount:
         creator: int
         payer: int
         created: int
-    # An account bound to a person's identity (their PIAL, named by the id of
-    # the account that holds it): the accounts a session may switch between.
-    entity AccountBinding:
-        id: int
-        pial: int
-        account: int
-        status: text
-        created: int
     # A PIAL's Stripe Connect payout account as Themis reports it: the last
     # onboarding link Themis handed out (step_up.verify then=payout.onboard)
     # and whether Stripe has enabled payouts on it (Themis's account.updated
@@ -83,27 +85,6 @@ app F33D3RAccount:
 
     # ── Rules, one definition each ───────────────────────────────────────────
 
-    # Signup's handle rule: 1–30 of letters, digits, underscore, hyphen.
-    proc handleOk(h: text) -> bool:
-        let n = len(h)
-        if n < 1 || n > 30:
-            return false
-        let mut i = 0
-        loop i < n:
-            if !contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", charAt(h, i)):
-                return false
-            i = i + 1
-        return true
-    # Top-level path segments owned by real routes (profiles live at /{handle}).
-    proc reservedHandle(h: text) -> bool:
-        return contains("|onboard|login|logout|signin|signup|register|auth|oauth|deactivated|forgot-password|backup-codes|kyc|verity|explore|music|create|nsfw|video|visions|works|work|communities|lists|spheres|spaces|marketplace|buyer-library|notifications|messages|bookmarks|profile|settings|search|wallet|post|feed|shop|stocks|events|library|ledger|upload|react-video|tag|org|achievements|analytics|leaderboard|ainsoph|thessalon|api|static|media|facets|partials|_atlas|u|admin|article|articles|sw|robots|sitemap|favicon|assets|app|www|legal|privacy|terms|dmca|about|help|support|home|root|", "|" + lower(h) + "|")
-    proc charsIn(s: text, alphabet: text) -> bool:
-        let mut i = 0
-        loop i < len(s):
-            if !contains(alphabet, charAt(s, i)):
-                return false
-            i = i + 1
-        return true
     proc isTheme(id: text) -> bool:
         return id == "void" || id == "aurora" || id == "sakura" || id == "obsidian" || id == "moss" || id == "dusk"
     proc isAccentHex(v: text) -> bool:
@@ -197,10 +178,6 @@ app F33D3RAccount:
             return h
         return ""
 
-    # Contact policy: the six words the contact authority knows (elohim-veni
-    # contact::POLICIES); an account that never chose is open.
-    proc isContactPolicy(p: text) -> bool:
-        return p == "open" || p == "followers" || p == "mutuals" || p == "number_only" || p == "capability_only" || p == "closed"
     # allow opens a conversation; request permits one contact request (the
     # message is held); deny yields nothing — as does a word that is not a
     # policy (elohim-veni contact::decide).
@@ -224,24 +201,6 @@ app F33D3RAccount:
             return "request"
         return "deny"
 
-    # A F33D3R Number: twelve digits, the last a Luhn check digit, written
-    # 0412-8837-2919. numberCanonical folds what a person typed (spaces,
-    # hyphens, underscores, full stops, a number: prefix) into that form, or
-    # answers "" for anything that is not a Number.
-    proc luhnOk(digits: text) -> bool:
-        let mut sum = 0
-        let mut i = len(digits) - 1
-        let mut dbl = false
-        loop i >= 0:
-            let mut d = toInt(charAt(digits, i))
-            if dbl:
-                d = d * 2
-                if d > 9:
-                    d = d - 9
-            sum = sum + d
-            dbl = !dbl
-            i = i - 1
-        return sum % 10 == 0
     proc numberCanonical(input: text) -> text:
         let t0 = trim(input)
         let mut t = t0
@@ -251,46 +210,6 @@ app F33D3RAccount:
         if len(bare) != 12 || !charsIn(bare, "0123456789") || !luhnOk(bare):
             return ""
         return slice(bare, 0, 4) + "-" + slice(bare, 4, 8) + "-" + slice(bare, 8, 12)
-    proc numberDisplay(canonical: text) -> text:
-        return replace(canonical, "-", " ")
-    proc newNumber() -> text:
-        let mut payload = ""
-        let mut i = 0
-        loop i < 11:
-            payload = payload + rand(10)
-            i = i + 1
-        let mut digit = 0
-        loop digit < 10:
-            if luhnOk(payload + digit):
-                return slice(payload, 0, 4) + "-" + slice(payload, 4, 8) + "-" + slice(payload, 8, 11) + digit
-            digit = digit + 1
-        return ""
-    # Backup codes: XXXX-XXXX-XXXX from the base32 alphabet, eight at a time.
-    proc backupCode() -> text:
-        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-        let mut out = ""
-        let mut i = 0
-        loop i < 12:
-            if i == 4 || i == 8:
-                out = out + "-"
-            out = out + charAt(alphabet, rand(32))
-            i = i + 1
-        return out
-    proc freshBackupCodes(n: int) -> [text]:
-        let mut out = []
-        let mut i = 0
-        loop i < n:
-            let c = backupCode()
-            out = out + [c]
-            i = i + 1
-        return out
-    # An amount of AET as typed ("12.50") in uAET; -1 when it is not one.
-    proc aetToUaet(v: text) -> int:
-        let s = trim(v)
-        let numeric = charsIn(s, "0123456789.")
-        if s == "" || !numeric || len(split(s, ".")) > 2:
-            return -1
-        return round(toFloat(s) * 1000000.0)
 
     # ── Response shapes ──────────────────────────────────────────────────────
 

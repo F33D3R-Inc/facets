@@ -1,0 +1,47 @@
+{
+  "tests": [
+    {
+      "name": "friendrequestrow: the row shape it expects seeds and reads; the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "seed": {
+            "FriendRequest": [
+              {
+                "at": 1,
+                "from": "x"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(FriendRequest)",
+          "equals": 1
+        },
+        {
+          "expect": "FriendRequest(1).at",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "accept",
+          "args": [
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "decline",
+          "args": [
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

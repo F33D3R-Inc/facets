@@ -1,0 +1,32 @@
+{
+  "tests": [
+    {
+      "name": "giftpicker: the row shape it expects seeds and reads; the actions it expects are invocable with the declared signature",
+      "steps": [
+        {
+          "seed": {
+            "Stream": [
+              {}
+            ]
+          }
+        },
+        {
+          "expect": "count(Stream)",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "tip",
+          "args": [
+            1,
+            100,
+            "x"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -56,6 +56,9 @@
 import "../ui/togglebutton.fct"
 import "../ui/relativetime.fct"
 app FacetCommerce:
+    expect action topUp(cents: money)
+    expect action transfer(to: text, cents: money, note: text)
+    expect action sendRedPacket(to: text, cents: money, note: text)
     css:
         [data-fa-mount] .x-wallet-card { display: flex; flex-direction: column; gap: 4px;
                         padding: 20px; border-radius: var(--fa-radius, 16px);

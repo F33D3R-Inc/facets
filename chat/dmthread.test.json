@@ -1,0 +1,59 @@
+{
+  "tests": [
+    {
+      "name": "dmthread: the row shape it expects seeds and reads",
+      "steps": [
+        {
+          "seed": {
+            "Thread": [
+              {
+                "a": "x",
+                "b": "x",
+                "readA": 1,
+                "readB": 1
+              }
+            ],
+            "Message": [
+              {
+                "from": "x",
+                "sent": 1,
+                "thread": 1
+              }
+            ],
+            "Typing": [
+              {
+                "thread": 1,
+                "who": "x",
+                "at": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(Thread)",
+          "equals": 1
+        },
+        {
+          "expect": "Thread(1).a",
+          "equals": "x"
+        },
+        {
+          "expect": "count(Message)",
+          "equals": 1
+        },
+        {
+          "expect": "Message(1).from",
+          "equals": "x"
+        },
+        {
+          "expect": "count(Typing)",
+          "equals": 1
+        },
+        {
+          "expect": "Typing(1).who",
+          "equals": "x"
+        }
+      ]
+    }
+  ]
+}

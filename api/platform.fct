@@ -1,6 +1,7 @@
 import "entities.fct"
 import "core.fct"
 import "social.fct"
+import "account.fct"
 
 # The platform edges of the API: the third-party read of an account's own
 # works (a developer app's access token, not a session) and the story card,
@@ -47,7 +48,7 @@ app F33D3RPlatform:
         check exists(t in DevToken where "" + t.id == sel && t.expires > t1) "This access token is unknown, revoked, or expired." status 401 code "invalid_token"
         let tid = max(t.id in DevToken where "" + t.id == sel)
         check verifyPassword(DevToken(tid).access_token, secret) "This access token is unknown, revoked, or expired." status 401 code "invalid_token"
-        check contains(DevApp(DevToken(tid).app).scope, "read:public_works") "This access token was not granted the read:public_works scope." status 403 code "insufficient_scope"
+        check contains(DevToken(tid).scope, "read:public_works") "This access token was not granted the read:public_works scope." status 403 code "insufficient_scope"
         let id = DevToken(tid).account
         let n = do pageSize(limit, 20, 50)
         let start = do cursorStart(cursor)

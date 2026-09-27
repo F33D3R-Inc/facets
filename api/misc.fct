@@ -1,8 +1,11 @@
 import "entities.fct"
 import "core.fct"
 import "social.fct"
+import "communities.fct"
 
 app F33D3RMisc:
+    expect event balance: BalanceEventDTO
+    expect event tips: LiveTipsEventDTO
     # The balance an account holds: every wallet entry summed. Settlement is
     # immediate here — no entry is ever pending — so pending_uaet is 0 by
     # construction, the same figure GET /api/v2/wallet answers.
