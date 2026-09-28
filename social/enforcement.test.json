@@ -1,0 +1,471 @@
+{
+  "tests": [
+    {
+      "name": "elohim-veni's decision ladder, rule by rule (status, explicit revoke, combined anomaly 0.4/0.6 > 0.85, content risk > 0.80, trust < 0.20, gated capabilities, restricted bands at 0.50)",
+      "steps": [
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "ALLOW"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "SUSPENDED",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "DENY"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "REVOKED",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "DENY"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            true,
+            false,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "DENY"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            1.0,
+            0.9,
+            0.0
+          ],
+          "returns": "QUARANTINE"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.0,
+            0.81,
+            0.0
+          ],
+          "returns": "QUARANTINE"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            false,
+            false,
+            0.1,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "DENY"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "monetize",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "DENY"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "monetize",
+            "PRIVILEGED",
+            false,
+            false,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "ALLOW"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "monetize",
+            "BASIC",
+            true,
+            true,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": "ALLOW"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.0,
+            0.6,
+            0.0
+          ],
+          "returns": "ALLOW_RESTRICTED"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.5,
+            0.0,
+            0.6
+          ],
+          "returns": "ALLOW_RESTRICTED"
+        },
+        {
+          "run": "decideCapability",
+          "args": [
+            "ACTIVE",
+            "post",
+            "BASIC",
+            false,
+            false,
+            1.0,
+            0.5,
+            0.0,
+            0.5
+          ],
+          "returns": "ALLOW"
+        }
+      ]
+    },
+    {
+      "name": "zodacare account actions: operator-only, the four kinds, status and risk deltas clamped to 0\u20131, violations counted except for unban, the action logged",
+      "steps": [
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "bob"
+              },
+              {
+                "handle": "cy"
+              },
+              {
+                "handle": "root"
+              },
+              {
+                "handle": "ada"
+              }
+            ]
+          }
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "applyAction",
+          "args": [
+            "bob",
+            "ban",
+            "spam",
+            0
+          ],
+          "fails": "forbidden"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "bob",
+            "nuke",
+            "",
+            0
+          ],
+          "fails": "must be warn"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "root",
+            "ban",
+            "",
+            0
+          ],
+          "fails": "own account"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "bob",
+            "warn",
+            "first",
+            0
+          ]
+        },
+        {
+          "expect": "isWarned(1)",
+          "equals": true
+        },
+        {
+          "expect": "riskOfAccount(1)",
+          "equals": 0.1
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "bob",
+            "ban",
+            "second",
+            0
+          ]
+        },
+        {
+          "expect": "isBanned(1)",
+          "equals": true
+        },
+        {
+          "expect": "riskOfAccount(1) > 0.49 && riskOfAccount(1) < 0.51",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "bob",
+            "ban",
+            "again",
+            0
+          ]
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "bob",
+            "ban",
+            "again",
+            0
+          ]
+        },
+        {
+          "expect": "riskOfAccount(1)",
+          "equals": 1.0
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "bob",
+            "unban",
+            "appeal",
+            0
+          ]
+        },
+        {
+          "expect": "isBanned(1)",
+          "equals": false
+        },
+        {
+          "expect": "sum(s.violations in AccountStanding where s.account == 1)",
+          "equals": 4
+        },
+        {
+          "expect": "riskOfAccount(1) > 0.69 && riskOfAccount(1) < 0.71",
+          "equals": true
+        },
+        {
+          "expect": "count(EnforcementAction)",
+          "equals": 5
+        }
+      ]
+    },
+    {
+      "name": "reports raise the account's risk by 0.05 and count; standing maps to the capability decision; a restriction with an end is lifted by the sweep",
+      "steps": [
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "bob"
+              },
+              {
+                "handle": "cy"
+              },
+              {
+                "handle": "root"
+              },
+              {
+                "handle": "ada"
+              }
+            ]
+          }
+        },
+        {
+          "run": "recordReport",
+          "args": [
+            2
+          ]
+        },
+        {
+          "run": "recordReport",
+          "args": [
+            2
+          ]
+        },
+        {
+          "expect": "sum(s.reports in AccountStanding where s.account == 2)",
+          "equals": 2
+        },
+        {
+          "expect": "riskOfAccount(2) > 0.099 && riskOfAccount(2) < 0.101",
+          "equals": true
+        },
+        {
+          "run": "standingDecision",
+          "args": [
+            2,
+            "post"
+          ],
+          "returns": "ALLOW"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "cy",
+            "restrict",
+            "cooling off",
+            1
+          ]
+        },
+        {
+          "run": "standingDecision",
+          "args": [
+            2,
+            "post"
+          ],
+          "returns": "DENY"
+        },
+        {
+          "run": "liftExpired"
+        },
+        {
+          "expect": "isRestricted(2)",
+          "equals": false
+        },
+        {
+          "run": "standingDecision",
+          "args": [
+            2,
+            "post"
+          ],
+          "returns": "ALLOW"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "applyAction",
+          "args": [
+            "nobody",
+            "warn",
+            "",
+            0
+          ],
+          "fails": "no such account"
+        }
+      ]
+    }
+  ]
+}

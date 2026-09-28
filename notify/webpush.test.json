@@ -1,0 +1,190 @@
+{
+  "tests": [
+    {
+      "name": "RFC 8291 Appendix A: the aes128gcm body is the RFC's, byte for byte, and the derived CEK and nonce are the RFC's",
+      "steps": [
+        {
+          "run": "rfc8291Encrypt",
+          "args": [
+            "When I grow up, I want to be a watermelon",
+            "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+            "BTBZMqHH6r4Tts7J_aSIgg",
+            "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw",
+            "DGv6ra1nlYgDCS1FRnbzlw"
+          ],
+          "returns": "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
+        },
+        {
+          "run": "rfc8291Hkdf",
+          "args": [
+            "DGv6ra1nlYgDCS1FRnbzlw",
+            "S4lYMb_L0FxCeq0WhDx813KgSYqU26kOyzWUdsXYyrg",
+            "Content-Encoding: aes128gcm",
+            16
+          ],
+          "returns": "oIhVW04MRdy2XN9CiKLxTg"
+        },
+        {
+          "run": "rfc8291Hkdf",
+          "args": [
+            "DGv6ra1nlYgDCS1FRnbzlw",
+            "S4lYMb_L0FxCeq0WhDx813KgSYqU26kOyzWUdsXYyrg",
+            "Content-Encoding: nonce",
+            12
+          ],
+          "returns": "4h_95klXJ5E_qnoN"
+        }
+      ]
+    },
+    {
+      "name": "herald's gate over the product's NotificationPrefs: everything on with no row; push off, or the type off (reply covers mention and quote), stops a notify before any delivery, and the log says why",
+      "steps": [
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada"
+              },
+              {
+                "handle": "bob"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "pushAllowed(1, \"like\")",
+          "equals": true
+        },
+        {
+          "seed": {
+            "NotificationPrefs": [
+              {
+                "account": 1,
+                "push_enabled": true,
+                "likes_enabled": false,
+                "reposts_enabled": true,
+                "replies_enabled": false,
+                "follows_enabled": true,
+                "messages_enabled": true,
+                "achievements_enabled": true
+              }
+            ]
+          }
+        },
+        {
+          "expect": "pushAllowed(1, \"like\")",
+          "equals": false
+        },
+        {
+          "expect": "pushAllowed(1, \"mention\")",
+          "equals": false
+        },
+        {
+          "expect": "pushAllowed(1, \"quote\")",
+          "equals": false
+        },
+        {
+          "expect": "pushAllowed(1, \"follow\")",
+          "equals": true
+        },
+        {
+          "expect": "pushAllowed(2, \"like\")",
+          "equals": true
+        },
+        {
+          "run": "notifyPush",
+          "args": [
+            1,
+            "like",
+            "t",
+            "b",
+            ""
+          ],
+          "returns": 0
+        },
+        {
+          "expect": "count(l in PushLog where l.reason == \"type_disabled\")",
+          "equals": 1
+        },
+        {
+          "run": "notifyPush",
+          "args": [
+            1,
+            "follow",
+            "t",
+            "b",
+            ""
+          ],
+          "returns": 0
+        },
+        {
+          "expect": "count(l in PushLog where l.reason == \"no_subscriptions\")",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "the push job walks the product's Notification rows once: each new one is handed on (titled from its actor and kind), and a second pass hands on nothing",
+      "steps": [
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada"
+              },
+              {
+                "handle": "bob"
+              }
+            ],
+            "Notification": [
+              {
+                "account": 1,
+                "actor": 2,
+                "kind": "like",
+                "target_type": "work",
+                "target_id": 7,
+                "preview": "hi",
+                "created": 1
+              },
+              {
+                "account": 1,
+                "actor": 2,
+                "kind": "follow",
+                "target_type": "account",
+                "target_id": 2,
+                "preview": "",
+                "created": 2
+              }
+            ]
+          }
+        },
+        {
+          "run": "drainPushes"
+        },
+        {
+          "expect": "count(PushLog)",
+          "equals": 2
+        },
+        {
+          "expect": "count(l in PushLog where l.title == \"bob liked your post\")",
+          "equals": 1
+        },
+        {
+          "expect": "count(l in PushLog where l.title == \"bob followed you\")",
+          "equals": 1
+        },
+        {
+          "expect": "max(c.last in PushCursor where true)",
+          "equals": 2
+        },
+        {
+          "run": "drainPushes"
+        },
+        {
+          "expect": "count(PushLog)",
+          "equals": 2
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import "core.fct"
 import "social.fct"
 import "misc.fct"
 import "commerce.fct"
+import "../commerce/shop.fct"
 
 # The money lanes of the mutation surface: the BTC/XRP marketplace (a
 # seller's shop, their encrypted listings, a buyer's pending purchase, a
@@ -152,18 +153,14 @@ app F33D3RDealings:
     # answers as pial_id) for 30 days; an existing subscription is renewed.
     action marketplaceSubscriptionCreate(seller_pial: text):
         requires member
+        requires goodStanding
         check seller_pial != "" "seller_pial required" status 400
         let seller = toInt(seller_pial)
         check exists(a in Account where a.id == seller) "seller not found" status 404
-        check exists(s in Shop where s.owner == seller) "no such shop" status 404
-        let sid = max(s.id in Shop where s.owner == seller)
         let me = max(a.id in Account where a.handle == actor)
-        if exists(x in ShopSubscription where x.shop == sid && x.account == me):
-            let xid = max(x.id in ShopSubscription where x.shop == sid && x.account == me)
-            set ShopSubscription(xid).status = "active"
-            set ShopSubscription(xid).period_end = now() + 2592000
-        else:
-            add ShopSubscription { shop: sid, account: me, plan: 0, created: now(), status: "active", period_end: now() + 2592000 }
+        # Not yourself, a verified creator, charged through the ledger, 30
+        # days (commerce/shop.fct).
+        run subscribeTo(me, seller, 0)
 
     # ── Creator plans and onboarding ───────────────────────────────────────
 
@@ -338,6 +335,7 @@ app F33D3RDealings:
     # not for sale, as legacy; a priced one is paid through the wallet once.
     action workPurchase(work_id: text):
         requires member
+        requires goodStanding
         check work_id != "" "work_id required" status 400
         let wid = toInt(work_id)
         check exists(w in Work where w.id == wid && !w.deleted) "work not found" status 404
@@ -347,9 +345,7 @@ app F33D3RDealings:
         check author != me "you cannot buy your own work" status 400
         check !exists(p in WorkPurchase where p.work == wid && p.buyer == me) "already purchased" status 409
         let price = Work(wid).price_uaet
-        check sum(w.amount_uaet in WalletEntry where w.account == me) >= price "insufficient balance" status 400
-        add WalletEntry { account: me, kind: "work_purchase", amount_uaet: 0 - price, counterparty: author, created: now() }
-        add WalletEntry { account: author, kind: "work_sale", amount_uaet: price, counterparty: me, created: now() }
+        let paid = run ledgerMove(me, author, price, "sale", "work_purchase", "work_sale")
         add WorkPurchase { work: wid, buyer: me, amount_uaet: price, created: now() }
         emit balance balanceDTO(me) to actor
         emit balance balanceDTO(author) to Account(author).handle

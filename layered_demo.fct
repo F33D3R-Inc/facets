@@ -1,0 +1,24 @@
+# NOTE: the product — f33d3r.com, one app at one origin over the API's entity
+# model — is facets/f33d3r_com.fct. This root is the layered-track fixture:
+# the one program exercising a playground, a wireframe and typed bricks
+# (data/feed.fct, ui/nav.fct, ui/trends.fct, wireframes/shell.fct), which the
+# self-hosted toolchain's parity and driver tests compile; its sidecar guards
+# it as such.
+# layered_demo — the playground (the baseplate): global concerns (auth, theme) and the
+# one mount of the Shell wireframe. The compiler composites the whole brick stack —
+# wireframe + ui/data facets + components — into one placement-sound surface.
+#
+#   facet dev library/layered_demo.fct
+import "wireframes/shell.fct"
+playground F33D3R:
+    auth
+    theme:
+        bg "#15202b"
+        fg "#f7f9f9"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#38444d"
+        card-border "#38444d"
+        radius "16px"
+        maxwidth "1100px"
+    mount Shell at "/"

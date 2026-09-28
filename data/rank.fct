@@ -21,8 +21,11 @@
 # (alignment 0.35, quality 0.25, completion 0.15, early retention 0.10,
 # creator affinity 0.10, minus fatigue 0.15). It is ported as neuralScore, and
 # the pipeline's combination as pipelineScore: neural × clamp(AESQ × 0.40 +
-# 0.60), plus the in-network boost. Not ported: the velocity and revenue
-# adjustments, which read lifecycle and conversion signals the apps lack.
+# 0.60), plus the in-network boost. The velocity stage (pipeline/velocity.rs)
+# reads the lifecycle signals zior (media/zior.fct) emits — velocity, early
+# retention, completion — and is ported as velocityBoost / lifecyclePhase /
+# pipelineScoreV. Not ported: the revenue adjustment, which reads conversion
+# signals the apps lack.
 app FacetData:
     proc clamp01(x: float) -> float:
         if x < 0.0:
@@ -138,6 +141,33 @@ app FacetData:
         return clamp01(aesq * 0.40 + 0.60)
     proc pipelineScore(neural: float, aesq: float, inNetwork: bool) -> float:
         return clamp01(neural * aesqMultiplier(aesq) + networkBoost(inNetwork))
+    # pipeline/velocity.rs with config/default.toml's [velocity]: promotion at
+    # 0.70, decay at 0.20, a ±0.20 (decay ±0.10) boost over the composite of
+    # velocity 0.45, early retention 0.25, completion 0.20, self-reply 0.10.
+    proc compositeVelocity(velocity: float, retention: float, completion: float, selfReply: float) -> float:
+        return clamp01(0.45 * velocity + 0.25 * retention + 0.20 * completion + 0.10 * selfReply)
+    proc velocityBoost(velocity: float, retention: float, completion: float, selfReply: float) -> float:
+        let v = compositeVelocity(velocity, retention, completion, selfReply)
+        if v >= 0.70:
+            return clamp01((v - 0.70) / (1.0 - 0.70)) * 0.20
+        if v <= 0.20:
+            return 0.0 - clamp01((0.20 - v) / 0.20) * (0.20 * 0.5)
+        return 0.0
+    proc lifecyclePhase(velocity: float, retention: float, completion: float, selfReply: float, exposure: int) -> text:
+        let v = compositeVelocity(velocity, retention, completion, selfReply)
+        if exposure < 500:
+            return "test_cohort"
+        if v >= 0.90:
+            return "viral"
+        if v >= 0.70:
+            return "expanding"
+        if v <= 0.20:
+            return "decaying"
+        return "stable"
+    # The pipeline with its velocity stage: neural × AESQ multiplier, plus the
+    # velocity boost (clamped), plus the in-network boost.
+    proc pipelineScoreV(neural: float, aesq: float, vboost: float, inNetwork: bool) -> float:
+        return clamp01(clamp01(neural * aesqMultiplier(aesq) + vboost) + networkBoost(inNetwork))
     # A score as integer micro-units, for exact parity.
     proc micro(x: float) -> int:
         return round(x * 1000000.0)
@@ -169,4 +199,13 @@ app FacetData:
         return micro(v)
     action rankPipeline(neural: float, aesq: float, inNetwork: bool) -> int:
         let v = do pipelineScore(neural, aesq, inNetwork)
+        return micro(v)
+    action rankVelocity(velocity: float, retention: float, completion: float, selfReply: float) -> int:
+        let v = do velocityBoost(velocity, retention, completion, selfReply)
+        return micro(v)
+    action rankPhase(velocity: float, retention: float, completion: float, selfReply: float, exposure: int) -> text:
+        let v = do lifecyclePhase(velocity, retention, completion, selfReply, exposure)
+        return v
+    action rankPipelineV(neural: float, aesq: float, vboost: float, inNetwork: bool) -> int:
+        let v = do pipelineScoreV(neural, aesq, vboost, inNetwork)
         return micro(v)

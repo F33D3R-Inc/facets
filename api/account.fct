@@ -1,5 +1,6 @@
 import "entities.fct"
 import "core.fct"
+import "../notify/webpush.fct"
 import "social.fct"
 import "messaging.fct"
 import "misc.fct"
@@ -680,13 +681,10 @@ app F33D3RAccount:
             let target = max(a.id in Account where a.handle == th)
             let amt = do aetToUaet("" + then_fields.amount)
             check amt > 0 "amount must be a positive number of AET" status 400
-            check sum(w.amount_uaet in WalletEntry where w.account == me) >= amt "insufficient balance" status 400
             if act == "wallet.send":
-                add WalletEntry { account: me, kind: "send", amount_uaet: 0 - amt, counterparty: target, created: now() }
-                add WalletEntry { account: target, kind: "receive", amount_uaet: amt, counterparty: me, created: now() }
+                let sent = run ledgerMove(me, target, amt, "tip", "send", "receive")
             else:
-                add WalletEntry { account: me, kind: "tip_sent", amount_uaet: 0 - amt, counterparty: target, created: now() }
-                add WalletEntry { account: target, kind: "tip_received", amount_uaet: amt, counterparty: me, created: now() }
+                let tipped = run ledgerMove(me, target, amt, "tip", "tip_sent", "tip_received")
                 let wid = toInt("" + then_fields.work_id)
                 if wid > 0:
                     let tn = add Notification { account: target, actor: me, kind: "tip", target_type: "work", target_id: wid, preview: "", amount_uaet: amt, is_read: false, created: now() }
@@ -1048,3 +1046,4 @@ app F33D3RAccount:
         check exists(m in ConversationMember where m.conversation == cid && m.account == me) "forbidden" status 403
         for m in ConversationMember where m.conversation == cid && m.account == me:
             set ConversationMember(m.id).unread = 0
+            set ConversationMember(m.id).last_read = now()

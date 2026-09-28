@@ -39,6 +39,13 @@ app F33D3REntities:
         community: int
         scheduled_at: int
         react_layout: text
+        # The stored search field (search/engine.fct searchDocText: body A |
+        # tags B | alt text C, folded and stemmed), kept by reindexWork; ""
+        # until the work is indexed.
+        search_text: text
+        # The $TICKERs the body names (" TSLA AAPL "), what a stock page lists
+        # its posts by; kept by reindexWork beside search_text.
+        cashtags: text
     entity Like:
         id: int
         work: int
@@ -58,6 +65,18 @@ app F33D3REntities:
         folder: int
     # One #hashtag a work carries (lowercased, without the #), dated with the
     # work, so trending counts can window by time.
+    # The lexicon (0067's search_lexicon): every word the corpus uses,
+    # lowercased and unaccented, with how many rows use it; advanced per
+    # source from a watermark (search_lexicon_state) by the search job.
+    entity SearchWord:
+        id: int
+        word: text
+        ndoc: int
+        last_seen: int
+    entity SearchLexiconState:
+        id: int
+        source: text
+        watermark: int
     entity WorkTag:
         id: int
         work: int
@@ -171,6 +190,9 @@ app F33D3REntities:
         unread: int
         joined: int
         last_typed: int
+        # When this member last read the thread (unix seconds, 0 = never): a
+        # message sent at or before it has been seen by them.
+        last_read: int
     entity Message:
         id: int
         conversation: int

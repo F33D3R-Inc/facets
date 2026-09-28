@@ -1,0 +1,82 @@
+# Shop — paid subscriptions to a creator, ported from the reference
+# (feed-engine handler/shop.go subscribeToCreator / web_shop.go Subscribe, and
+# db/queries.go's subscription lifecycle), bound to the product's Shop,
+# ShopPlan and ShopSubscription rows by `expect`; the product's
+# marketplaceSubscriptionCreate runs `subscribeTo`, so /api/v2 and the web
+# charge the same way. Every charge settles on commerce/ledger.fct as an Ain
+# Soph tip (the reference's /v1/tip), 1% to the fee pool.
+#
+#   subscribeTo(me, creator, plan)  not yourself (400); the creator must hold
+#                              a documented identity (403 creator_not_verified,
+#                              profile/identity.fct over the product's KYC);
+#                              the plan's price (whole AET) or the reference's
+#                              default of 1 AET is charged; an uncovered charge
+#                              answers 422 insufficient_balance; then active for
+#                              30 days — a renewal charges again and extends.
+#   the expiry sweep           a subscription whose 30 days are over is expired.
+#
+# Priced works are the product's own workPurchase (api/dealings.fct), which
+# moves through the same ledger.
+import "ledger.fct"
+import "../profile/identity.fct"
+app FacetCommerce:
+    expect policy member
+    expect entity Account:
+        id: int
+        handle: text
+    expect entity Shop:
+        id: int
+        owner: int
+        is_enabled: bool
+    expect entity ShopPlan:
+        id: int
+        shop: int
+        name: text
+        price_aet: int
+        is_active: bool
+    expect entity ShopSubscription:
+        id: int
+        shop: int
+        account: int
+        plan: int
+        created: int
+        status: text
+        period_end: int
+    expect entity WorkPurchase:
+        id: int
+        work: int
+        buyer: int
+        amount_uaet: int
+        created: int
+    derive subscribedTo(me: int, seller: int, at: int): bool = exists(s in ShopSubscription where s.account == me && s.status == "active" && s.period_end > at && exists(h in Shop where h.id == s.shop && h.owner == seller))
+    derive subscriberCount(seller: int, at: int): int = count(s in ShopSubscription where s.status == "active" && s.period_end > at && exists(h in Shop where h.id == s.shop && h.owner == seller))
+    derive purchased(me: int, work: int): bool = exists(p in WorkPurchase where p.work == work && p.buyer == me)
+    # The plan's price in AET cents: its whole-AET price, or 1 AET.
+    proc planCents(plan: int, prices: [int]) -> int:
+        if plan == 0 || len(prices) == 0 || prices[0] <= 0:
+            return 100
+        return prices[0] * 100
+    action subscribeTo(me: int, seller: int, planId: int) @internal:
+        check seller != me "cannot subscribe to yourself" status 400
+        check exists(a in Account where a.id == seller) "seller not found" status 404
+        check identityVerified(seller) "This seller has not completed identity verification and cannot accept subscriptions yet." status 403 code "creator_not_verified"
+        check exists(h in Shop where h.owner == seller) "no such shop" status 404
+        let sid = max(h.id in Shop where h.owner == seller)
+        check planId == 0 || exists(p in ShopPlan where p.id == planId && p.shop == sid && p.is_active) "no such plan" status 404
+        let cents = do planCents(planId, list(p.price_aet in ShopPlan where p.id == planId))
+        check balanceOf(me) >= cents * 10000 "Not enough AET to subscribe." status 422 code "insufficient_balance"
+        let net = run ledgerMove(me, seller, cents * 10000, "tip", "subscription", "subscription_received")
+        let t0 = now()
+        if exists(x in ShopSubscription where x.shop == sid && x.account == me):
+            set x in ShopSubscription where x.shop == sid && x.account == me:
+                status = "active"
+                plan = planId
+                period_end = max(x.period_end, t0) + 2592000
+        else:
+            add ShopSubscription { shop: sid, account: me, plan: planId, created: t0, status: "active", period_end: t0 + 2592000 }
+    # A subscription ends when its 30 days do.
+    action expireSubs @internal:
+        let t0 = now()
+        set s in ShopSubscription where s.status == "active" && s.period_end <= t0:
+            status = "expired"
+    job subscriptionExpiry every 3600s -> expireSubs

@@ -48,6 +48,10 @@ app F33D3RMarkets:
         price_label: text
         change_label: text
         as_of: int
+        # The five-day close series as the price card draws it: SVG polyline
+        # points in a 120×38 box (buildSparkline), "" under two closes; kept
+        # as quotes and closes arrive.
+        sparkline: text
     # One intraday bar close (the legacy read 30-minute bars over five days).
     entity TickerClose:
         id: int
@@ -659,6 +663,7 @@ app F33D3RMarkets:
         set Ticker(id).price_label = pl
         set Ticker(id).change_label = cl
         set Ticker(id).as_of = at
+        run refreshTickerSparkline(id)
     # One bar close; closes older than five days before it are dropped.
     action recordTickerClose(symbol: text, ts: int, close: float):
         requires marketsOperator
@@ -668,6 +673,42 @@ app F33D3RMarkets:
         let id = max(t.id in Ticker where t.symbol == sym)
         remove c in TickerClose where c.ticker == id && (c.ts == ts || c.ts < ts - 432000)
         add TickerClose { ticker: id, ts: ts, close: close }
+        run refreshTickerSparkline(id)
+    action refreshTickerSparkline(id: int) @internal:
+        set Ticker(id).sparkline = sparklinePoints(list(c.close in TickerClose where c.ticker == id && c.ts >= Ticker(id).as_of - 432000 by ts))
+    # buildSparkline: the closes scaled into 120 × 38, y flipped and kept in
+    # [1, 38], each point "x,y" to one decimal.
+    proc sparklinePoints(closes: [float]) -> text:
+        let n = len(closes)
+        if n < 2:
+            return ""
+        let mut lo = closes[0]
+        let mut hi = closes[0]
+        let mut i = 0
+        loop i < n:
+            if closes[i] < lo:
+                lo = closes[i]
+            if closes[i] > hi:
+                hi = closes[i]
+            i = i + 1
+        let mut rng = hi - lo
+        if rng == 0.0:
+            rng = 1.0
+        let mut out = []
+        i = 0
+        loop i < n:
+            let x = toFloat(i) / toFloat(n - 1) * 120.0
+            let mut y = 38.0 - (closes[i] - lo) / rng * 38.0
+            if y > 38.0:
+                y = 38.0
+            if y < 1.0:
+                y = 1.0
+            out = append(out, oneDecimal(x) + "," + oneDecimal(y))
+            i = i + 1
+        return join(out, " ")
+    proc oneDecimal(v: float) -> text:
+        let tenths = round(v * 10.0)
+        return "" + (tenths / 10) + "." + (tenths % 10)
 
     proc nonZero(v: int, fallback: int) -> int:
         if v == 0:

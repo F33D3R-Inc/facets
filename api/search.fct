@@ -1,0 +1,190 @@
+# Search over the product's rows — feed-engine internal/db/search.go's
+# readers, answered by search/engine.fct's procs:
+#
+#   reindexWork          a work's stored search field (0067's trigger)
+#   searchWorksRanked    SearchWorksRanked: the ranked page, and when the
+#                        words match nothing, the lexicon's correction and
+#                        then similarity over the bodies (typo tolerance)
+#   searchDidYouMean     DidYouMean over the lexicon
+#   searchPeople/Tags    SearchPeopleRanked, SearchTags
+#   refreshSearchLexicon RefreshSearchLexicon, one batch per source
+#
+# Candidates are the visible works whose stored field carries the one lexeme
+# every match must (contains(w.search_text, " key ")), then decided and
+# ranked exactly in procs.
+import "../search/engine.fct"
+import "entities.fct"
+import "../social/moderation.fct"
+import "../social/visibility.fct"
+import "polls.fct"
+app F33D3RApi:
+    type SearchPageDTO:
+        ids: [int]
+        total: int
+    type SearchWorksResult:
+        ids: [int]
+        total: int
+        typo: bool
+        corrected: [text]
+
+    action reindexWork(id: int) @internal:
+        set Work(id).search_text = searchDocText(Work(id).body, list(t.tag in WorkTag where t.work == id by id), Work(id).alt_text)
+        set Work(id).cashtags = searchCashtags(Work(id).body)
+
+    # One page of works for a typed query: the visible candidates carrying
+    # the plan's key (all visible works for similarity or a query with no
+    # single required lexeme), decided and ranked by searchRankDocs.
+    action searchWorkPage(raw: text, latest: bool, media: bool, trigram: bool, limit: int, offset: int) -> SearchPageDTO @internal:
+        let me = max(a.id in Account where a.handle == actor)
+        let t0 = now()
+        let q = searchParse(raw)
+        let key = searchCandidateKey(searchPlan(q))
+        let docs = list(SearchDoc{id: w.id, doc: w.search_text, body: w.body, author: Account(w.author).handle, created: w.created, engagement: count(l in Like where l.work == w.id) + count(r in Repost where r.work == w.id) + count(x in Work where x.parent_cid == w.id && !x.deleted) + count(x in Work where x.quoted == w.id && !x.deleted), views: 0, replies: count(x in Work where x.parent_cid == w.id && !x.deleted), media: w.media_urls != "" || w.kind == "video" || w.kind == "react_video" || w.kind == "voice", video: w.kind == "video" || w.kind == "react_video", image: w.media_urls != "" && w.kind != "video" && w.kind != "react_video", voice: w.kind == "voice", poll: exists(p in Poll where p.work == w.id)} in Work where !w.deleted && w.parent_cid == 0 && w.scheduled_at <= t0 && !workBlocked(w.id) && feedVisible(w, me, t0) && (trigram || key == "" || contains(w.search_text, key)) by id desc limit 5000)
+        let page = searchRankDocs(q, docs, t0, latest, media, trigram, limit, offset)
+        return SearchPageDTO{ids: page.ids, total: page.total}
+
+    # DidYouMean: each typed word no row uses, replaced by the most similar
+    # word many rows use (search/engine.fct bestCorrection over the lexicon).
+    action searchDidYouMean(raw: text) -> [text] @internal:
+        let q = searchParse(raw)
+        let folded = searchFoldAll(q.words)
+        let known = list(x.word in SearchWord where x.word in folded by id)
+        let lo = searchCorrectionMin(q.words)
+        let hi = searchCorrectionMax(q.words)
+        let cands = list(x.word in SearchWord where x.ndoc >= 2 && len(x.word) >= lo && len(x.word) <= hi by id)
+        let ndocs = list(x.ndoc in SearchWord where x.ndoc >= 2 && len(x.word) >= lo && len(x.word) <= hi by id)
+        return searchCorrectWords(q.words, known, cands, ndocs)
+
+    action searchWorksRanked(raw: text, latest: bool, media: bool, limit: int, offset: int) -> SearchWorksResult @internal:
+        let q = searchParse(raw)
+        if searchQueryEmpty(q):
+            return SearchWorksResult{ids: [], total: 0, typo: false, corrected: []}
+        let first = run searchWorkPage(raw, latest, media, false, limit, offset)
+        if first.total > 0 || !searchWordsOnly(q):
+            return SearchWorksResult{ids: first.ids, total: first.total, typo: false, corrected: []}
+        let words = run searchDidYouMean(raw)
+        if !searchSameWords(words, q.words):
+            let fixed = run searchWorkPage(searchWithWords(q, words), latest, media, false, limit, offset)
+            if fixed.total > 0:
+                return SearchWorksResult{ids: fixed.ids, total: fixed.total, typo: true, corrected: words}
+        if offset == 0:
+            let similar = run searchWorkPage(raw, latest, media, true, limit, 0)
+            return SearchWorksResult{ids: similar.ids, total: similar.total, typo: similar.total > 0, corrected: []}
+        return SearchWorksResult{ids: [], total: 0, typo: false, corrected: []}
+
+    # RefreshSearchLexicon: each source's rows past its watermark (a batch
+    # of 2000, by id), their words counted once per row.
+    action refreshSearchLexicon() -> int @internal:
+        let wm = max(s.watermark in SearchLexiconState where s.source == "works")
+        let batch = list(w.id in Work where w.id > wm && !w.deleted && !workBlocked(w.id) by id limit 2000)
+        for id in batch:
+            let words = searchLexiconWords(Work(id).body + " " + join(list(t.tag in WorkTag where t.work == id by id), " "))
+            for word in words:
+                if exists(x in SearchWord where x.word == word):
+                    for x in SearchWord where x.word == word:
+                        set SearchWord(x.id).ndoc = x.ndoc + 1
+                        set SearchWord(x.id).last_seen = now()
+                else:
+                    add SearchWord { word: word, ndoc: 1, last_seen: now() }
+        if len(batch) > 0:
+            if exists(s in SearchLexiconState where s.source == "works"):
+                for s in SearchLexiconState where s.source == "works":
+                    set SearchLexiconState(s.id).watermark = batch[len(batch) - 1]
+            else:
+                add SearchLexiconState { source: "works", watermark: batch[len(batch) - 1] }
+        let am = max(s.watermark in SearchLexiconState where s.source == "users")
+        let people = list(a.id in Account where a.id > am && !a.deactivated by id limit 2000)
+        for id in people:
+            let words = searchLexiconWords(Account(id).handle + " " + replace(Account(id).handle, "_", " ") + " " + Account(id).display_name)
+            for word in words:
+                if exists(x in SearchWord where x.word == word):
+                    for x in SearchWord where x.word == word:
+                        set SearchWord(x.id).ndoc = x.ndoc + 1
+                        set SearchWord(x.id).last_seen = now()
+                else:
+                    add SearchWord { word: word, ndoc: 1, last_seen: now() }
+        if len(people) > 0:
+            if exists(s in SearchLexiconState where s.source == "users"):
+                for s in SearchLexiconState where s.source == "users":
+                    set SearchLexiconState(s.id).watermark = people[len(people) - 1]
+            else:
+                add SearchLexiconState { source: "users", watermark: people[len(people) - 1] }
+        return len(batch) + len(people)
+    # Works kept before the stored field existed (a migrated database) are
+    # indexed a batch at a time.
+    action backfillSearchText() -> int @internal:
+        let batch = list(w.id in Work where w.search_text == "" by id limit 500)
+        for id in batch:
+            run reindexWork(id)
+        return len(batch)
+    action searchMaintenance() @internal:
+        let a = run backfillSearchText()
+        let b = run refreshSearchLexicon()
+    job searchIndex every 30s -> searchMaintenance
+
+    # SearchPeopleRanked's candidates: live accounts the viewer may be shown
+    # (a minor among minors, an adult creator only to an adult) and neither
+    # side has blocked.
+    action searchPeople(term: text, limit: int, offset: int) -> [int] @internal:
+        let me = max(a.id in Account where a.handle == actor)
+        let minor = Account(me).is_minor
+        let adult = Account(me).is_adult
+        let people = list(SearchPerson{id: a.id, handle: a.handle, name: a.display_name, bio: a.bio, location: a.location, followers: count(f in Follow where f.followee == a.id), verified: a.is_verified, creator: a.is_creator} in Account where !a.deactivated && a.is_minor == minor && (adult || !a.is_adult_creator) && !exists(b in Block where (b.account == me && b.target == a.id) || (b.account == a.id && b.target == me)) by id limit 5000)
+        let ranked = searchPeopleRank(term, people)
+        return slice(ranked, offset, offset + limit)
+    action searchTags(prefix: text, limit: int) -> [TagDTO] @internal:
+        let tags = list(t.tag in WorkTag where exists(w in Work where w.id == t.work && !w.deleted) by id)
+        let hits = searchTagsRank(prefix, tags, limit)
+        return tagDTOs(hits)
+    proc tagDTOs(h: SearchTagHits) -> [TagDTO]:
+        let mut out = []
+        let mut i = 0
+        loop i < len(h.tags):
+            out = append(out, TagDTO{count: h.counts[i], tag: h.tags[i]})
+            i = i + 1
+        return out
+    # did_you_mean when the page was not already answered by a correction:
+    # page one, fewer than five works, and the lexicon changes the words
+    # into a different query.
+    action searchSuggestion(raw: text, total: int, corrected: bool, page: int) -> text @internal:
+        if raw == "" || corrected || page != 1 || total >= 5:
+            return ""
+        let q = searchParse(raw)
+        if len(q.words) == 0:
+            return ""
+        let words = run searchDidYouMean(raw)
+        if searchSameWords(words, q.words):
+            return ""
+        let fixed = searchWithWords(q, words)
+        if searchKey(fixed) == searchKey(raw):
+            return ""
+        return fixed
+    proc searchDidYouMeanText(q: SearchQuery, corrected: [text], suggestion: text) -> text:
+        if len(corrected) > 0:
+            return searchWithWords(q, corrected)
+        return suggestion
+    proc searchPickText(want: bool, v: text) -> text:
+        if want:
+            return v
+        return ""
+    proc searchPickInt(want: bool, v: int) -> int:
+        if want:
+            return v
+        return 0
+    proc searchTagTermOf(q: SearchQuery) -> text:
+        return sxTagTerm(q)
+    # PeopleTerm, or the query itself when it names no one and has no words.
+    proc searchPeopleTermOf(q: SearchQuery, raw: text) -> text:
+        let t = sxPeopleTerm(q)
+        if t == "":
+            return raw
+        return t
+    proc searchSameWords(a: [text], b: [text]) -> bool:
+        if len(a) != len(b):
+            return false
+        let mut i = 0
+        loop i < len(a):
+            if a[i] != b[i]:
+                return false
+            i = i + 1
+        return true

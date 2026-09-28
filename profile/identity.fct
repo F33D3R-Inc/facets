@@ -1,0 +1,137 @@
+# Identity — KYC attestations, ported from the reference's verity service
+# (verity/src/main.rs: kyc_submit, decide/evaluate, compute_risk,
+# admin_set_tier; models.rs tiers and risk thresholds) and the two facts the
+# front reads from it (feed-engine model.KYCTierIsIdentity, gnosis
+# verifiedAdult).
+#
+#   Tiers: 0 unverified · 1 basic · 2 age-verified (a documented identity) ·
+#   3 creator. An attestation is approved | denied | pending_review | expired;
+#   an account's tier and age band are its best approved ones.
+#   A verification result arrives only from the verification provider's
+#   signed webhook (POST /hooks/kyc — ekyc posting to verity) or an operator;
+#   no account can attest itself. A gov-ID result under 0.6 confidence fails;
+#   a passed gov-ID with a known age band is an approved tier-2 attestation.
+#
+# Bound to the product's Account by `expect`: the product's own KYC flow
+# (api/core.fct's liveness submission, api/operator.fct's kycVerdict at
+# POST /hooks/kyc/verdict) is what attests — an approved verdict sets the
+# account's identity_tier (2, a documented identity) and age_band — so this
+# facet keeps no attestation rows of its own, only verity's reading of them:
+#   documented identity  identity_tier ≥ 2
+#   verified adult       identity_tier ≥ 2 and age_band 18+ | 21+
+# and verity's risk profile and per-context decision over them.
+app FacetProfile:
+    expect policy member
+    expect entity Account:
+        id: int
+        handle: text
+        identity_tier: int
+        age_band: text
+    # The risk profile verity keeps per account (ip reputation, velocity,
+    # failed KYC attempts, duplicate detection, device count).
+    entity RiskProfile:
+        id: int
+        account: int
+        ip_reputation: float
+        velocity: float
+        failed_kyc: int
+        duplicate: bool
+        devices: int
+    derive kycTier(who: int): int = max(a.identity_tier in Account where a.id == who)
+    derive identityVerified(who: int): bool = exists(a in Account where a.id == who && a.identity_tier >= 2)
+    derive verifiedAdult(who: int): bool = exists(a in Account where a.id == who && a.identity_tier >= 2 && (a.age_band == "18+" || a.age_band == "21+"))
+    # compute_risk.
+    proc computeRisk(ipRep: float, velocity: float, failed: int, duplicate: bool, devices: int) -> float:
+        let mut s = (1.0 - ipRep) * 0.30 + velocity * 0.25
+        let f = toFloat(failed) * 0.05
+        if f > 0.25:
+            s = s + 0.25
+        else:
+            s = s + f
+        if duplicate:
+            s = s + 0.40
+        if devices > 5:
+            let d = toFloat(devices - 5) * 0.02
+            if d > 0.10:
+                s = s + 0.10
+            else:
+                s = s + d
+        if s > 1.0:
+            return 1.0
+        return s
+    proc ageOk(band: text) -> bool:
+        return band == "18+" || band == "21+"
+    # evaluate: the decision for a context — status, then the required actions
+    # joined by commas ("" when none).
+    proc evaluateStatus(context: text, tier: int, band: text, risk: float, duplicate: bool) -> text:
+        if duplicate || risk >= 0.7:
+            return "denied"
+        if context == "onboarding":
+            if risk < 0.3:
+                return "approved"
+            return "pending_review"
+        if context == "age_gate":
+            if ageOk(band):
+                return "approved"
+            return "pending_review"
+        if context == "creator_signup":
+            if ageOk(band) && tier >= 2 && tier >= 3:
+                return "approved"
+            return "pending_review"
+        if context == "payout_activation":
+            if tier >= 3 && ageOk(band) && risk < 0.3:
+                return "approved"
+            return "denied"
+        if tier >= 1 && risk < 0.3:
+            return "approved"
+        return "pending_review"
+    proc evaluateRequired(context: text, tier: int, band: text, risk: float, duplicate: bool) -> text:
+        if duplicate || risk >= 0.7:
+            return "manual_review"
+        let mut out = []
+        if context == "onboarding" && tier < 1:
+            out = append(out, "verify_email")
+        if context == "age_gate" && !ageOk(band):
+            out = append(out, "upload_id")
+            out = append(out, "liveness_check")
+        if context == "creator_signup":
+            if !ageOk(band):
+                out = append(out, "upload_id")
+            if tier < 2:
+                out = append(out, "liveness_check")
+        if context == "payout_activation":
+            if tier < 3:
+                out = append(out, "complete_creator_verification")
+            if !ageOk(band):
+                out = append(out, "upload_id")
+            if risk >= 0.3:
+                out = append(out, "manual_review")
+        return join(out, ",")
+    # The decision for the signed-in account in a context (verity decide),
+    # answered as "status|required".
+    action decide(context: text) -> text:
+        requires member
+        check context != "" "context required" status 400
+        let me = max(a.id in Account where a.handle == actor)
+        let tier = max(kycTier(me), 0)
+        let band = max(a.age_band in Account where a.id == me)
+        let risk = do riskOf(list(r.ip_reputation in RiskProfile where r.account == me), list(r.velocity in RiskProfile where r.account == me), list(r.failed_kyc in RiskProfile where r.account == me), exists(r in RiskProfile where r.account == me && r.duplicate), list(r.devices in RiskProfile where r.account == me))
+        let dup = exists(r in RiskProfile where r.account == me && r.duplicate)
+        let status = do evaluateStatus(context, tier, band, risk, dup)
+        let req = do evaluateRequired(context, tier, band, risk, dup)
+        return status + "|" + req
+    proc riskOf(ip: [float], vel: [float], failed: [int], dup: bool, dev: [int]) -> float:
+        if len(ip) == 0:
+            return computeRisk(1.0, 0.0, 0, dup, 1)
+        return computeRisk(ip[0], vel[0], failed[0], dup, dev[0])
+    action recordRisk(account: int, ip_reputation: float, velocity: float, duplicate: bool, devices: int) @internal:
+        remove r in RiskProfile where r.account == account
+        add RiskProfile { account: account, ip_reputation: ip_reputation, velocity: velocity, failed_kyc: 0, duplicate: duplicate, devices: devices }
+    # Parity surface for compute_risk and evaluate.
+    action riskScore(ipRep: float, velocity: float, failed: int, duplicate: bool, devices: int) -> int:
+        let r = do computeRisk(ipRep, velocity, failed, duplicate, devices)
+        return round(r * 1000000.0)
+    action evaluateFor(context: text, tier: int, band: text, risk: float, duplicate: bool) -> text:
+        let s = do evaluateStatus(context, tier, band, risk, duplicate)
+        let r = do evaluateRequired(context, tier, band, risk, duplicate)
+        return s + "|" + r

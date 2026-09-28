@@ -2,6 +2,8 @@ import "entities.fct"
 import "core.fct"
 import "social.fct"
 import "communities.fct"
+import "../commerce/ledger.fct"
+import "live.fct"
 
 app F33D3RMisc:
     expect event balance: BalanceEventDTO
@@ -17,24 +19,24 @@ app F33D3RMisc:
         return V2WalletDTO{balance_uaet: sum(w.amount_uaet in WalletEntry where w.account == me), pending_uaet: 0, entries: list(V2WalletEntryDTO{id: "" + w.id, kind: w.kind, amount_uaet: w.amount_uaet, created_at: iso(w.created), counterparty_handle: Account(w.counterparty).handle} in WalletEntry where w.account == me by id desc limit 50)}
     action walletSend(target_handle: text, amount: text):
         requires member
+        requires goodStanding
         let me = max(a.id in Account where a.handle == actor)
         check exists(a in Account where a.handle == target_handle) "no such account" status 404
         let target = max(a.id in Account where a.handle == target_handle)
         let amt = toInt(amount)
-        check sum(w.amount_uaet in WalletEntry where w.account == me) >= amt "insufficient balance" status 400
-        add WalletEntry { account: me, kind: "send", amount_uaet: 0 - amt, counterparty: target, created: now() }
-        add WalletEntry { account: target, kind: "receive", amount_uaet: amt, counterparty: me, created: now() }
+        # Ain Soph /v1/tip, as feed-engine's WalletSend calls it (commerce/ledger.fct).
+        let net = run ledgerMove(me, target, amt, "tip", "send", "receive")
         emit balance balanceDTO(me) to actor
         emit balance balanceDTO(target) to Account(target).handle
     action tip(target_handle: text, amount_aet: text?, work_id: text?, stream_id: text?):
         requires member
+        requires goodStanding
         let me = max(a.id in Account where a.handle == actor)
         check exists(a in Account where a.handle == target_handle) "no such account" status 404
         let target = max(a.id in Account where a.handle == target_handle)
         let _h301 = do orTextM(amount_aet, "0")
         let amt = toInt(_h301)
-        add WalletEntry { account: me, kind: "tip_sent", amount_uaet: 0 - amt, counterparty: target, created: now() }
-        add WalletEntry { account: target, kind: "tip_received", amount_uaet: amt, counterparty: me, created: now() }
+        let net = run ledgerMove(me, target, amt, "tip", "tip_sent", "tip_received")
         emit balance balanceDTO(me) to actor
         emit balance balanceDTO(target) to Account(target).handle
         let wid = toInt(work_id)
@@ -45,6 +47,9 @@ app F33D3RMisc:
         let sid = toInt(stream_id)
         if sid > 0 && exists(s in LiveStream where s.id == sid):
             set LiveStream(sid).tip_total_uaet = LiveStream(sid).tip_total_uaet + amt
+            # The tip is a line in the room's chat (kind "tip", its amount).
+            let tipLine = add LiveChatMsg { stream: sid, author: me, body: "tipped " + (toFloat(amt) / 1000000.0) + " AET", kind: "tip", amount_uaet: amt, created: now(), held: false, hold_reason: "", dropped: false, norm: "" }
+            emit chat liveChatV1(LiveChatMsg(tipLine), 0) on sid
             emit tips LiveTipsEventDTO{goal_uaet: LiveStream(sid).tip_goal_uaet, total_uaet: LiveStream(sid).tip_total_uaet} on sid
 
     proc orTextM(v: text, fallback: text) -> text:
@@ -64,7 +69,64 @@ app F33D3RMisc:
         let me = max(a.id in Account where a.handle == actor)
         let days = do periodDays(period)
         let _h302 = do orTextM(sort, "top")
-        return V2AnalyticsDTO{period_days: days, astraon_online: false, posts: [], sort_by: _h302}
+        # astraon (src/db.rs get_creator_*): the creator's top-level works in
+        # the period and the metrics the product records on them.
+        let t0 = now()
+        let since = t0 - days * 86400
+        let imp = count(v in ViewEvent where exists(w in Work where w.id == v.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since))
+        let lk = count(l in Like where exists(w in Work where w.id == l.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since))
+        let rp = count(r in Repost where exists(w in Work where w.id == r.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since))
+        let rl = count(r in Work where r.parent_cid > 0 && !r.deleted && exists(w in Work where w.id == r.parent_cid && w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since))
+        let sv = count(b in Bookmark where exists(w in Work where w.id == b.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since))
+        let gained = count(f in Follow where f.followee == me && f.created > since)
+        let maxImp = max(max(count(v in ViewEvent where v.work == w.id) in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since), 1)
+        let starts = do astraonDays(days, t0)
+        let kinds = ["text", "image", "video", "audio", "article"]
+        let totalPosts = count(w in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since)
+        let summaryPart = AstraonSummary{pial_id: "" + me, period_days: days, total_posts: totalPosts, impressions: imp, likes: lk, reposts: rp, replies: rl, saves: sv, profile_visits: 0, followers_gained: gained, followers_lost: 0, net_followers: gained, current_followers: count(f in Follow where f.followee == me), engagement_rate: engagementPct(lk + rp + rl, imp), view_time_secs: sum(v.seconds in ViewEvent where exists(w in Work where w.id == v.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since))}
+        let timelinePart = AstraonTimeline{period_days: days, max_impressions: maxImp, max_engagement: 0.01, points: list(astraonDay(d, me) in starts where count(w in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created >= d && w.created < d + 86400) > 0)}
+        let audiencePart = AstraonAudience{period_days: days, total_followers: count(f in Follow where f.followee == me), points: list(astraonAudienceDay(d, me) in starts where count(f in Follow where f.followee == me && f.created >= d && f.created < d + 86400) > 0)}
+        let breakdownPart = AstraonBreakdown{types: list(astraonKind(k, me, since, totalPosts) in kinds where count(w in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since && w.kind == k) > 0)}
+        return V2AnalyticsDTO{period_days: days, astraon_online: true, sort_by: _h302, summary: summaryPart, posts: list(AstraonPostRow{post_id: "" + w.id, body_preview: take(w.body, 120), content_type: w.kind, created_at: iso(w.created), time_ago: astraonAgo(t0 - w.created), impressions: count(v in ViewEvent where v.work == w.id), likes: count(l in Like where l.work == w.id), reposts: count(r in Repost where r.work == w.id), replies: count(r in Work where r.parent_cid == w.id && !r.deleted), saves: count(b in Bookmark where b.work == w.id), engagement_pct: engagementPct(count(l in Like where l.work == w.id) + count(r in Repost where r.work == w.id) + count(r in Work where r.parent_cid == w.id && !r.deleted), count(v in ViewEvent where v.work == w.id)), bar_pct: toFloat(count(v in ViewEvent where v.work == w.id)) / toFloat(maxImp) * 100.0} in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since by astraonKeyOf(_h302, count(l in Like where l.work == w.id), count(r in Repost where r.work == w.id), count(r in Work where r.parent_cid == w.id && !r.deleted), count(b in Bookmark where b.work == w.id), w.created, count(v in ViewEvent where v.work == w.id)) desc limit 20), timeline: timelinePart, audience: audiencePart, breakdown: breakdownPart}
+    # (likes + reposts + replies) / impressions × 100, 0 without impressions.
+    proc engagementPct(eng: int, impressions: int) -> float:
+        if impressions > 0:
+            return toFloat(eng) / toFloat(impressions) * 100.0
+        return 0.0
+    # The period's UTC day starts, oldest first.
+    proc astraonDays(days: int, t0: int) -> [int]:
+        let n = min(days, 90)
+        let today = floor(toFloat(t0) / 86400.0) * 86400
+        let mut out = []
+        let mut i = n - 1
+        loop i >= 0:
+            out = append(out, today - i * 86400)
+            i = i - 1
+        return out
+    proc astraonAgo(secs: int) -> text:
+        if secs < 60:
+            return "now"
+        if secs < 3600:
+            return "" + floor(toFloat(secs) / 60.0) + "m"
+        if secs < 86400:
+            return "" + floor(toFloat(secs) / 3600.0) + "h"
+        return "" + floor(toFloat(secs) / 86400.0) + "d"
+    # get_creator_posts' ORDER BY for a sort key (impressions otherwise).
+    proc astraonKeyOf(by: text, likes: int, reposts: int, replies: int, saves: int, created: int, impressions: int) -> float:
+        if by == "likes":
+            return toFloat(likes)
+        if by == "reposts":
+            return toFloat(reposts)
+        if by == "replies":
+            return toFloat(replies)
+        if by == "saves":
+            return toFloat(saves)
+        if by == "date":
+            return toFloat(created)
+        return toFloat(impressions)
+    derive astraonAudienceDay(d: int, me: int): AstraonAudiencePoint = AstraonAudiencePoint{date: take(iso(d), 10), new_followers: count(f in Follow where f.followee == me && f.created >= d && f.created < d + 86400), unfollows: 0, net: count(f in Follow where f.followee == me && f.created >= d && f.created < d + 86400)}
+    derive astraonKind(k: text, me: int, since: int, total: int): AstraonBreakdownItem = AstraonBreakdownItem{content_type: k, count: count(w in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since && w.kind == k), impressions: count(v in ViewEvent where exists(w in Work where w.id == v.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since && w.kind == k)), avg_engagement: 0.0, pct_of_posts: toFloat(count(w in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created > since && w.kind == k)) / toFloat(max(total, 1)) * 100.0}
+    derive astraonDay(d: int, me: int): AstraonTimelinePoint = AstraonTimelinePoint{date: take(iso(d), 10), posts: count(w in Work where w.author == me && w.parent_cid == 0 && !w.deleted && w.created >= d && w.created < d + 86400), impressions: count(v in ViewEvent where exists(w in Work where w.id == v.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created >= d && w.created < d + 86400)), likes: count(l in Like where exists(w in Work where w.id == l.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created >= d && w.created < d + 86400)), reposts: count(r in Repost where exists(w in Work where w.id == r.work && w.author == me && w.parent_cid == 0 && !w.deleted && w.created >= d && w.created < d + 86400)), replies: 0, engagement: 0.0}
     proc periodDays(v: text) -> int:
         if v == "7":
             return 7

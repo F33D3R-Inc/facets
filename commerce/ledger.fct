@@ -1,153 +1,159 @@
-# Ledger — the token economy's double-entry book, ported from the reference's
-# aethyr-ledger service (src/main.rs, src/models.rs). Every movement of AET is
-# one append-only event; a balance is the account's running total and always
-# equals credits minus debits. Amounts are integer micro-AET (µAET).
+# Ledger — the product's AET book, ported from Ain Soph (ain-soph/src:
+# models.rs's fee schedule, handlers.rs deposit / transfer / tip /
+# admin_credit), the ledger feed-engine's wallet, tips and subscriptions call
+# (the reference's aethyr-ledger service is deployed but nothing in the
+# product reaches it). Bound to the product's WalletEntry rows by `expect`:
+# an account's balance is the sum of its entries, in µAET; the platform's fee
+# pool (Ain Soph's "ain_soph_fees") is account 0.
 #
-#   fund(rail, fiatCents)      a deposit: 1 cent = 1 credit = 100 µAET, less the
-#                              2.5% deposit fee, minted to the account.
-#   send(kind, to, µAET, key)  TRANSFER 3%, TIP 1%, SUBSCRIPTION 1.5%,
-#                              CREATOR_PAYOUT 3%: the sender pays amount + fee,
-#                              the receiver gets the amount, the treasury the fee.
-#   burn(µAET)                 destroyed from supply (a boost is a full burn).
-#   mint(to, µAET)             an operator mint from platform reserves.
-#
-# Refusals are the reference's: a non-positive amount, sender = receiver, an
-# unknown rail or transfer kind (400), and an insufficient balance (402). A
-# repeated idempotency key answers the first event instead of moving twice.
-# Supply = minted − burned; circulating = the sum of balances.
+#   ledgerMove(from, to, µAET, op)  a tip (1%) or a transfer (3%): the sender is
+#                                debited the amount, the receiver credited the
+#                                amount less the fee (floored basis points), the
+#                                pool the fee. Refused: a non-positive amount,
+#                                sender = receiver, an insufficient balance.
+#                                The product's walletSend (Ain Soph /v1/tip, as
+#                                feed-engine's WalletSend calls it), tips and
+#                                creator subscriptions all move through it.
+#   startTopUp(usdCents)       a client's top-up is only an intent ($1–$10 000),
+#                              pending until the payment provider confirms it.
+#   POST /hooks/payments       the provider's signed webhook (HMAC; forged or
+#                              unsigned → 403). Each event id is processed once,
+#                              durably; payment_intent.succeeded credits a
+#                              pending intent once — a deposit: 1 cent is one
+#                              AET cent (10 000 µAET) less the 2.5% deposit fee,
+#                              which the pool keeps — payment_failed marks it
+#                              failed, anything else is ignored.
+#   confirmIntent / failIntent an operator settles a stuck intent by hand.
+#   adminCredit(handle, µAET)  an operator credit (Ain Soph /v1/admin/credit).
 #
 # It also implements the three actions commerce/wallet.fct's components
 # expect (topUp, transfer, sendRedPacket), so the wallet UI moves real AET.
 app FacetCommerce:
     expect policy member
-    entity LedgerAccount:
+    expect entity Account:
         id: int
-        owner: text
-        balance: int
-        total_spent: int
-        total_earned: int
-        total_burned: int
-        seq: int
-    entity LedgerEvent:
+        handle: text
+    expect entity WalletEntry:
         id: int
+        account: int
         kind: text
-        from: text
-        to: text
-        amount: int
-        fee: int
-        seq_from: int
-        idem: text
-        note: text
+        amount_uaet: int
+        counterparty: int
         created: int
-    entity LedgerSupply:
+    # A top-up in flight (the reference's aet_purchases row): the provider's
+    # reference, the amount, and pending → completed | failed.
+    entity PaymentIntent:
         id: int
-        minted: int
-        burned: int
-    # The fee schedule, in basis points (models.rs FEE_*).
-    proc feeBp(kind: text) -> int:
-        if kind == "TIP":
+        owner: int
+        ref: text
+        usd_cents: int
+        status: text
+        created: int
+    # Every provider event already processed (stripe_webhook_events): the
+    # durable idempotency gate a replayed delivery meets.
+    entity PaymentEvent:
+        id: int
+        event_id: text
+        event_type: text
+        ref: text
+    # models.rs: FEE_DEPOSIT_BPS 250, FEE_TRANSFER_BPS 300, FEE_TIP_BPS 100,
+    # FEE_WITHDRAWAL_BPS 200; a sale moves at no fee.
+    proc feeBp(op: text) -> int:
+        if op == "tip":
             return 100
-        if kind == "SUBSCRIPTION":
-            return 150
-        if kind == "DEPOSIT":
+        if op == "deposit":
             return 250
-        if kind == "BOOST":
+        if op == "withdrawal":
+            return 200
+        if op == "sale":
             return 0
         return 300
-    # fee_for: truncating integer basis points, as the reference computes it.
+    # compute_fee: amount × bps / 10 000, floored.
     proc feeFor(amount: int, bp: int) -> int:
         return floor(toFloat(amount * bp) / 10000.0)
-    proc validRail(r: text) -> bool:
-        return r == "apple_iap" || r == "gift_card" || r == "card" || r == "google_play" || r == "crypto" || r == "internal"
-    proc validSendKind(k: text) -> bool:
-        return k == "TRANSFER" || k == "TIP" || k == "SUBSCRIPTION" || k == "CREATOR_PAYOUT"
-    derive balanceOf(who: text): int = sum(a.balance in LedgerAccount where a.owner == who)
-    derive hasAccount(who: text): bool = exists(a in LedgerAccount where a.owner == who)
-    derive circulating: int = sum(a.balance in LedgerAccount where a.owner != "")
-    derive supplyMinted: int = sum(s.minted in LedgerSupply where s.id > 0)
-    derive supplyBurned: int = sum(s.burned in LedgerSupply where s.id > 0)
-    # ── internal postings (one place each, so the book always balances) ──────
-    action ensureAccount(who: text):
-        if !exists(a in LedgerAccount where a.owner == who):
-            add LedgerAccount { owner: who, balance: 0, total_spent: 0, total_earned: 0, total_burned: 0, seq: 0 }
-        if !exists(s in LedgerSupply where s.id > 0):
-            add LedgerSupply { minted: 0, burned: 0 }
-    # A deposit through a funding rail: the net credit is minted to the account.
-    action fund(rail: text, fiatCents: int) -> int:
-        requires member
-        let ok = do validRail(rail)
-        check ok "invalid funding rail" status 400
-        check fiatCents > 0 "fiat_amount must be positive" status 400
-        let bp = do feeBp("DEPOSIT")
-        let feeCredit = do feeFor(fiatCents, bp)
-        let credited = (fiatCents - feeCredit) * 100
-        run ensureAccount(actor)
-        set a in LedgerAccount where a.owner == actor:
-            balance = a.balance + credited
-            total_earned = a.total_earned + credited
-        set s in LedgerSupply where s.id > 0:
-            minted = s.minted + credited
-        add LedgerEvent { kind: "PURCHASE", from: "", to: actor, amount: credited, fee: feeCredit * 100, seq_from: 0, idem: "", note: rail, created: now() }
-        return credited
-    # A movement between two accounts; the treasury collects the fee.
-    action send(kind: text, to: text, amount: int, idem: text, note: text) -> int:
-        requires member
-        if idem != "" && exists(e in LedgerEvent where e.idem == idem && e.from == actor):
-            return max(e.id in LedgerEvent where e.idem == idem && e.from == actor)
-        let ok = do validSendKind(kind)
-        check ok "invalid event_type for transfer" status 400
+    derive balanceOf(who: int): int = sum(w.amount_uaet in WalletEntry where w.account == who)
+    derive feePool: int = sum(w.amount_uaet in WalletEntry where w.account == 0)
+    derive accountOf(h: text): int = max(a.id in Account where a.handle == h)
+    # ── the one movement ─────────────────────────────────────────────────────
+    action ledgerMove(from: int, to: int, amount: int, op: text, sentKind: text, receivedKind: text) -> int @internal:
         check amount > 0 "amount must be positive" status 400
-        check to != actor "from and to must differ" status 400
-        check to != "" "a receiver is required" status 400
-        let bp = do feeBp(kind)
-        let fee = do feeFor(amount, bp)
-        check balanceOf(actor) >= amount + fee "insufficient balance" status 402 code "insufficient_balance"
-        run ensureAccount(to)
-        run ensureAccount("treasury")
-        let seqNo = max(a.seq in LedgerAccount where a.owner == actor) + 1
-        set a in LedgerAccount where a.owner == actor:
-            balance = a.balance - amount - fee
-            total_spent = a.total_spent + amount + fee
-            seq = a.seq + 1
-        set a in LedgerAccount where a.owner == to:
-            balance = a.balance + amount
-            total_earned = a.total_earned + amount
+        check from != to "cannot send to yourself" status 400
+        check balanceOf(from) >= amount "insufficient balance" status 400
+        let fee = do feeFor(amount, feeBp(op))
+        let t0 = now()
+        add WalletEntry { account: from, kind: sentKind, amount_uaet: 0 - amount, counterparty: to, created: t0 }
+        add WalletEntry { account: to, kind: receivedKind, amount_uaet: amount - fee, counterparty: from, created: t0 }
         if fee > 0:
-            set a in LedgerAccount where a.owner == "treasury":
-                balance = a.balance + fee
-                total_earned = a.total_earned + fee
-        let eid = add LedgerEvent { kind: kind, from: actor, to: to, amount: amount, fee: fee, seq_from: seqNo, idem: idem, note: note, created: now() }
-        return eid
-    action burn(amount: int) -> int:
+            add WalletEntry { account: 0, kind: "fee", amount_uaet: fee, counterparty: from, created: t0 }
+        return amount - fee
+    # A deposit's credit: usd cents as AET cents (10 000 µAET each), less the
+    # deposit fee, which the pool keeps.
+    action depositTo(to: int, usdCents: int) -> int @internal:
+        check usdCents > 0 "amount must be positive" status 400
+        let fee = do feeFor(usdCents, feeBp("deposit"))
+        let t0 = now()
+        add WalletEntry { account: to, kind: "deposit", amount_uaet: (usdCents - fee) * 10000, counterparty: 0, created: t0 }
+        if fee > 0:
+            add WalletEntry { account: 0, kind: "fee", amount_uaet: fee * 10000, counterparty: to, created: t0 }
+        return (usdCents - fee) * 10000
+    action adminCredit(handle: text, amount: int):
+        check role == "admin" "only an operator credits an account" status 403
+        check amount > 0 "amount must be positive" status 400
+        let to = accountOf(handle)
+        check to != 0 "no such account" status 404
+        add WalletEntry { account: to, kind: "admin_credit", amount_uaet: amount, counterparty: 0, created: now() }
+    # ── the payment flow ─────────────────────────────────────────────────────
+    action startTopUp(usdCents: int) -> text:
         requires member
-        check amount > 0 "amount must be positive" status 400
-        check balanceOf(actor) >= amount "insufficient balance" status 402 code "insufficient_balance"
-        set a in LedgerAccount where a.owner == actor:
-            balance = a.balance - amount
-            total_spent = a.total_spent + amount
-            total_burned = a.total_burned + amount
-        set s in LedgerSupply where s.id > 0:
-            burned = s.burned + amount
-        let eid = add LedgerEvent { kind: "BURN", from: actor, to: "", amount: amount, fee: 0, seq_from: 0, idem: "", note: "", created: now() }
-        return eid
-    action mint(to: text, amount: int) -> int:
-        check role == "admin" "only an operator mints" status 403
-        check amount > 0 "amount must be positive" status 400
-        run ensureAccount(to)
-        set a in LedgerAccount where a.owner == to:
-            balance = a.balance + amount
-            total_earned = a.total_earned + amount
-        set s in LedgerSupply where s.id > 0:
-            minted = s.minted + amount
-        let eid = add LedgerEvent { kind: "MINT", from: "", to: to, amount: amount, fee: 0, seq_from: 0, idem: "", note: "", created: now() }
-        return eid
+        check usdCents >= 100 && usdCents <= 1000000 "usd_cents out of range" status 400
+        let ref = "pi_" + randomToken(24)
+        add PaymentIntent { owner: accountOf(actor), ref: ref, usd_cents: usdCents, status: "pending", created: now() }
+        return ref
+    # The provider's webhook. Durable dedup by event id first; then the event.
+    action paymentWebhook(event_id: text, event_type: text, intent: text) -> text @internal:
+        check event_id != "" "missing event id" status 400
+        if exists(e in PaymentEvent where e.event_id == event_id):
+            return "already_processed"
+        add PaymentEvent { event_id: event_id, event_type: event_type, ref: intent }
+        if event_type == "payment_intent.succeeded":
+            if !exists(p in PaymentIntent where p.ref == intent):
+                return "unrecognized_payment_intent"
+            if !exists(p in PaymentIntent where p.ref == intent && p.status == "pending"):
+                return "already_settled"
+            run settleIntent(intent)
+            return "credited"
+        if event_type == "payment_intent.payment_failed":
+            set p in PaymentIntent where p.ref == intent && p.status == "pending":
+                status = "failed"
+            return "noted_failure"
+        return "ignored"
+    webhook "/hooks/payments" -> paymentWebhook secret PAYMENTS_WEBHOOK_SECRET
+    # The one credit path: a pending intent's amount minted to its owner, once.
+    action settleIntent(ref: text) @internal:
+        check exists(p in PaymentIntent where p.ref == ref && p.status == "pending") "no pending intent with that reference" status 404
+        let pid = max(p.id in PaymentIntent where p.ref == ref)
+        run depositTo(PaymentIntent(pid).owner, PaymentIntent(pid).usd_cents)
+        set PaymentIntent(pid).status = "completed"
+    action confirmIntent(ref: text):
+        check role == "admin" "only an operator settles a payment" status 403
+        check exists(p in PaymentIntent where p.ref == ref && p.status == "pending") "no pending intent with that reference" status 404
+        run settleIntent(ref)
+    action failIntent(ref: text):
+        check role == "admin" "only an operator settles a payment" status 403
+        set p in PaymentIntent where p.ref == ref && p.status == "pending":
+            status = "failed"
     # ── the wallet UI's actions (commerce/wallet.fct), on the real ledger ────
+    # The wallet UI's "Top up": an intent, never a credit.
     action topUp(cents: money):
         requires member
-        run fund("card", toInt(cents))
+        run startTopUp(toInt(cents))
+    # Its "Transfer" and "Red packet" move AET cents (10 000 µAET each) as a
+    # transfer.
     action transfer(to: text, cents: money, note: text):
         requires member
-        run send("TRANSFER", to, toInt(cents) * 100, "", note)
+        check accountOf(to) != 0 "no such account" status 404
+        run ledgerMove(accountOf(actor), accountOf(to), toInt(cents) * 10000, "transfer", "send", "receive")
     action sendRedPacket(to: text, cents: money, note: text):
         requires member
-        run send("TRANSFER", to, toInt(cents) * 100, "", "red packet: " + note)
+        check accountOf(to) != 0 "no such account" status 404
+        run ledgerMove(accountOf(actor), accountOf(to), toInt(cents) * 10000, "transfer", "red_packet", "red_packet_received")

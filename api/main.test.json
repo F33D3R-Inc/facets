@@ -1,18 +1,18 @@
 {
   "tests": [
     {
-      "name": "signup refuses a bad handle, a weak password, unaccepted terms and a taken handle, in the contract's words",
+      "name": "search parity — TestSearchWorksRanked_WordsAndOperators: words stemmed, #tag by tag, from:, -word, \"phrase\", has:image, the media lane, since:, latest, paging, a pure filter",
       "as": {
-        "actor": "guest",
-        "role": "guest"
+        "actor": "search_eng_alice",
+        "role": "member"
       },
       "steps": [
         {
           "run": "signup",
           "args": [
-            "",
+            "search_eng_alice",
             "password1",
-            "Ada",
+            "Alice Engine",
             "1990-01-01",
             "safe",
             "",
@@ -20,754 +20,1141 @@
             "phone",
             true
           ],
-          "fails": "Handle must be"
-        },
-        {
-          "run": "signup",
-          "args": [
-            "ada!",
-            "password1",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ],
-          "fails": "Handle must be"
-        },
-        {
-          "run": "signup",
-          "args": [
-            "ada",
-            "short",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ],
-          "fails": "at least 8 characters"
-        },
-        {
-          "run": "signup",
-          "args": [
-            "ada",
-            "password1",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            false
-          ],
-          "fails": "Terms of Service"
-        },
-        {
-          "expect": "count(Account)",
-          "equals": 0
-        },
-        {
-          "run": "signup",
-          "args": [
-            "Ada",
-            "password1",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ]
-        },
-        {
-          "expect": "count(Account)",
-          "equals": 1
-        },
-        {
-          "expect": "Account(1).handle",
-          "equals": "ada"
-        },
-        {
-          "expect": "Account(1).has_password",
-          "equals": true
-        },
-        {
-          "expect": "Account(1).two_factor_enabled",
-          "equals": false
-        },
-        {
-          "expect": "count(Session)",
-          "equals": 1
-        },
-        {
-          "expect": "count(NotificationPrefs)",
-          "equals": 1
-        },
-        {
-          "expect": "count(SanctumState)",
-          "equals": 1
-        },
-        {
-          "run": "signup",
-          "args": [
-            "ada",
-            "password2",
-            "Ada 2",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ],
-          "fails": "already taken"
-        }
-      ]
-    },
-    {
-      "name": "a stored password is hashed, never the plaintext, and createSession verifies it",
-      "as": {
-        "actor": "guest",
-        "role": "guest"
-      },
-      "steps": [
-        {
-          "run": "signup",
-          "args": [
-            "ada",
-            "password1",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ]
-        },
-        {
-          "expect": "Account(1).password == \"password1\"",
-          "equals": false
-        },
-        {
-          "run": "createSession",
-          "args": [
-            "ada",
-            "wrong-password",
-            "laptop",
-            ""
-          ],
-          "fails": "Invalid handle or password"
-        },
-        {
-          "run": "createSession",
-          "args": [
-            "nobody",
-            "password1",
-            "laptop",
-            ""
-          ],
-          "fails": "Invalid handle or password"
-        },
-        {
-          "expect": "count(Session)",
-          "equals": 1
-        },
-        {
-          "run": "createSession",
-          "args": [
-            "ADA",
-            "password1",
-            "laptop",
-            ""
-          ]
-        },
-        {
-          "expect": "count(Session)",
-          "equals": 2
-        },
-        {
-          "expect": "Session(2).device_name",
-          "equals": "laptop"
-        }
-      ]
-    },
-    {
-      "name": "two-factor: enrollment is pending until confirmed, and a wrong code never confirms or signs in",
-      "as": {
-        "actor": "guest",
-        "role": "guest"
-      },
-      "steps": [
-        {
-          "run": "signup",
-          "args": [
-            "ada",
-            "password1",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ]
-        },
-        {
           "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "confirmTwoFactor",
-          "args": [
-            "000000"
-          ],
-          "fails": "start enrollment first"
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "enrollTwoFactor"
-        },
-        {
-          "expect": "Account(1).two_factor_pending != \"\"",
-          "equals": true
-        },
-        {
-          "expect": "Account(1).two_factor_enabled",
-          "equals": false
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "confirmTwoFactor",
-          "args": [
-            "000000"
-          ],
-          "fails": "invalid two-factor code"
-        },
-        {
-          "expect": "Account(1).two_factor_enabled",
-          "equals": false
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "enrollTwoFactor"
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "disableTwoFactor",
-          "args": [
-            "000000"
-          ],
-          "fails": "not enabled"
-        }
-      ]
-    },
-    {
-      "name": "backup codes are minted per account and a password reset needs a valid one",
-      "as": {
-        "actor": "guest",
-        "role": "guest"
-      },
-      "steps": [
-        {
-          "run": "signup",
-          "args": [
-            "ada",
-            "password1",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ]
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "backupCodes"
-        },
-        {
-          "expect": "count(b in BackupCode where b.account == 1)",
-          "equals": 8
-        },
-        {
-          "expect": "count(b in BackupCode where b.used)",
-          "equals": 0
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "backupCodes"
-        },
-        {
-          "expect": "count(BackupCode)",
-          "equals": 8
-        },
-        {
-          "run": "requestPasswordReset",
-          "args": [
-            "ada",
-            "not-a-code"
-          ],
-          "fails": "Invalid handle or backup code"
-        },
-        {
-          "run": "requestPasswordReset",
-          "args": [
-            "nobody",
-            "whatever"
-          ],
-          "fails": "Invalid handle or backup code"
-        },
-        {
-          "expect": "count(PasswordReset)",
-          "equals": 0
-        },
-        {
-          "run": "redeemPasswordReset",
-          "args": [
-            "1.bogus",
-            "password2",
-            "phone"
-          ],
-          "fails": "expired"
-        },
-        {
-          "run": "redeemPasswordReset",
-          "args": [
-            "1.bogus",
-            "short",
-            "phone"
-          ],
-          "fails": "at least 8 characters"
-        }
-      ]
-    },
-    {
-      "name": "OAuth token exchange: Basic client credentials plus a form grant redeem a consent code exactly once, for the scopes consented",
-      "as": {
-        "actor": "guest",
-        "role": "guest"
-      },
-      "steps": [
-        {
-          "run": "signup",
-          "args": [
-            "ada",
-            "password1",
-            "Ada",
-            "1990-01-01",
-            "safe",
-            "",
-            "",
-            "phone",
-            true
-          ]
-        },
-        {
-          "seed": {
-            "DevApp": [
-              {
-                "owner": 1,
-                "client_id": "app-1",
-                "client_secret": "s3cret-s3cret",
-                "scope": "read:public_profile read:public_works",
-                "name": "App",
-                "description": "",
-                "redirect_uri": "https://app.example/cb"
-              }
-            ]
+            "actor": "guest",
+            "role": "guest"
           }
         },
         {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "devAuthorize",
+          "run": "signup",
           "args": [
-            "nope",
-            ""
+            "search_eng_bob",
+            "password1",
+            "Bob Engine",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
           ],
-          "fails": "no such app"
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
         },
         {
           "seed": {
-            "DevAuthorization": [
+            "Work": [
               {
-                "app": 1,
-                "account": 1,
-                "code": "code-one",
-                "scope": "read:public_profile",
-                "redirect_uri": "",
-                "expires": 9999999999,
-                "used": false
+                "author": 1,
+                "body": "Just adopted a baby elephant at the sanctuary today",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
               },
               {
-                "app": 1,
-                "account": 1,
-                "code": "code-old",
-                "scope": "read:public_profile",
-                "redirect_uri": "",
-                "expires": 1,
-                "used": false
+                "author": 2,
+                "body": "The elephant in the room is the zoo budget",
+                "created": 1767225600,
+                "visibility": "public",
+                "media_urls": "https://cdn.example/elephant.jpg",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              },
+              {
+                "author": 2,
+                "body": "A quiet morning with coffee and nothing else",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              }
+            ],
+            "WorkTag": [
+              {
+                "work": 1,
+                "tag": "zoo",
+                "created": 1767398400
               }
             ]
           }
         },
         {
-          "run": "devToken",
+          "run": "reindexWork",
           "args": [
-            "app-1",
-            "s3cret-s3cret",
-            "password",
-            "code-one"
-          ],
-          "fails": "grant_type must be authorization_code"
-        },
-        {
-          "run": "devToken",
-          "args": [
-            "app-1",
-            "s3cret-s3cret",
-            "authorization_code",
-            ""
-          ],
-          "fails": "code is required"
-        },
-        {
-          "run": "devToken",
-          "args": [
-            "nobody",
-            "s3cret-s3cret",
-            "authorization_code",
-            "code-one"
-          ],
-          "fails": "Unknown client_id or client_secret"
-        },
-        {
-          "run": "devToken",
-          "args": [
-            "app-1",
-            "wrong",
-            "authorization_code",
-            "code-one"
-          ],
-          "fails": "Unknown client_id or client_secret"
-        },
-        {
-          "run": "devToken",
-          "args": [
-            "app-1",
-            "s3cret-s3cret",
-            "authorization_code",
-            "made-up"
-          ],
-          "fails": "unknown, already used, or expired"
-        },
-        {
-          "run": "devToken",
-          "args": [
-            "app-1",
-            "s3cret-s3cret",
-            "authorization_code",
-            "code-old"
-          ],
-          "fails": "unknown, already used, or expired"
-        },
-        {
-          "expect": "count(DevToken)",
-          "equals": 0
-        },
-        {
-          "run": "devToken",
-          "args": [
-            "app-1",
-            "s3cret-s3cret",
-            "authorization_code",
-            "code-one"
+            1
           ]
         },
         {
-          "expect": "count(DevToken)",
-          "equals": 1
-        },
-        {
-          "expect": "DevToken(1).scope",
-          "equals": "read:public_profile"
-        },
-        {
-          "expect": "DevToken(1).account",
-          "equals": 1
-        },
-        {
-          "expect": "DevAuthorization(1).used",
-          "equals": true
-        },
-        {
-          "run": "devToken",
+          "run": "reindexWork",
           "args": [
-            "app-1",
-            "s3cret-s3cret",
-            "authorization_code",
-            "code-one"
+            2
+          ]
+        },
+        {
+          "run": "reindexWork",
+          "args": [
+            3
+          ]
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant",
+            false,
+            false,
+            10,
+            0
           ],
-          "fails": "unknown, already used, or expired"
+          "returns": {
+            "ids": [
+              1,
+              2
+            ],
+            "total": 2,
+            "typo": false,
+            "corrected": []
+          }
         },
         {
-          "expect": "count(DevToken)",
-          "equals": 1
+          "run": "searchWorksRanked",
+          "args": [
+            "elephants",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1,
+              2
+            ],
+            "total": 2,
+            "typo": false,
+            "corrected": []
+          }
         },
         {
+          "run": "searchWorksRanked",
+          "args": [
+            "#zoo",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant from:search_eng_bob",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              2
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant -baby",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              2
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "\"baby elephant\"",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant has:image",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              2
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant",
+            false,
+            true,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              2
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant since:2026-01-02",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant",
+            true,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1,
+              2
+            ],
+            "total": 2,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant",
+            true,
+            false,
+            1,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1
+            ],
+            "total": 2,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elephant",
+            true,
+            false,
+            1,
+            1
+          ],
+          "returns": {
+            "ids": [
+              2
+            ],
+            "total": 2,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "from:search_eng_bob",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              3,
+              2
+            ],
+            "total": 2,
+            "typo": false,
+            "corrected": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "search parity — TestSearchWorksRanked_AccentsAndTypos: accents fold; a misspelling is answered by similarity and says so",
+      "as": {
+        "actor": "search_eng_alice",
+        "role": "member"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "search_eng_alice",
+            "password1",
+            "Accent Author",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
           "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "devAuthorize",
+            "actor": "guest",
+            "role": "guest"
+          }
+        },
+        {
+          "seed": {
+            "Work": [
+              {
+                "author": 1,
+                "body": "Best café crème in Zoë's neighbourhood",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              }
+            ]
+          }
+        },
+        {
+          "run": "reindexWork",
           "args": [
-            "app-1",
-            "https://app.example/cb"
+            1
           ]
         },
         {
-          "expect": "count(DevAuthorization)",
+          "run": "searchWorksRanked",
+          "args": [
+            "cafe creme",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1
+            ],
+            "total": 1,
+            "typo": false,
+            "corrected": []
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "neighbourhod",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1
+            ],
+            "total": 1,
+            "typo": true,
+            "corrected": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "search parity — TestSearchWorksRanked_NoNoiseFallback: a word nothing says answers with nothing",
+      "as": {
+        "actor": "search_eng_alice",
+        "role": "member"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "search_eng_alice",
+            "password1",
+            "Noise",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
+        },
+        {
+          "seed": {
+            "Work": [
+              {
+                "author": 1,
+                "body": "Gotta keep doing better",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              },
+              {
+                "author": 1,
+                "body": "we need a better system for keeping the page updated",
+                "created": 1767225600,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              }
+            ]
+          }
+        },
+        {
+          "run": "reindexWork",
+          "args": [
+            1
+          ]
+        },
+        {
+          "run": "reindexWork",
+          "args": [
+            2
+          ]
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "kanye",
+            false,
+            false,
+            10,
+            0
+          ],
+          "returns": {
+            "ids": [],
+            "total": 0,
+            "typo": false,
+            "corrected": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "search parity — TestLexiconDidYouMeanAndCompletion / TestSearchWorksRanked_LexiconCorrection: the lexicon counts rows, corrects a slip, and the corrected query ranks, counts and pages",
+      "as": {
+        "actor": "search_eng_alice",
+        "role": "member"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "search_eng_alice",
+            "password1",
+            "Correct",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
+        },
+        {
+          "seed": {
+            "Work": [
+              {
+                "author": 1,
+                "body": "Elephant sanctuary volunteers wanted this weekend",
+                "created": 1767398340,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              },
+              {
+                "author": 1,
+                "body": "Elephant sanctuary volunteers wanted this weekend",
+                "created": 1767398280,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              },
+              {
+                "author": 1,
+                "body": "Elephant sanctuary volunteers wanted this weekend",
+                "created": 1767398220,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              }
+            ]
+          }
+        },
+        {
+          "run": "reindexWork",
+          "args": [
+            1
+          ]
+        },
+        {
+          "run": "reindexWork",
+          "args": [
+            2
+          ]
+        },
+        {
+          "run": "reindexWork",
+          "args": [
+            3
+          ]
+        },
+        {
+          "run": "refreshSearchLexicon",
+          "args": [],
+          "returns": 4
+        },
+        {
+          "run": "refreshSearchLexicon",
+          "args": [],
+          "returns": 0
+        },
+        {
+          "expect": "max(x.ndoc in SearchWord where x.word == \"elephant\")",
           "equals": 3
         },
         {
-          "expect": "DevAuthorization(3).scope",
-          "equals": "read:public_profile read:public_works"
+          "expect": "exists(x in SearchWord where x.word == \"search_eng_alice\")",
+          "equals": true
         },
         {
-          "expect": "DevAuthorization(3).used",
-          "equals": false
+          "run": "searchDidYouMean",
+          "args": [
+            "elefant sanctuary"
+          ],
+          "returns": [
+            "elephant",
+            "sanctuary"
+          ]
         },
         {
-          "expect": "DevAuthorization(3).code == \"\"",
-          "equals": false
+          "run": "searchDidYouMean",
+          "args": [
+            "elephant"
+          ],
+          "returns": [
+            "elephant"
+          ]
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elefant sanctuary",
+            false,
+            false,
+            2,
+            0
+          ],
+          "returns": {
+            "ids": [
+              1,
+              2
+            ],
+            "total": 3,
+            "typo": true,
+            "corrected": [
+              "elephant",
+              "sanctuary"
+            ]
+          }
+        },
+        {
+          "run": "searchWorksRanked",
+          "args": [
+            "elefant sanctuary",
+            false,
+            false,
+            2,
+            2
+          ],
+          "returns": {
+            "ids": [
+              3
+            ],
+            "total": 3,
+            "typo": true,
+            "corrected": [
+              "elephant",
+              "sanctuary"
+            ]
+          }
         }
       ]
     },
     {
-      "name": "Track upload: the audio part must be a supported format and a title is required",
+      "name": "search parity — TestSearchPeopleRanked / TestSearchHandles*: an exact handle outranks a prefix with a hundred times the reach, a bio word finds its person, a misspelled handle is found, a closer match outranks follower count",
       "as": {
-        "actor": "guest",
-        "role": "guest"
+        "actor": "search_eng_marco",
+        "role": "member"
       },
       "steps": [
         {
           "run": "signup",
           "args": [
-            "ada",
+            "search_eng_marco",
             "password1",
-            "Ada",
+            "Marco Polo",
             "1990-01-01",
             "safe",
             "",
             "",
             "phone",
             true
-          ]
-        },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "createTrack",
-          "args": [
-            "/media/abc.mp3",
-            "",
-            "",
-            "",
-            "",
-            0,
-            0,
-            true
           ],
-          "fails": "title is required"
-        },
-        {
           "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "createTrack",
-          "args": [
-            "/media/abc.txt",
-            "Song",
-            "",
-            "",
-            "",
-            0,
-            0,
-            true
-          ],
-          "fails": "must be an mp3"
+            "actor": "guest",
+            "role": "guest"
+          }
         },
-        {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "createTrack",
-          "args": [
-            "/media/abc.MP3",
-            "Song",
-            "/media/cover.png",
-            "a song",
-            "lofi",
-            180,
-            0,
-            true
-          ]
-        },
-        {
-          "expect": "count(Track)",
-          "equals": 1
-        },
-        {
-          "expect": "Track(1).audio_url",
-          "equals": "/media/abc.MP3"
-        },
-        {
-          "expect": "Track(1).cover_url",
-          "equals": "/media/cover.png"
-        },
-        {
-          "expect": "Track(1).author",
-          "equals": 1
-        }
-      ]
-    },
-    {
-      "name": "Developer app registration: name, an http(s) redirect and a known scope; the secret is answered once and stored hashed",
-      "as": {
-        "actor": "guest",
-        "role": "guest"
-      },
-      "steps": [
         {
           "run": "signup",
           "args": [
-            "ada",
+            "search_eng_marcolino",
             "password1",
-            "Ada",
+            "Marcolino",
             "1990-01-01",
             "safe",
             "",
             "",
             "phone",
             true
-          ]
-        },
-        {
-          "run": "devAppRegister",
-          "args": [
-            "App",
-            "https://app.example/cb",
-            "read:public_profile",
-            ""
           ],
-          "fails": "member"
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
         },
         {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "devAppRegister",
+          "run": "signup",
           "args": [
+            "search_eng_photog",
+            "password1",
+            "Dana Lens",
+            "1990-01-01",
+            "safe",
             "",
-            "https://app.example/cb",
-            "read:public_profile",
-            ""
+            "",
+            "phone",
+            true
           ],
-          "fails": "1-80 characters"
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
         },
         {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "devAppRegister",
+          "run": "signup",
           "args": [
-            "App",
-            "app.example/cb",
-            "read:public_profile",
-            ""
+            "alexrivera",
+            "password1",
+            "Alex Rivera",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
           ],
-          "fails": "http(s) URL"
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
         },
         {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "devAppRegister",
+          "run": "signup",
           "args": [
-            "App",
-            "https://app.example/cb",
-            "write:everything",
-            ""
+            "annie",
+            "password1",
+            "Annie",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
           ],
-          "fails": "at least one scope"
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
         },
         {
-          "as": {
-            "actor": "ada",
-            "role": "member"
-          },
-          "run": "devAppRegister",
+          "run": "signup",
           "args": [
-            "App",
-            "https://app.example/cb",
-            "read:public_works bogus read:public_profile read:public_works",
-            "my app"
+            "anniston",
+            "password1",
+            "Anniston Corp",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
+        },
+        {
+          "seed": {
+            "Follow": [
+              {
+                "follower": 1,
+                "followee": 2,
+                "created": 0
+              },
+              {
+                "follower": 2,
+                "followee": 2,
+                "created": 0
+              },
+              {
+                "follower": 3,
+                "followee": 2,
+                "created": 0
+              },
+              {
+                "follower": 4,
+                "followee": 2,
+                "created": 0
+              },
+              {
+                "follower": 5,
+                "followee": 2,
+                "created": 0
+              },
+              {
+                "follower": 6,
+                "followee": 2,
+                "created": 0
+              },
+              {
+                "follower": 3,
+                "followee": 1,
+                "created": 0
+              }
+            ]
+          }
+        },
+        {
+          "run": "profileUpdate",
+          "args": [
+            "Dana Lens",
+            "Wedding photographer in Austin, Texas"
+          ],
+          "as": {
+            "actor": "search_eng_photog",
+            "role": "member"
+          }
+        },
+        {
+          "run": "searchPeople",
+          "args": [
+            "search_eng_marco",
+            10,
+            0
+          ],
+          "returns": [
+            1,
+            2,
+            3
           ]
         },
         {
-          "expect": "count(DevApp)",
-          "equals": 1
+          "run": "searchPeople",
+          "args": [
+            "alexrivara",
+            10,
+            0
+          ],
+          "returns": [
+            4
+          ]
         },
         {
-          "expect": "DevApp(1).owner",
-          "equals": 1
+          "run": "searchPeople",
+          "args": [
+            "anni",
+            10,
+            0
+          ],
+          "returns": [
+            5,
+            6
+          ]
         },
         {
-          "expect": "DevApp(1).scope",
-          "equals": "read:public_works read:public_profile"
+          "run": "searchPeople",
+          "args": [
+            "photographer austin",
+            10,
+            0
+          ],
+          "returns": [
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "name": "search parity — TestSearchTagsTrigramFallbackFindsTypo / TestSearchTagsOrderIsNotPurePopularity",
+      "as": {
+        "actor": "search_tag_author",
+        "role": "member"
+      },
+      "steps": [
+        {
+          "run": "signup",
+          "args": [
+            "search_tag_author",
+            "password1",
+            "Tag Author",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
         },
         {
-          "expect": "take(DevApp(1).client_id, 7)",
-          "equals": "f33d3r_"
+          "seed": {
+            "Work": [
+              {
+                "author": 1,
+                "body": "shooting some film today",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              },
+              {
+                "author": 1,
+                "body": "gathering the muster roll",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              },
+              {
+                "author": 1,
+                "body": "gathering the muster roll again",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              },
+              {
+                "author": 1,
+                "body": "new track dropped",
+                "created": 1767398400,
+                "visibility": "public",
+                "media_urls": "",
+                "kind": "text",
+                "deleted": false,
+                "parent_cid": 0,
+                "scheduled_at": 0,
+                "search_text": ""
+              }
+            ],
+            "WorkTag": [
+              {
+                "work": 1,
+                "tag": "photography",
+                "created": 1767398400
+              },
+              {
+                "work": 2,
+                "tag": "muster",
+                "created": 1767398400
+              },
+              {
+                "work": 3,
+                "tag": "muster",
+                "created": 1767398400
+              },
+              {
+                "work": 4,
+                "tag": "music",
+                "created": 1767398400
+              }
+            ]
+          }
         },
         {
-          "expect": "DevApp(1).client_secret == \"\"",
-          "equals": false
+          "run": "searchTags",
+          "args": [
+            "photografy",
+            10
+          ],
+          "returns": [
+            {
+              "count": 1,
+              "tag": "photography"
+            }
+          ]
+        },
+        {
+          "run": "searchTags",
+          "args": [
+            "mus",
+            10
+          ],
+          "returns": [
+            {
+              "count": 1,
+              "tag": "music"
+            },
+            {
+              "count": 2,
+              "tag": "muster"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stock page data: the price card's sparkline is buildSparkline's points over the five-day closes, and a work keeps the $TICKERs it names",
+      "steps": [
+        {
+          "run": "recordTickerQuote",
+          "args": [
+            "tsla",
+            250.0,
+            0.0,
+            0.0,
+            240.0,
+            1767225600
+          ],
+          "as": {
+            "actor": "ops",
+            "role": "admin"
+          }
+        },
+        {
+          "run": "recordTickerClose",
+          "args": [
+            "TSLA",
+            1767207600,
+            241.5
+          ],
+          "as": {
+            "actor": "ops",
+            "role": "admin"
+          }
+        },
+        {
+          "run": "recordTickerClose",
+          "args": [
+            "TSLA",
+            1767211200,
+            243.25
+          ],
+          "as": {
+            "actor": "ops",
+            "role": "admin"
+          }
+        },
+        {
+          "run": "recordTickerClose",
+          "args": [
+            "TSLA",
+            1767214800,
+            239.0
+          ],
+          "as": {
+            "actor": "ops",
+            "role": "admin"
+          }
+        },
+        {
+          "run": "recordTickerClose",
+          "args": [
+            "TSLA",
+            1767218400,
+            244.8
+          ],
+          "as": {
+            "actor": "ops",
+            "role": "admin"
+          }
+        },
+        {
+          "run": "recordTickerClose",
+          "args": [
+            "TSLA",
+            1767222000,
+            250.0
+          ],
+          "as": {
+            "actor": "ops",
+            "role": "admin"
+          }
+        },
+        {
+          "expect": "Ticker(1).sparkline",
+          "equals": "0.0,29.4 30.0,23.3 60.0,38.0 90.0,18.0 120.0,1.0"
+        },
+        {
+          "expect": "Ticker(1).change_label",
+          "equals": "+4.17%"
+        },
+        {
+          "run": "signup",
+          "args": [
+            "cash_author",
+            "password1",
+            "Cash",
+            "1990-01-01",
+            "safe",
+            "",
+            "",
+            "phone",
+            true
+          ],
+          "as": {
+            "actor": "guest",
+            "role": "guest"
+          }
+        },
+        {
+          "run": "post",
+          "args": [
+            "loading up on $TSLA and $AAPL, not $tsla"
+          ],
+          "as": {
+            "actor": "cash_author",
+            "role": "member"
+          }
+        },
+        {
+          "expect": "Work(1).cashtags",
+          "equals": " TSLA AAPL "
         }
       ]
     }

@@ -329,6 +329,7 @@ app F33D3RLive:
         return V2LiveListDTO{count: len(streams), streams: streams, scheduled: scheduled, upcoming: []}
     action goLive(title: text, description: text?, audience: text?, lane: text?, is_nsfw: bool?, tip_goal_aet: int?, stream_id: text?, notify_followers: bool?, save_replay: bool?) -> V2LiveStreamDTO:
         requires member
+        requires goodStanding
         check title != "" "a title is required" status 400
         let me = max(a.id in Account where a.handle == actor)
         check !exists(s in LiveStream where s.author == me && s.status == "live") "already live" status 409 code "already_live"
@@ -365,6 +366,7 @@ app F33D3RLive:
     # decides; otherwise the room gets it as `chat`.
     action sendLiveChat(id: int, body: text) -> V2LiveChatDTO:
         requires member
+        requires goodStanding
         check exists(s in LiveStream where s.id == id) "no such stream" status 404
         let line = slice(trim(body), 0, 280)
         check line != "" "message required" status 400

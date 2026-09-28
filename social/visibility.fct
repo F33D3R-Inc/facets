@@ -14,105 +14,58 @@
 #     work is gated for guests ("auth") and for viewers who are not verified
 #     adults showing sensitive content ("restricted").
 #
-#     for t in Tweet where feedVisible(t, now()) by surfaced desc limit shown:
+#     for w in Work where feedVisible(w, myId, now()) by created desc limit shown:
 #         use PostCard(…)
 #
-#     if nsfwGateAuth(t.author, t.nsfw): …sign in…
-#     if nsfwGateRestricted(t.author, t.nsfw): …not available to you…
+#     if nsfwGateAuth(myId, w.author, w.is_nsfw): …sign in…
+#     if nsfwGateRestricted(myId, w.author, w.is_nsfw): …not available to you…
 #
-# The host's work entity carries the three flags; everything the viewer sets
-# is this facet's own. Tags are the #hashtags in the body, normalised by the
-# platform's own seTag (api/handles.fct) — the same normaliser the contract
-# app's topic snoozes use, imported rather than copied.
-import "../api/handles.fct"
+# Bound to the product's rows by `expect`: the work's author, is_nsfw and
+# visibility ("circle", "subscribers"), the viewer's MutedKeyword,
+# TopicSnooze and Circle rows (set through the product's own mute, snooze and
+# circle actions), the Account's is_adult and show_sensitive, and an active
+# subscription (commerce/shop.fct). The product's feed applies feedVisible,
+# so /api/v2 and the web hide the same works.
+import "../commerce/shop.fct"
 app FacetSocial:
-    expect entity Tweet:
+    expect entity Account:
         id: int
-        author: text
+        handle: text
+        is_adult: bool
+        show_sensitive: bool
+    expect entity Work:
+        id: int
+        author: int
         body: text
-        nsfw: bool
-        subscriberOnly: bool
+        is_nsfw: bool
         visibility: text
-    entity MutedKeyword:
+    expect entity MutedKeyword:
         id: int
-        account: text
+        account: int
         keyword: text
         created: int
-    entity TopicSnooze:
+    expect entity TopicSnooze:
         id: int
-        account: text
+        account: int
         tag: text
         surface_id: text
         until: int
-    entity Circle:
+    expect entity Circle:
         id: int
-        account: text
-        target: text
-    entity CreatorSub:
-        id: int
-        subscriber: text
-        creator: text
-        status: text
-    entity ViewerPrefs:
-        id: int
-        account: text
-        is_adult: bool
-        show_sensitive: bool
-    # The host's own membership guard, as every host declares one.
-    expect policy member
-    # Preferences (the viewer's own feed).
-    derive keywordMuted(body: text): bool = exists(k in MutedKeyword where k.account == actor && contains(lower(body), lower(k.keyword)))
-    derive snoozed(body: text, at: int): bool = exists(s in TopicSnooze where s.account == actor && s.until > at && contains(lower(body), "#" + s.tag))
+        account: int
+        target: int
+    # Preferences (the viewer's own feed); `me` is the viewer's Account id, 0
+    # for a guest.
+    derive keywordMuted(me: int, body: text): bool = exists(k in MutedKeyword where k.account == me && contains(lower(body), lower(k.keyword)))
+    derive snoozed(me: int, body: text, at: int): bool = exists(s in TopicSnooze where s.account == me && s.until > at && contains(lower(body), "#" + s.tag))
     # Access control (everywhere).
-    derive circleVisible(author: text, visibility: text): bool = visibility != "circle" || author == actor || exists(c in Circle where c.account == author && c.target == actor)
-    derive subscriberOk(author: text, subscriberOnly: bool): bool = !subscriberOnly || author == actor || exists(s in CreatorSub where s.subscriber == actor && s.creator == author && s.status == "active")
-    derive sensitiveOk: bool = exists(p in ViewerPrefs where p.account == actor && p.is_adult && p.show_sensitive)
-    derive nsfwGateAuth(author: text, nsfw: bool): bool = nsfw && author != actor && actor == "guest"
-    derive nsfwGateRestricted(author: text, nsfw: bool): bool = nsfw && author != actor && actor != "guest" && !sensitiveOk
-    derive gated(author: text, nsfw: bool): bool = nsfwGateAuth(author, nsfw) || nsfwGateRestricted(author, nsfw)
-    derive reachable(t: Tweet): bool = circleVisible(t.author, t.visibility) && subscriberOk(t.author, t.subscriberOnly)
+    derive circleVisible(me: int, author: int, visibility: text): bool = visibility != "circle" || author == me || exists(c in Circle where c.account == author && c.target == me)
+    derive subscriberOk(me: int, author: int, visibility: text, at: int): bool = visibility != "subscribers" || author == me || subscribedTo(me, author, at)
+    derive sensitiveOk(me: int): bool = exists(a in Account where a.id == me && a.is_adult && a.show_sensitive)
+    derive nsfwGateAuth(me: int, author: int, nsfw: bool): bool = nsfw && author != me && me == 0
+    derive nsfwGateRestricted(me: int, author: int, nsfw: bool): bool = nsfw && author != me && me != 0 && !sensitiveOk(me)
+    derive gated(me: int, author: int, nsfw: bool): bool = nsfwGateAuth(me, author, nsfw) || nsfwGateRestricted(me, author, nsfw)
+    derive reachable(w: Work, me: int, at: int): bool = circleVisible(me, w.author, w.visibility) && subscriberOk(me, w.author, w.visibility, at)
     # A derive is pure, so the instant a snooze is measured against is the
-    # host's to pass: `feedVisible(t, now())` in a view.
-    derive feedVisible(t: Tweet, at: int): bool = reachable(t) && !keywordMuted(t.body) && !snoozed(t.body, at) && !gated(t.author, t.nsfw)
-    action muteKeyword(keyword: text):
-        requires member
-        check trim(keyword) != "" "a keyword is required"
-        check len(trim(keyword)) <= 100 "a keyword is at most 100 characters"
-        check !exists(k in MutedKeyword where k.account == actor && lower(k.keyword) == lower(trim(keyword))) "already muted"
-        add MutedKeyword { account: actor, keyword: trim(keyword), created: now() }
-    action unmuteKeyword(keyword: text):
-        requires member
-        remove k in MutedKeyword where k.account == actor && lower(k.keyword) == lower(trim(keyword))
-    action snoozeTopic(tag: text, days: int):
-        requires member
-        let t = do seTag(tag)
-        let ok = do seValidTag(t)
-        check ok "a tag is letters, digits and underscores"
-        check days >= 1 && days <= 365 "snooze for 1 to 365 days"
-        remove s in TopicSnooze where s.account == actor && s.tag == t
-        add TopicSnooze { account: actor, tag: t, surface_id: "", until: now() + days * 86400 }
-    action unsnoozeTopic(tag: text):
-        requires member
-        let t = do seTag(tag)
-        remove s in TopicSnooze where s.account == actor && s.tag == t
-    action addToCircle(handle: text):
-        requires member
-        check handle != actor "you are already in your own circle"
-        check !exists(c in Circle where c.account == actor && c.target == handle) "already in your circle"
-        add Circle { account: actor, target: handle }
-    action removeFromCircle(handle: text):
-        requires member
-        remove c in Circle where c.account == actor && c.target == handle
-    action subscribeCreator(handle: text):
-        requires member
-        check handle != actor "you cannot subscribe to yourself"
-        remove s in CreatorSub where s.subscriber == actor && s.creator == handle
-        add CreatorSub { subscriber: actor, creator: handle, status: "active" }
-    action unsubscribeCreator(handle: text):
-        requires member
-        set s in CreatorSub where s.subscriber == actor && s.creator == handle:
-            status = "cancelled"
-    action setViewerPrefs(adult: bool, showSensitive: bool):
-        requires member
-        remove p in ViewerPrefs where p.account == actor
-        add ViewerPrefs { account: actor, is_adult: adult, show_sensitive: showSensitive }
+    # host's to pass: `feedVisible(w, me, now())`.
+    derive feedVisible(w: Work, me: int, at: int): bool = reachable(w, me, at) && !keywordMuted(me, w.body) && !snoozed(me, w.body, at) && !gated(me, w.author, w.is_nsfw)

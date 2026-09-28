@@ -1,0 +1,307 @@
+{
+  "tests": [
+    {
+      "name": "compute_risk parity with verity (f32 in the reference; compared in micro-units on inputs where f32 and f64 agree)",
+      "steps": [
+        {
+          "run": "riskScore",
+          "args": [
+            1.0,
+            0.0,
+            0,
+            false,
+            1
+          ],
+          "returns": 0
+        },
+        {
+          "run": "riskScore",
+          "args": [
+            0.5,
+            0.25,
+            0,
+            false,
+            1
+          ],
+          "returns": 212500
+        },
+        {
+          "run": "riskScore",
+          "args": [
+            0.5,
+            0.25,
+            2,
+            false,
+            1
+          ],
+          "returns": 312500
+        },
+        {
+          "run": "riskScore",
+          "args": [
+            0.0,
+            1.0,
+            10,
+            true,
+            20
+          ],
+          "returns": 1000000
+        },
+        {
+          "run": "riskScore",
+          "args": [
+            0.75,
+            0.5,
+            3,
+            false,
+            8
+          ],
+          "returns": 410000
+        }
+      ]
+    },
+    {
+      "name": "evaluate, context by context (onboarding, age_gate, creator_signup, payout_activation, generic) with the risk gates at 0.3 and 0.7 and duplicate detection",
+      "steps": [
+        {
+          "run": "evaluateFor",
+          "args": [
+            "onboarding",
+            0,
+            "unknown",
+            0.1,
+            false
+          ],
+          "returns": "approved|verify_email"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "onboarding",
+            1,
+            "unknown",
+            0.5,
+            false
+          ],
+          "returns": "pending_review|"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "age_gate",
+            0,
+            "unknown",
+            0.1,
+            false
+          ],
+          "returns": "pending_review|upload_id,liveness_check"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "age_gate",
+            2,
+            "18+",
+            0.1,
+            false
+          ],
+          "returns": "approved|"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "creator_signup",
+            1,
+            "unknown",
+            0.1,
+            false
+          ],
+          "returns": "pending_review|upload_id,liveness_check"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "creator_signup",
+            3,
+            "21+",
+            0.1,
+            false
+          ],
+          "returns": "approved|"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "creator_signup",
+            2,
+            "18+",
+            0.1,
+            false
+          ],
+          "returns": "pending_review|"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "payout_activation",
+            3,
+            "18+",
+            0.1,
+            false
+          ],
+          "returns": "approved|"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "payout_activation",
+            2,
+            "18+",
+            0.4,
+            false
+          ],
+          "returns": "denied|complete_creator_verification,manual_review"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "anything",
+            1,
+            "unknown",
+            0.1,
+            false
+          ],
+          "returns": "approved|"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "age_gate",
+            3,
+            "18+",
+            0.8,
+            false
+          ],
+          "returns": "denied|manual_review"
+        },
+        {
+          "run": "evaluateFor",
+          "args": [
+            "onboarding",
+            3,
+            "18+",
+            0.0,
+            true
+          ],
+          "returns": "denied|manual_review"
+        }
+      ]
+    },
+    {
+      "name": "verity's reading of the product's KYC: a documented identity is identity_tier \u2265 2, a verified adult also carries an 18+ or 21+ band; decide answers for the signed-in account from its tier, band and risk profile",
+      "steps": [
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada",
+                "identity_tier": 2,
+                "age_band": "21+"
+              },
+              {
+                "handle": "bob",
+                "identity_tier": 1,
+                "age_band": "unknown"
+              },
+              {
+                "handle": "cy",
+                "identity_tier": 2,
+                "age_band": "unknown"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "identityVerified(1)",
+          "equals": true
+        },
+        {
+          "expect": "verifiedAdult(1)",
+          "equals": true
+        },
+        {
+          "expect": "identityVerified(2)",
+          "equals": false
+        },
+        {
+          "expect": "identityVerified(3) && !verifiedAdult(3)",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "decide",
+          "args": [
+            "age_gate"
+          ],
+          "returns": "approved|"
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "decide",
+          "args": [
+            "age_gate"
+          ],
+          "returns": "pending_review|upload_id,liveness_check"
+        },
+        {
+          "run": "recordRisk",
+          "args": [
+            1,
+            0.0,
+            1.0,
+            false,
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "decide",
+          "args": [
+            "onboarding"
+          ],
+          "returns": "pending_review|"
+        },
+        {
+          "run": "recordRisk",
+          "args": [
+            1,
+            1.0,
+            0.0,
+            true,
+            1
+          ]
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "decide",
+          "args": [
+            "onboarding"
+          ],
+          "returns": "denied|manual_review"
+        }
+      ]
+    }
+  ]
+}

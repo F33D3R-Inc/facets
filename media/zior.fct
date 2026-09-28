@@ -1,0 +1,375 @@
+# Zior — zior-engine's analysis and signal engine, authored in fct over
+# audio.fct's analysis: sections, the eight Jung axes (blended with a track's
+# listening behaviour once it has any), mood, context tags, descriptor,
+# velocity, the vector store (every pair's cosine, greedy clusters at 0.80)
+# and the signal each track emits — the Signal rows a feed's ranking reads
+# (data/rank.fct's velocity stage). zior's own HTTP surface (upload, signal,
+# events, similar, clusters) is ziorservice.fct; a host that analyses its own
+# uploads imports this engine alone.
+#
+# Where the reference is nondeterministic this port picks an order: similar
+# tracks with equal similarity, and the cluster seeds (the reference walks a
+# HashMap), go by track id.
+import "audio.fct"
+
+app Zior:
+    expect policy member
+
+    entity Signal:
+        id: int
+        track: text
+        creator: text
+        computed_at: text
+        v0: float
+        v1: float
+        v2: float
+        v3: float
+        v4: float
+        v5: float
+        v6: float
+        v7: float
+        velocity_score: float
+        early_retention: float
+        completion_rate: float
+        conversion_probability: float
+        creator_revenue_rate: float
+        ltv_estimate: float
+        adult_probability: float
+        exposure_count: int
+        creator_exposure: int
+        fingerprint: text
+        duration_secs: float
+        bpm: float
+        key: int
+        is_major: bool
+        mood: text
+        context_tags: text
+        descriptor: text
+        tonal_valence: float
+        rms_energy: float
+        bass_energy: float
+        vocal_probability: float
+        has_vocals: bool
+        replay_rate: float
+        share_velocity: float
+    entity TrackSection:
+        track: text
+        idx: int
+        kind: text
+        start_secs: float
+        end_secs: float
+        energy: float
+    # the vector store: each track's axes, normalised, and every pair's cosine
+    entity TrackVector:
+        track: text
+        n0: float
+        n1: float
+        n2: float
+        n3: float
+        n4: float
+        n5: float
+        n6: float
+        n7: float
+    entity TrackSimilarity:
+        a: text
+        b: text
+        sim: float
+    entity TrackCluster:
+        track: text
+        cluster: int
+        seed: bool
+    entity PlayEvent:
+        id: int
+        track: text
+        user: text
+        kind: text
+        position_secs: float
+        duration_secs: float
+        at: int
+        session: text
+        batch: text
+
+    # ── mood.rs ─────────────────────────────────────────────────────────────
+    proc moodOf(bpmN: float, rms: float, valence: float, flux: float, bass: float) -> text:
+        let fast = bpmN > 0.50
+        let loud = rms > 0.55
+        let bright = valence > 0.55
+        let dyn = flux > 0.45
+        let bassy = bass > 0.50
+        if fast && loud && bright:
+            return "euphoric"
+        if fast && loud && !bright && dyn && bassy:
+            return "aggressive"
+        if fast && loud && !bright:
+            return "intense"
+        if fast && !loud && bright:
+            return "energetic"
+        if !fast && loud && bright:
+            return "confident"
+        if !fast && !loud && bright:
+            return "nostalgic"
+        if !fast && !loud && !bright && !dyn && !bassy:
+            return "peaceful"
+        if !fast && !loud && !bright && dyn:
+            return "tense"
+        if !bright && bassy:
+            return "dark"
+        if !fast && !bright && !dyn:
+            return "reflective"
+        return "mysterious"
+    proc contextTags(bpm: float, rms: float, valence: float, mood: text) -> [text]:
+        let mut t = []
+        if bpm > 125.0 && rms > 0.5:
+            t = append(t, "workout")
+        if bpm > 120.0 && rms > 0.6:
+            t = append(t, "club")
+        if bpm < 90.0 && rms < 0.4:
+            t = append(t, "study")
+        if bpm < 80.0 && valence < 0.4:
+            t = append(t, "late_night")
+        if bpm < 75.0 && rms < 0.3:
+            t = append(t, "sleep")
+        if valence > 0.7 && bpm > 100.0:
+            t = append(t, "commute")
+        if mood == "melancholic" || mood == "reflective":
+            t = append(t, "heartbreak")
+        if mood == "euphoric":
+            t = append(t, "celebration")
+        if mood == "aggressive" || mood == "intense":
+            t = append(t, "focus")
+        if mood == "peaceful" || mood == "dreamlike":
+            t = append(t, "meditation")
+        if mood == "nostalgic":
+            t = append(t, "memories")
+        return t
+    proc tagList(joined: text) -> [text]:
+        if joined == "":
+            return []
+        return split(joined, ",")
+
+    # ── mapper.rs ───────────────────────────────────────────────────────────
+    proc unit(x: float) -> float:
+        if x < 0.0:
+            return 0.0
+        if x > 1.0:
+            return 1.0
+        return x
+    proc weighted(vs: [float], ws: [float]) -> float:
+        let mut acc = 0.0
+        let mut i = 0
+        loop i < len(vs):
+            acc = acc + unit(vs[i]) * ws[i]
+            i = i + 1
+        return unit(acc)
+    proc pick(cond: bool, a: float, b: float) -> float:
+        if cond:
+            return a
+        return b
+    # persona, shadow, agency, integration, attachment, disruption, tension, release
+    proc audioAxes(f: Analysis) -> [float]:
+        let mj = f.is_major
+        return [weighted([f.treble_energy, f.vocal_probability, 1.0 - f.dynamic_range * 0.3, f.spectral_centroid], [0.30, 0.35, 0.20, 0.15]), weighted([pick(mj, 0.0, 1.0), 1.0 - f.tonal_valence, f.bass_energy, f.dynamic_range], [0.35, 0.30, 0.20, 0.15]), weighted([f.bpm, f.rms_energy, f.spectral_flux], [0.45, 0.35, 0.20]), weighted([f.tonal_valence, pick(mj, 1.0, 0.4), 1.0 - f.spectral_flux, f.mid_energy], [0.35, 0.25, 0.25, 0.15]), weighted([f.vocal_probability, 1.0 - f.bpm, f.mid_energy, 1.0 - f.treble_energy], [0.40, 0.25, 0.25, 0.10]), weighted([f.spectral_flux, f.dynamic_range, 1.0 - f.mid_energy], [0.50, 0.30, 0.20]), weighted([pick(mj, 0.1, 0.8), f.spectral_rolloff, f.bass_energy * 0.5, f.spectral_flux * 0.3], [0.40, 0.25, 0.20, 0.15]), weighted([f.tonal_valence, pick(mj, 1.0, 0.2), f.rms_energy * f.spectral_centroid], [0.40, 0.30, 0.30])]
+    proc normalised(v: [float]) -> [float]:
+        let mut n = 0.0
+        let mut i = 0
+        loop i < len(v):
+            n = n + v[i] * v[i]
+            i = i + 1
+        n = sqrt(n)
+        if n <= 0.00000001:
+            return v
+        let mut out = []
+        i = 0
+        loop i < len(v):
+            out = append(out, v[i] / n)
+            i = i + 1
+        return out
+    # With listening behaviour: 65% audio, 35% behaviour, each axis clamped
+    # (unnormalised, as the reference); without, the audio axes normalised.
+    proc trackVector(f: Analysis, behaviour: [float], hasBehaviour: bool) -> [float]:
+        let a = do audioAxes(f)
+        if !hasBehaviour:
+            return normalised(a)
+        let mut out = []
+        let mut i = 0
+        loop i < 8:
+            out = append(out, unit(a[i] * 0.65 + behaviour[i] * 0.35))
+            i = i + 1
+        return out
+    proc descriptorOf(mood: text, key: int, major: bool, bpm: float, vocal: float) -> text:
+        let mut v = "instrumental"
+        if vocal > 0.5:
+            v = "vocal"
+        return mood + " · " + keyName(key, major) + " · " + round(bpm) + " BPM · " + v
+    proc orFingerprint(track: text, fp: text) -> text:
+        if track != "":
+            return track
+        return "zior_" + take(fp, 16)
+    proc clockMs() -> int:
+        return monoMs()
+    proc orUnknown(s: text) -> text:
+        if s == "":
+            return "unknown"
+        return s
+
+    # ── behavioral/events.rs, velocity.rs ───────────────────────────────────
+    # The behaviour store's axes from a track's event counts and the tenths of
+    # the track at which listeners skipped.
+    proc behaviourAxes(plays: int, completes: int, skips: int, replays: int, shares: int, saves: int, skipBuckets: [int]) -> [float]:
+        if plays == 0:
+            return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        let p = toFloat(plays)
+        let retention = toFloat(completes) / p
+        let replay = toFloat(replays) / p
+        let share = toFloat(shares) / p
+        let mut early = 0.0
+        if skips > 0:
+            let mut lowSkips = 0
+            let mut k = 0
+            loop k < len(skipBuckets):
+                if skipBuckets[k] < 2:
+                    lowSkips = lowSkips + 1
+                k = k + 1
+            early = toFloat(lowSkips) / toFloat(skips)
+        let mut variance = 0.0
+        let nb = len(skipBuckets)
+        if nb > 0:
+            let mut mean = 0.0
+            let mut i = 0
+            loop i < nb:
+                mean = mean + toFloat(skipBuckets[i])
+                i = i + 1
+            mean = mean / toFloat(nb)
+            let mut v = 0.0
+            i = 0
+            loop i < nb:
+                v = v + (toFloat(skipBuckets[i]) - mean) * (toFloat(skipBuckets[i]) - mean)
+                i = i + 1
+            variance = unit(v / toFloat(nb) / 81.0)
+        return [unit(share * 2.0 + toFloat(saves) / p), unit(1.0 - retention + early * 0.5), unit(replay * 2.0 + retention * 0.5), retention, unit((toFloat(saves) + toFloat(replays)) / p * 1.5), variance, early, unit(share * 3.0)]
+    proc eventWeight(kind: text) -> float:
+        if kind == "save" || kind == "playlist":
+            return 4.0
+        if kind == "share":
+            return 3.0
+        if kind == "complete" || kind == "replay":
+            return 2.5
+        if kind == "play":
+            return 1.0
+        if kind == "skip":
+            return -1.0
+        if kind == "negative":
+            return -3.0
+        return 0.5
+    proc positiveWeight(kinds: [text]) -> float:
+        let mut acc = 0.0
+        let mut i = 0
+        loop i < len(kinds):
+            acc = acc + max(eventWeight(kinds[i]), 0.0)
+            i = i + 1
+        return acc
+    # The last hour's weighted events against the same hour a day earlier,
+    # through a sigmoid: 0.5 is steady, above it accelerating.
+    proc velocity(recent: [text], baseline: [text]) -> float:
+        let r = do positiveWeight(recent)
+        let b = do positiveWeight(baseline)
+        let mut raw = 0.5
+        if b < 0.01:
+            if r > 0.0:
+                raw = 2.0
+        else:
+            raw = min(max(r / b, 0.0), 10.0)
+        return unit(1.0 / (1.0 + exp(0.0 - (raw - 1.0) * 2.0)))
+    proc skipBucket(position: float, duration: float) -> int:
+        let frac = unit(position / duration)
+        return min(floor(frac * 10.0), 9)
+
+    # ── vector/mod.rs ───────────────────────────────────────────────────────
+    proc cosine(a: [float], b: [float]) -> float:
+        let mut dot = 0.0
+        let mut na = 0.0
+        let mut nb = 0.0
+        let mut i = 0
+        loop i < 8:
+            dot = dot + a[i] * b[i]
+            na = na + a[i] * a[i]
+            nb = nb + b[i] * b[i]
+            i = i + 1
+        if sqrt(na) < 0.00000001 || sqrt(nb) < 0.00000001:
+            return 0.0
+        return min(max(dot / (sqrt(na) * sqrt(nb)), -1.0), 1.0)
+    proc at(v: [float], i: int) -> float:
+        return v[i]
+
+    # A track's signal from its analysis: axes, mood, tags, descriptor, the
+    # sections, velocity, and the vector store.
+    action emitTrack(track: text, creator: text, f: Analysis, t0: int) -> int @internal:
+        let has = exists(e in PlayEvent where e.track == track)
+        let bv = do behaviourAxes(count(e in PlayEvent where e.track == track && e.kind == "play"), count(e in PlayEvent where e.track == track && e.kind == "complete"), count(e in PlayEvent where e.track == track && e.kind == "skip"), count(e in PlayEvent where e.track == track && e.kind == "replay"), count(e in PlayEvent where e.track == track && e.kind == "share"), count(e in PlayEvent where e.track == track && (e.kind == "save" || e.kind == "playlist")), list(skipBucket(e.position_secs, e.duration_secs) in PlayEvent where e.track == track && e.kind == "skip" && e.duration_secs > 0.0))
+        let v = do trackVector(f, bv, has)
+        let mood = do moodOf(f.bpm, f.rms_energy, f.tonal_valence, f.spectral_flux, f.bass_energy)
+        let tags = do contextTags(f.bpm_raw, f.rms_energy, f.tonal_valence, mood)
+        let desc = do descriptorOf(mood, f.key, f.is_major, f.bpm_raw, f.vocal_probability)
+        let vel = run velocityAt(track, t0)
+        remove s in Signal where s.track == track
+        let sid = add Signal { track: track, creator: creator, computed_at: iso(t0), v0: at(v, 0), v1: at(v, 1), v2: at(v, 2), v3: at(v, 3), v4: at(v, 4), v5: at(v, 5), v6: at(v, 6), v7: at(v, 7), velocity_score: vel, early_retention: f.early_retention, completion_rate: 0.5, conversion_probability: 0.05, creator_revenue_rate: 0.10, ltv_estimate: 0.10, adult_probability: 0.0, exposure_count: 0, creator_exposure: 0, fingerprint: f.fingerprint, duration_secs: f.duration_secs, bpm: f.bpm_raw, key: f.key, is_major: f.is_major, mood: mood, context_tags: join(tags, ","), descriptor: desc, tonal_valence: f.tonal_valence, rms_energy: f.rms_energy, bass_energy: f.bass_energy, vocal_probability: f.vocal_probability, has_vocals: f.vocal_probability > 0.5, replay_rate: 0.0, share_velocity: 0.0 }
+        remove x in TrackSection where x.track == track
+        let secs = f.sections
+        for sec in secs:
+            add TrackSection { track: track, idx: count(y in TrackSection where y.track == track), kind: sec.kind, start_secs: sec.start_secs, end_secs: sec.end_secs, energy: sec.energy }
+        run upsertVector(track, v)
+        return sid
+
+    action upsertVector(track: text, v: [float]) @internal:
+        let n = do normalised(v)
+        remove x in TrackVector where x.track == track
+        remove x in TrackSimilarity where x.a == track || x.b == track
+        for o in TrackVector:
+            let sim = do cosine(n, [o.n0, o.n1, o.n2, o.n3, o.n4, o.n5, o.n6, o.n7])
+            add TrackSimilarity { a: track, b: o.track, sim: sim }
+            add TrackSimilarity { a: o.track, b: track, sim: sim }
+        add TrackVector { track: track, n0: at(n, 0), n1: at(n, 1), n2: at(n, 2), n3: at(n, 3), n4: at(n, 4), n5: at(n, 5), n6: at(n, 6), n7: at(n, 7) }
+        run recluster()
+
+    # Greedy grouping: each unassigned track (by id) seeds a cluster that
+    # takes every unassigned track at cosine ≥ 0.80 to it.
+    action recluster @internal:
+        remove c in TrackCluster where true
+        for v in TrackVector by track:
+            if !exists(c in TrackCluster where c.track == v.track):
+                let cid = count(c in TrackCluster where c.seed)
+                add TrackCluster { track: v.track, cluster: cid, seed: true }
+                for o in TrackSimilarity where o.a == v.track && o.sim >= 0.80 && !exists(c in TrackCluster where c.track == o.b):
+                    add TrackCluster { track: o.b, cluster: cid, seed: false }
+
+    # The emitter's behavioural update: retention, replay and share rates,
+    # velocity, and exposure (the stored count plus every play so far).
+    action behaviouralUpdate(sid: int, t0: int) @internal:
+        let track = Signal(sid).track
+        let plays = count(e in PlayEvent where e.track == track && e.kind == "play")
+        let vel = run velocityAt(track, t0)
+        set Signal(sid).velocity_score = vel
+        if plays > 0:
+            set Signal(sid).completion_rate = toFloat(count(e in PlayEvent where e.track == track && e.kind == "complete")) / toFloat(plays)
+            set Signal(sid).replay_rate = toFloat(count(e in PlayEvent where e.track == track && e.kind == "replay")) / toFloat(plays)
+            set Signal(sid).share_velocity = toFloat(count(e in PlayEvent where e.track == track && e.kind == "share")) / toFloat(plays)
+        else:
+            set Signal(sid).completion_rate = 0.0
+            set Signal(sid).replay_rate = 0.0
+            set Signal(sid).share_velocity = 0.0
+        set Signal(sid).exposure_count = Signal(sid).exposure_count + plays
+
+    # velocity.rs at time t0: the last hour (an event stamped t0 counts, as the
+    # reference reads its clock after recording) against the hour a day before.
+    action velocityAt(track: text, t0: int) -> float @internal:
+        let v = do velocity(list(e.kind in PlayEvent where e.track == track && e.at > t0 - 3600 && e.at <= t0), list(e.kind in PlayEvent where e.track == track && e.at >= t0 - 90000 && e.at < t0 - 86400))
+        return v
+
+    # ── parity surface ──────────────────────────────────────────────────────
+    # A fixed file through the whole pipeline at time t0, as the upload runs it.
+    action emitParity(track: text, data: text, t0: int) -> int @internal:
+        let f = do analyze(data, 0.0)
+        check f.error == "" "{f.error}" status 422
+        let stored = run store("zior", track, f)
+        let sid = run emitTrack(track, "zior", f, t0)
+        return sid

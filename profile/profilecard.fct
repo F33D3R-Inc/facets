@@ -26,8 +26,8 @@ import "../ui/verifiedbadge.fct"
 import "../ui/statchip.fct"
 import "../social/followbutton.fct"
 app FacetProfile:
-    expect action unfollow(handle: text)
-    expect action follow(handle: text)
+    expect action unfollow(target_handle: text)
+    expect action follow(target_handle: text)
     css:
         [data-fa-mount] .x-pcard { display: flex; flex-direction: column; gap: 10px;
                     padding: 16px; border: 1px solid var(--x-line, #2f3336);

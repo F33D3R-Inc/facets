@@ -1,0 +1,137 @@
+# zior-engine's HTTP service over the engine (zior.fct):
+#
+#   POST /api/zior/upload        decode (WAV, FLAC), analyse and emit the signal
+#   GET  /api/zior/signal/{id}   the signal; GET /api/zior/signals every signal
+#   POST /api/zior/events        play/skip/complete/replay/share/save/negative/
+#                                playlist events, and the emitter's behavioural
+#                                update for tracks with a signal
+#   GET  /api/zior/similar/{id}  the ten nearest tracks by cosine over the axes
+#   GET  /api/zior/clusters      greedy cosine grouping (threshold 0.80)
+import "zior.fct"
+
+app ZiorService:
+    expect policy member
+
+    # ── the pipeline ────────────────────────────────────────────────────────
+    type SignalPreview:
+        bpm: float
+        key: text
+        mood: text
+        descriptor: text
+        velocity_score: float
+        context_tags: [text]
+    type UploadResponse:
+        track_id: text
+        fingerprint: text
+        status: text
+        processing_ms: int
+        signal_preview: SignalPreview
+
+    action uploadTrack(audio: bytes, track_id: text?, creator_id: text?) -> UploadResponse:
+        requires member
+        let t0 = do clockMs()
+        let f = do analyzeStored(audio, 5.0)
+        check f.error == "" "{f.error}" status 422
+        let track = do orFingerprint(track_id, f.fingerprint)
+        let creator = do orUnknown(creator_id)
+        let stored = run store(actor, track, f)
+        let sid = run emitTrack(track, creator, f, now())
+        let t1 = do clockMs()
+        return UploadResponse{track_id: track, fingerprint: f.fingerprint, status: "processed", processing_ms: t1 - t0, signal_preview: SignalPreview{bpm: Signal(sid).bpm, key: keyName(f.key, f.is_major), mood: Signal(sid).mood, descriptor: Signal(sid).descriptor, velocity_score: Signal(sid).velocity_score, context_tags: tagList(Signal(sid).context_tags)}}
+    api POST "/api/zior/upload" -> uploadTrack status 201
+
+    # ── the read side ───────────────────────────────────────────────────────
+    type AethyrSignal:
+        track_id: text
+        creator_id: text
+        computed_at: text
+        topic_vector: [float]
+        velocity_score: float
+        early_retention: float
+        completion_rate: float
+        conversion_probability: float
+        creator_revenue_rate: float
+        ltv_estimate: float
+        adult_probability: float
+        exposure_count: int
+        creator_exposure: int
+        fingerprint: text
+        duration_secs: float
+        bpm: float
+        key: int
+        is_major: bool
+        mood: text
+        context_tags: [text]
+        descriptor: text
+        tonal_valence: float
+        rms_energy: float
+        bass_energy: float
+        vocal_probability: float
+        has_vocals: bool
+        replay_rate: float
+        share_velocity: float
+    type SignalList:
+        count: int
+        signals: [AethyrSignal]
+    action getSignal(track_id: text) -> AethyrSignal:
+        check exists(s in Signal where s.track == track_id) "no signal for that track" status 404
+        let s = max(x.id in Signal where x.track == track_id)
+        return AethyrSignal{track_id: Signal(s).track, creator_id: Signal(s).creator, computed_at: Signal(s).computed_at, topic_vector: [Signal(s).v0, Signal(s).v1, Signal(s).v2, Signal(s).v3, Signal(s).v4, Signal(s).v5, Signal(s).v6, Signal(s).v7], velocity_score: Signal(s).velocity_score, early_retention: Signal(s).early_retention, completion_rate: Signal(s).completion_rate, conversion_probability: Signal(s).conversion_probability, creator_revenue_rate: Signal(s).creator_revenue_rate, ltv_estimate: Signal(s).ltv_estimate, adult_probability: Signal(s).adult_probability, exposure_count: Signal(s).exposure_count, creator_exposure: Signal(s).creator_exposure, fingerprint: Signal(s).fingerprint, duration_secs: Signal(s).duration_secs, bpm: Signal(s).bpm, key: Signal(s).key, is_major: Signal(s).is_major, mood: Signal(s).mood, context_tags: tagList(Signal(s).context_tags), descriptor: Signal(s).descriptor, tonal_valence: Signal(s).tonal_valence, rms_energy: Signal(s).rms_energy, bass_energy: Signal(s).bass_energy, vocal_probability: Signal(s).vocal_probability, has_vocals: Signal(s).has_vocals, replay_rate: Signal(s).replay_rate, share_velocity: Signal(s).share_velocity}
+    action listSignals -> SignalList:
+        return SignalList{count: count(Signal), signals: list(AethyrSignal{track_id: s.track, creator_id: s.creator, computed_at: s.computed_at, topic_vector: [s.v0, s.v1, s.v2, s.v3, s.v4, s.v5, s.v6, s.v7], velocity_score: s.velocity_score, early_retention: s.early_retention, completion_rate: s.completion_rate, conversion_probability: s.conversion_probability, creator_revenue_rate: s.creator_revenue_rate, ltv_estimate: s.ltv_estimate, adult_probability: s.adult_probability, exposure_count: s.exposure_count, creator_exposure: s.creator_exposure, fingerprint: s.fingerprint, duration_secs: s.duration_secs, bpm: s.bpm, key: s.key, is_major: s.is_major, mood: s.mood, context_tags: tagList(s.context_tags), descriptor: s.descriptor, tonal_valence: s.tonal_valence, rms_energy: s.rms_energy, bass_energy: s.bass_energy, vocal_probability: s.vocal_probability, has_vocals: s.has_vocals, replay_rate: s.replay_rate, share_velocity: s.share_velocity} in Signal by track)}
+    api GET "/api/zior/signal/{track_id}" -> getSignal
+    api GET "/api/zior/signals" -> listSignals
+
+    type SimilarTrack:
+        track_id: text
+        similarity: float
+        mood: text
+        descriptor: text
+    type SimilarTracks:
+        track_id: text
+        similar: [SimilarTrack]
+    action similarTracks(track_id: text) -> SimilarTracks:
+        check exists(s in Signal where s.track == track_id) "no signal for that track" status 404
+        return SimilarTracks{track_id: track_id, similar: list(SimilarTrack{track_id: x.b, similarity: x.sim, mood: max(s.mood in Signal where s.track == x.b), descriptor: max(s.descriptor in Signal where s.track == x.b)} in TrackSimilarity where x.a == track_id && exists(s in Signal where s.track == x.b) by sim desc limit 10)}
+    api GET "/api/zior/similar/{track_id}" -> similarTracks
+
+    type ClusterSummary:
+        cluster_id: int
+        track_count: int
+        track_ids: [text]
+    type Clusters:
+        n_clusters: int
+        clusters: [ClusterSummary]
+    action clusters -> Clusters:
+        return Clusters{n_clusters: count(c in TrackCluster where c.seed), clusters: list(ClusterSummary{cluster_id: c.cluster, track_count: count(x in TrackCluster where x.cluster == c.cluster), track_ids: list(x.track in TrackCluster where x.cluster == c.cluster by track)} in TrackCluster where c.seed by cluster)}
+    api GET "/api/zior/clusters" -> clusters
+
+    # ── POST /events ────────────────────────────────────────────────────────
+    type PlayEventIn:
+        track_id: text
+        user_id: text
+        event_type: text
+        position_secs: float
+        duration_secs: float
+        timestamp: text
+        session_id: text
+    type IngestResponse:
+        ingested: int
+        track_ids: [text]
+    proc knownEvent(kind: text) -> bool:
+        return kind == "play" || kind == "skip" || kind == "complete" || kind == "replay" || kind == "share" || kind == "save" || kind == "negative" || kind == "playlist"
+    proc stampOr(ts: text, t0: int) -> int:
+        if ts == "":
+            return t0
+        return fromIso(ts)
+    action ingestEvents(events: [PlayEventIn]) -> IngestResponse:
+        let t0 = now()
+        let batch = randomToken(12)
+        for e in events:
+            check knownEvent(e.event_type) "unknown event_type" status 422
+            add PlayEvent { track: e.track_id, user: e.user_id, kind: e.event_type, position_secs: e.position_secs, duration_secs: e.duration_secs, at: stampOr(e.timestamp, t0), session: e.session_id, batch: batch }
+        for s in Signal where exists(e in PlayEvent where e.batch == batch && e.track == s.track):
+            run behaviouralUpdate(s.id, t0)
+        return IngestResponse{ingested: count(e in PlayEvent where e.batch == batch), track_ids: list(e.track in PlayEvent where e.batch == batch && !exists(g in PlayEvent where g.batch == batch && g.track == e.track && g.id < e.id) by id)}
+    api POST "/api/zior/events" -> ingestEvents
+

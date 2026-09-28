@@ -1,0 +1,255 @@
+# Moderation — the content scan, reports and moderator actions, ported from
+# the reference's model-free rules: abraxas-shield (src/clickbait.rs,
+# nsfw.rs, toxicity.rs, spam.rs, bot.rs, pipeline.rs's decision order) and
+# feed-engine (handler/moderation.go's state mapping, admin.go's reports).
+#
+# The scan reads a work's text and its author's recent activity and answers a
+# recommendation, in the shield's priority order:
+#   1 a hate term              → auto_block    (blocked: leaves every feed)
+#   2 a violence or self-harm  → human_review
+#   3 an adult creator         → age_gate
+#   4 nudity ≥ 0.70            → age_gate      5 nudity ≥ 0.45 → human_review
+#   6 clickbait ≥ 0.70         → human_review
+#   7 a suspected bot          → human_review  8 spam           → human_review
+#   9 otherwise                → approve       (clean)
+# Clickbait is scored exactly as clickbait.rs does (caps ratio ×2 ≤ 0.4, 0.08
+# per "!" ≤ 0.2, 0.12 per keyword ≤ 0.25, a numbered-list claim 0.15, 0.04 per
+# "?" ≤ 0.1; ≥ 0.55 is clickbait). NSFW text is 1.0 on any explicit term.
+# Spam: more than 10 posts in the hour, or the same body within 24 hours.
+# Bot: an account under a day old with more than 5 posts, or under three days
+# with more than 15.
+#
+# Bound to the product's Work and Account rows by `expect`; the product's
+# post runs `scanWork`, its report action `escalateReport`, and its feed
+# leaves out a blocked work — so /api/v2 and the web moderate the same way.
+# Reports are the product's Report rows (api/social_events.fct).
+#
+# The hate / violence / self-harm term lists are operator data (ModTerm), not
+# source: the reference ships them compiled in, and a library facet is the
+# wrong place to publish a slur list. An admin loads them; a signal confirmed
+# as a false positive is suppressed (the reference's feedback loop).
+app FacetSocial:
+    expect policy member
+    expect entity Account:
+        id: int
+        handle: text
+        is_adult_creator: bool
+        created: int
+    expect entity Work:
+        id: int
+        author: int
+        body: text
+        created: int
+        deleted: bool
+    entity ModTerm:
+        id: int
+        category: text
+        term: text
+    entity SuppressedSignal:
+        id: int
+        signal: text
+    entity ScanState:
+        id: int
+        work: int
+        state: text
+        recommendation: text
+        reason: text
+    # A moderator's resolution of the reports on a work (admin.go
+    # resolveReport): the product's Report rows filed up to `at` are settled.
+    entity ReportResolution:
+        id: int
+        work: int
+        status: text
+        at: int
+    derive workBlocked(work: int): bool = exists(s in ScanState where s.work == work && s.state == "blocked")
+    derive workAgeGated(work: int): bool = exists(s in ScanState where s.work == work && s.state == "age_gated")
+    derive scanStateOf(work: int): text = first(list(s.state in ScanState where s.work == work) + ["clean"])
+    derive inReview(work: int): bool = exists(s in ScanState where s.work == work && s.state == "human_review")
+    # ── the text signals ───────────────────────────────────────────────────
+    proc clickbaitKeywords() -> [text]:
+        return ["you won't believe", "shocking", "this is why", "what happens next", "mind blown", "blew my mind", "this will", "secret revealed", "insane", "omg", "wtf", "unbelievable", "jaw dropping", "life changing", "must see", "going viral", "breaks the internet", "nobody is talking about", "wait for it", "they don't want you to know", "doctors hate", "one weird trick", "exposed", "banned", "censored", "this changes everything", "finally revealed", "gone wrong", "gone right", "reaction", "i can't believe", "look what", "you need to see this", "share before deleted", "watch before removed", "only real fans", "first to know", "exclusive", "limited time"]
+    proc explicitTerms() -> [text]:
+        return ["nude", "naked", "nsfw", "explicit", "pornography", "pornographic", "onlyfans", "xxx", "18+", "adult content"]
+    proc hits(low: text, terms: [text]) -> int:
+        let mut n = 0
+        let mut i = 0
+        loop i < len(terms):
+            if contains(low, terms[i]):
+                n = n + 1
+            i = i + 1
+        return n
+    proc countChar(s: text, c: text) -> int:
+        let mut n = 0
+        let mut i = 0
+        loop i < len(s):
+            if charAt(s, i) == c:
+                n = n + 1
+            i = i + 1
+        return n
+    proc capsRatio(s: text) -> float:
+        let mut letters = 0
+        let mut up = 0
+        let mut i = 0
+        loop i < len(s):
+            let ch = charAt(s, i)
+            if lower(ch) != upper(ch):
+                letters = letters + 1
+                if ch == upper(ch):
+                    up = up + 1
+            i = i + 1
+        if letters == 0:
+            return 0.0
+        return toFloat(up) / toFloat(letters)
+    proc isWordChar(c: text) -> bool:
+        return contains("abcdefghijklmnopqrstuvwxyz0123456789_", c)
+    # \b\d+\s*(reasons?|things?|ways?|secrets?|facts?|tips?|tricks?|steps?|hacks?)\b
+    proc numberClaim(low: text) -> bool:
+        let nouns = ["reason", "thing", "way", "secret", "fact", "tip", "trick", "step", "hack"]
+        let mut i = 0
+        loop i < len(low):
+            let atStart = i == 0 || !isWordChar(charAt(low, i - 1))
+            if atStart && contains("0123456789", charAt(low, i)):
+                let mut j = i
+                loop j < len(low) && contains("0123456789", charAt(low, j)):
+                    j = j + 1
+                loop j < len(low) && (charAt(low, j) == " " || charAt(low, j) == "\t"):
+                    j = j + 1
+                let mut k = 0
+                loop k < len(nouns):
+                    let w = nouns[k]
+                    if slice(low, j, j + len(w)) == w:
+                        let e = j + len(w)
+                        if e >= len(low) || !isWordChar(charAt(low, e)):
+                            return true
+                        if charAt(low, e) == "s" && (e + 1 >= len(low) || !isWordChar(charAt(low, e + 1))):
+                            return true
+                    k = k + 1
+                i = j
+                continue
+            i = i + 1
+        return false
+    proc minF(a: float, b: float) -> float:
+        if a < b:
+            return a
+        return b
+    # clickbait.rs rule_based_score, rounded to 4 places as detect() does.
+    proc clickbaitScore(text0: text) -> float:
+        if text0 == "":
+            return 0.0
+        let low = lower(text0)
+        let mut s = minF(capsRatio(text0) * 2.0, 0.4)
+        s = s + minF(toFloat(countChar(text0, "!")) * 0.08, 0.2)
+        s = s + minF(toFloat(hits(low, clickbaitKeywords())) * 0.12, 0.25)
+        if numberClaim(low):
+            s = s + 0.15
+        s = s + minF(toFloat(countChar(text0, "?")) * 0.04, 0.1)
+        s = minF(s, 1.0)
+        return toFloat(round(s * 10000.0)) / 10000.0
+    proc nudityScore(text0: text) -> float:
+        if hits(lower(text0), explicitTerms()) > 0:
+            return 1.0
+        return 0.0
+    proc suspectedBot(ageSeconds: int, posts: int) -> bool:
+        return (ageSeconds < 86400 && posts > 5) || (ageSeconds < 3 * 86400 && posts > 15)
+    proc spam(postsLastHour: int, duplicate24h: bool) -> bool:
+        return postsLastHour > 10 || duplicate24h
+    # pipeline.rs's decision order.
+    proc recommend(hate: int, violence: int, selfHarm: int, adultCreator: bool, nudity: float, clickbait: float, bot: bool, isSpam: bool) -> text:
+        if hate > 0:
+            return "auto_block"
+        if violence > 0 || selfHarm > 0:
+            return "human_review"
+        if adultCreator:
+            return "age_gate"
+        if nudity >= 0.70:
+            return "age_gate"
+        if nudity >= 0.45:
+            return "human_review"
+        if clickbait >= 0.70:
+            return "human_review"
+        if bot:
+            return "human_review"
+        if isSpam:
+            return "human_review"
+        return "approve"
+    # moderation.go's recommendation → scan state (unknown → review).
+    proc stateFor(rec: text) -> text:
+        if rec == "approve":
+            return "clean"
+        if rec == "age_gate":
+            return "age_gated"
+        if rec == "auto_block":
+            return "blocked"
+        return "human_review"
+    # ── the scan ─────────────────────────────────────────────────────────────
+    # A work the product just published, with its author's facts from the
+    # product's rows: account age, post counts, a duplicate body within 24
+    # hours, whether an adult creator. The product's post runs it.
+    action scanWork(work: int) -> text @internal:
+        check exists(t in Work where t.id == work) "no such work" status 404
+        let body = Work(work).body
+        let author = Work(work).author
+        let t0 = now()
+        let rec = run recommendFor(body, exists(a in Account where a.id == author && a.is_adult_creator), t0 - max(a.created in Account where a.id == author), count(w in Work where w.author == author && !w.deleted), count(w in Work where w.author == author && w.created > t0 - 3600), count(w in Work where w.author == author && w.body == body && w.created > t0 - 86400) > 1)
+        let st = do stateFor(rec)
+        remove s in ScanState where s.work == work
+        add ScanState { work: work, state: st, recommendation: rec, reason: "scan" }
+        return rec
+    # The shield's recommendation for a text and its author's facts (the
+    # operator's term lists, less suppressed signals).
+    action recommendFor(body: text, adultCreator: bool, accountAge: int, posts: int, postsLastHour: int, duplicate24h: bool) -> text @internal:
+        let low = lower(body)
+        let hate = count(m in ModTerm where m.category == "hate" && contains(low, m.term) && !exists(s in SuppressedSignal where s.signal == "hate_keyword:" + m.term))
+        let violence = count(m in ModTerm where m.category == "violence" && contains(low, m.term) && !exists(s in SuppressedSignal where s.signal == "violence:" + m.term))
+        let selfHarm = count(m in ModTerm where m.category == "self_harm" && contains(low, m.term) && !exists(s in SuppressedSignal where s.signal == "self_harm:" + m.term))
+        let nud = do nudityScore(body)
+        let cb = do clickbaitScore(body)
+        let bot = do suspectedBot(accountAge, posts)
+        let sp = do spam(postsLastHour, duplicate24h)
+        let rec = do recommend(hate, violence, selfHarm, adultCreator, nud, cb, bot, sp)
+        return rec
+    # ── reports (admin.go fileContentReport / resolveReport) ─────────────────
+    # A report the product just filed: an escalating reason (nsfw, hate,
+    # ncii, sextortion, scam) holds the work for review unless it is blocked.
+    action escalateReport(work: int, reason: text) @internal:
+        if work > 0 && (reason == "nsfw" || reason == "hate" || reason == "ncii" || reason == "sextortion" || reason == "scam"):
+            if !workBlocked(work):
+                remove s in ScanState where s.work == work
+                add ScanState { work: work, state: "human_review", recommendation: "human_review", reason: "user report: " + reason }
+    action resolveReports(work: int, status: text):
+        check role == "admin" "forbidden" status 403
+        check status == "resolved" || status == "dismissed" "invalid request" status 400
+        add ReportResolution { work: work, status: status, at: now() }
+        # Clearing the report-driven hold (ClearReportDrivenReview): a work in
+        # review only because of a report goes back to clean.
+        set s in ScanState where s.work == work && s.state == "human_review" && s.reason != "scan":
+            state = "clean"
+    # ── moderator actions (moderation.go ModerationActionPost) ───────────────
+    action moderate(work: int, action0: text):
+        check role == "admin" "forbidden" status 403
+        check action0 == "approve" || action0 == "block" || action0 == "age_gate" "unknown action" status 400
+        let st = do moderatorState(action0)
+        remove s in ScanState where s.work == work
+        add ScanState { work: work, state: st, recommendation: action0, reason: "moderator" }
+        if action0 == "block":
+            add ReportResolution { work: work, status: "resolved", at: now() }
+    proc moderatorState(a: text) -> text:
+        if a == "block":
+            return "blocked"
+        if a == "age_gate":
+            return "age_gated"
+        return "clean"
+    action addModTerm(category: text, term: text):
+        check role == "admin" "forbidden" status 403
+        check category == "hate" || category == "violence" || category == "self_harm" "category is hate, violence or self_harm" status 400
+        check trim(term) != "" "a term is required" status 400
+        if !exists(m in ModTerm where m.category == category && m.term == lower(trim(term))):
+            add ModTerm { category: category, term: lower(trim(term)) }
+    action suppressSignal(signal: text):
+        check role == "admin" "forbidden" status 403
+        if !exists(s in SuppressedSignal where s.signal == signal):
+            add SuppressedSignal { signal: signal }
+    # Parity surface for the clickbait score (micro-units).
+    action clickbait(text0: text) -> int:
+        let s = do clickbaitScore(text0)
+        return round(s * 1000000.0)

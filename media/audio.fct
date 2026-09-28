@@ -1,0 +1,785 @@
+# Audio analysis — zior-engine's decode + feature extraction, authored in fct.
+#
+# The reference (zior-engine src/audio/decoder.rs, features.rs) decodes an
+# upload to mono PCM (the channels averaged; 8-bit as (u8-128)/128, 16-bit
+# /32768, 24-bit /2^23, 32-bit int /2^31, IEEE float as is), downsamples to
+# 22050 Hz by averaging runs of source/target samples, then measures: RMS,
+# peak/RMS dynamic range, Hann-windowed 2048-point spectra every 512 samples
+# (centroid, 85% rolloff, flux, bass/mid/treble energy below 300 Hz / 3 kHz /
+# above), onset-autocorrelation tempo (40–220 BPM), a 12-bin chroma and the
+# Krumhansl key/mode, and the valence and vocal proxies built from them.
+# Every step is here as a proc over bytes and floats, the FFT included
+# (iterative radix-2); a parity sidecar holds this file to the reference
+# built from its own source on fixed WAV inputs.
+#
+# Containers: RIFF/WAVE, PCM (format 1), IEEE float (3) and
+# WAVE_FORMAT_EXTENSIBLE (0xFFFE) carrying either; any other chunk is skipped
+# (odd sizes padded). The reference also accepts MP3/FLAC/Ogg Vorbis/AAC via
+# symphonia; FLAC is decoded by flac.fct, the others are not ported.
+import "flac.fct"
+
+app FacetAudio:
+    expect policy member
+    entity TrackAnalysis:
+        owner: text
+        track: text
+        sample_rate: int
+        channels: int
+        duration_secs: float
+        bpm_raw: float
+        bpm: float
+        key: int
+        is_major: bool
+        tonal_valence: float
+        rms_energy: float
+        dynamic_range: float
+        spectral_centroid: float
+        spectral_rolloff: float
+        spectral_flux: float
+        bass_energy: float
+        mid_energy: float
+        treble_energy: float
+        vocal_probability: float
+        fingerprint: text
+        landmarks: int
+        created: int
+
+    struct Wav:
+        error: text
+        format: int
+        channels: int
+        rate: int
+        bits: int
+        start: int
+        size: int
+
+    struct Pcm:
+        error: text
+        rate: int
+        channels: int
+        samples: [float]
+
+    # One analysis: error is "" or why the upload was refused.
+    # segmenter.rs: a stretch of the track and what it sounds like.
+    struct Section:
+        kind: text
+        start_secs: float
+        end_secs: float
+        energy: float
+
+    struct Analysis:
+        error: text
+        sections: [Section]
+        early_retention: float
+        sample_rate: int
+        channels: int
+        duration_secs: float
+        fingerprint: text
+        landmarks: int
+        bpm_raw: float
+        bpm: float
+        key: int
+        is_major: bool
+        tonal_valence: float
+        rms_energy: float
+        dynamic_range: float
+        spectral_centroid: float
+        spectral_rolloff: float
+        spectral_flux: float
+        bass_energy: float
+        mid_energy: float
+        treble_energy: float
+        vocal_probability: float
+
+    # ── container ───────────────────────────────────────────────────────────
+    proc tag(b: [int], at: int, s: text) -> bool:
+        return at + 4 <= len(b) && bytesToText(slice(b, at, at + 4)) == s
+    proc badWav(msg: text) -> Wav:
+        return Wav{error: msg, format: 0, channels: 0, rate: 0, bits: 0, start: 0, size: 0}
+    proc wavHeader(b: [int]) -> Wav:
+        if !tag(b, 0, "RIFF") || !tag(b, 8, "WAVE"):
+            return badWav("not a RIFF/WAVE file")
+        let mut p = 12
+        let mut format = -1
+        let mut channels = 0
+        let mut rate = 0
+        let mut bits = 0
+        loop p + 8 <= len(b):
+            let size = uintLE(b, p + 4, 4)
+            let body = p + 8
+            if tag(b, p, "fmt "):
+                if size < 16 || body + size > len(b):
+                    return badWav("truncated fmt chunk")
+                format = uintLE(b, body, 2)
+                channels = uintLE(b, body + 2, 2)
+                rate = uintLE(b, body + 4, 4)
+                bits = uintLE(b, body + 14, 2)
+                if format == 65534:
+                    if size < 40:
+                        return badWav("truncated extensible fmt chunk")
+                    format = uintLE(b, body + 24, 2)
+            if tag(b, p, "data"):
+                if format < 0:
+                    return badWav("data before fmt")
+                if format != 1 && format != 3:
+                    return badWav("unsupported WAV encoding " + format)
+                if channels < 1 || rate < 1:
+                    return badWav("no channels or sample rate")
+                if (format == 1 && bits != 8 && bits != 16 && bits != 24 && bits != 32) || (format == 3 && bits != 32 && bits != 64):
+                    return badWav("unsupported sample width " + bits)
+                return Wav{error: "", format: format, channels: channels, rate: rate, bits: bits, start: body, size: min(size, len(b) - body)}
+            p = body + size + size % 2
+        return badWav("no data chunk")
+
+    # One sample, normalised the way symphonia hands it over.
+    proc sampleAt(b: [int], at: int, format: int, bits: int) -> float:
+        if format == 3:
+            if bits == 64:
+                return floatFromBits(uintLE(b, at, 8))
+            return f32(uintLE(b, at, 4))
+        if bits == 8:
+            return toFloat(b[at] - 128) / 128.0
+        let v = uintLE(b, at, bits / 8)
+        if bits == 16:
+            if v >= 32768:
+                return toFloat(v - 65536) / 32768.0
+            return toFloat(v) / 32768.0
+        if bits == 24:
+            if v >= 8388608:
+                return toFloat(v - 16777216) / 8388608.0
+            return toFloat(v) / 8388608.0
+        if v >= 2147483648:
+            return toFloat(v - 4294967296) / 2147483648.0
+        return toFloat(v) / 2147483648.0
+
+    # An IEEE-754 binary32 pattern widened to the binary64 it denotes, exactly.
+    proc f32(u: int) -> float:
+        let e = (u / 8388608) % 256
+        let m = u % 8388608
+        let mut sign = 0
+        if u >= 2147483648:
+            sign = 1
+        if e == 0 && m == 0:
+            if sign == 1:
+                return 0.0 - 0.0
+            return 0.0
+        if e == 0:
+            let mut x = toFloat(m)
+            let mut k = 0
+            loop k < 149:
+                x = x / 2.0
+                k = k + 1
+            if sign == 1:
+                return 0.0 - x
+            return x
+        # 1.m × 2^(e-127): the binary64 exponent is e-127+1023, the mantissa shifted up 29 bits
+        let bits = sign * 9223372036854775807 + sign + (e + 896) * 4503599627370496 + m * 536870912
+        return floatFromBits(bits)
+
+    proc decodeWav(b: [int]) -> Pcm:
+        let h = do wavHeader(b)
+        if h.error != "":
+            return Pcm{error: h.error, rate: 0, channels: 0, samples: []}
+        let width = h.bits / 8
+        let frame = width * h.channels
+        let n = h.size / frame
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            let at = h.start + i * frame
+            let mut sum = 0.0
+            let mut c = 0
+            loop c < h.channels:
+                sum = sum + sampleAt(b, at + c * width, h.format, h.bits)
+                c = c + 1
+            out = append(out, sum / toFloat(h.channels))
+            i = i + 1
+        if n == 0:
+            return Pcm{error: "decoded audio is empty", rate: h.rate, channels: h.channels, samples: []}
+        return Pcm{error: "", rate: h.rate, channels: h.channels, samples: out}
+
+    # decoder.rs downsample: the mean of each run of source/target samples.
+    proc downsample(s: [float], source: int, target: int) -> [float]:
+        if source <= target:
+            return s
+        let ratio = toFloat(source) / toFloat(target)
+        let n = len(s)
+        let mut out = []
+        let mut pos = 0.0
+        loop pos + ratio < toFloat(n):
+            let start = floor(pos)
+            let end = min(floor(pos + ratio), n)
+            let mut sum = 0.0
+            let mut i = start
+            loop i < end:
+                sum = sum + s[i]
+                i = i + 1
+            out = append(out, sum / toFloat(end - start))
+            pos = pos + ratio
+        return out
+
+    # ── spectra ─────────────────────────────────────────────────────────────
+    proc zeros(n: int) -> [float]:
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            out = append(out, 0.0)
+            i = i + 1
+        return out
+    proc hann(n: int) -> [float]:
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            out = append(out, 0.5 * (1.0 - cos(2.0 * 3.141592653589793 * toFloat(i) / (toFloat(n) - 1.0))))
+            i = i + 1
+        return out
+    proc bitReverse(n: int) -> [int]:
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            let mut r = 0
+            let mut x = i
+            let mut k = 1
+            loop k < n:
+                r = r * 2 + x % 2
+                x = x / 2
+                k = k * 2
+            out = append(out, r)
+            i = i + 1
+        return out
+    # Every Hann-windowed frame's |X[k]|, k = 0..window/2, one list per frame
+    # (window a power of two). A real frame of N samples is one
+    # complex FFT of N/2 points — even samples the real parts, odd the
+    # imaginary — split back into the N-point spectrum:
+    #   E = (Z[k] + conj Z[M-k]) / 2,  O = (Z[k] - conj Z[M-k]) / 2i,
+    #   X[k] = E + e^(-2πik/N) O.
+    # The M-point transform is radix-2 decimation in time over bit-reversed
+    # input; every twiddle comes from one N-point cos/sin table.
+    proc spectra(s: [float], window: int, hop: int) -> [[float]]:
+        let w = do hann(window)
+        let m = window / 2
+        let rev = do bitReverse(m)
+        let mut cs = []
+        let mut sn = []
+        let mut t = 0
+        loop t < m:
+            let th = 2.0 * 3.141592653589793 * toFloat(t) / toFloat(window)
+            cs = append(cs, cos(th))
+            sn = append(sn, sin(th))
+            t = t + 1
+        let mut re = zeros(m)
+        let mut im = zeros(m)
+        let mut frames = []
+        let mut pos = 0
+        loop pos + window <= len(s):
+            let mut i = 0
+            loop i < m:
+                let r = rev[i]
+                re[r] = s[pos + 2 * i] * w[2 * i]
+                im[r] = s[pos + 2 * i + 1] * w[2 * i + 1]
+                i = i + 1
+            let mut size = 2
+            loop size <= m:
+                let half = size / 2
+                let step = window / size
+                let mut start = 0
+                loop start < m:
+                    let mut j = 0
+                    loop j < half:
+                        let a = start + j
+                        let b = a + half
+                        let wr = cs[j * step]
+                        let wi = sn[j * step]
+                        let tr = re[b] * wr + im[b] * wi
+                        let ti = im[b] * wr - re[b] * wi
+                        re[b] = re[a] - tr
+                        im[b] = im[a] - ti
+                        re[a] = re[a] + tr
+                        im[a] = im[a] + ti
+                        j = j + 1
+                    start = start + size
+                size = size * 2
+            let mut mags = [abs(re[0] + im[0])]
+            let mut k = 1
+            loop k < m:
+                let ar = re[k]
+                let ai = im[k]
+                let br = re[m - k]
+                let bi = im[m - k]
+                let er = (ar + br) / 2.0
+                let ei = (ai - bi) / 2.0
+                let orr = (ai + bi) / 2.0
+                let oi = (br - ar) / 2.0
+                let xr = er + cs[k] * orr + sn[k] * oi
+                let xi = ei + cs[k] * oi - sn[k] * orr
+                mags = append(mags, sqrt(xr * xr + xi * xi))
+                k = k + 1
+            mags = append(mags, abs(re[0] - im[0]))
+            frames = append(frames, mags)
+            pos = pos + hop
+        return frames
+    # ── features.rs ─────────────────────────────────────────────────────────
+    proc clamp(x: float, lo: float, hi: float) -> float:
+        if x < lo:
+            return lo
+        if x > hi:
+            return hi
+        return x
+    proc rms(s: [float]) -> float:
+        if len(s) == 0:
+            return 0.0
+        let mut sq = 0.0
+        let mut i = 0
+        loop i < len(s):
+            sq = sq + s[i] * s[i]
+            i = i + 1
+        return sqrt(sq / toFloat(len(s)))
+    proc peak(s: [float]) -> float:
+        let mut p = 0.0
+        let mut i = 0
+        loop i < len(s):
+            if s[i] > p:
+                p = s[i]
+            i = i + 1
+        return p
+    proc total(m: [float]) -> float:
+        let mut t = 0.0
+        let mut i = 0
+        loop i < len(m):
+            t = t + m[i]
+            i = i + 1
+        return t
+    # The frame-wise features over spectra()'s frames, window/2+1 bins each.
+    proc centroid(frames: [[float]], sr: int, window: int) -> float:
+        let nf = len(frames)
+        if nf == 0:
+            return 0.0
+        let binHz = toFloat(sr) / toFloat(window)
+        let mut acc = 0.0
+        let mut f = 0
+        loop f < nf:
+            let m = frames[f]
+            let t = total(m)
+            if t >= 0.0000000001:
+                let mut wsum = 0.0
+                let mut i = 0
+                loop i < len(m):
+                    wsum = wsum + toFloat(i) * m[i]
+                    i = i + 1
+                acc = acc + (wsum / t * binHz) / (toFloat(sr) / 2.0)
+            f = f + 1
+        return acc / toFloat(nf)
+    proc rolloffOf(m: [float], binHz: float, sr: int) -> float:
+        let threshold = total(m) * 0.85
+        let mut cum = 0.0
+        let mut i = 0
+        loop i < len(m):
+            cum = cum + m[i]
+            if cum >= threshold:
+                return (toFloat(i) * binHz) / (toFloat(sr) / 2.0)
+            i = i + 1
+        return 1.0
+    proc rolloff(frames: [[float]], sr: int, window: int) -> float:
+        let nf = len(frames)
+        if nf == 0:
+            return 0.0
+        let binHz = toFloat(sr) / toFloat(window)
+        let mut acc = 0.0
+        let mut f = 0
+        loop f < nf:
+            acc = acc + rolloffOf(frames[f], binHz, sr)
+            f = f + 1
+        return acc / toFloat(nf)
+    proc flux(frames: [[float]]) -> float:
+        let nf = len(frames)
+        if nf < 2:
+            return 0.0
+        let mut acc = 0.0
+        let mut f = 1
+        loop f < nf:
+            let a = frames[f - 1]
+            let b = frames[f]
+            let mut d = 0.0
+            let mut i = 0
+            loop i < len(a) && i < len(b):
+                let up = b[i] - a[i]
+                if up > 0.0:
+                    d = d + up * up
+                i = i + 1
+            acc = acc + sqrt(d)
+            f = f + 1
+        return clamp(acc / toFloat(nf - 1) / 100.0, 0.0, 1.0)
+    # [bass, mid, treble] shares of the spectral energy.
+    proc bands(frames: [[float]], sr: int, window: int) -> [float]:
+        let binHz = toFloat(sr) / toFloat(window)
+        let bassMax = floor(300.0 / binHz)
+        let midMax = floor(3000.0 / binHz)
+        let mut lo = 0.0
+        let mut mid = 0.0
+        let mut hi = 0.0
+        let mut all = 0.0
+        let mut f = 0
+        loop f < len(frames):
+            let m = frames[f]
+            let mut i = 0
+            loop i < len(m):
+                let e = m[i] * m[i]
+                if i < bassMax:
+                    lo = lo + e
+                else:
+                    if i < midMax:
+                        mid = mid + e
+                    else:
+                        hi = hi + e
+                all = all + e
+                i = i + 1
+            f = f + 1
+        if all < 0.0000000001:
+            return [0.0, 0.0, 0.0]
+        return [lo / all, mid / all, hi / all]
+    proc tempo(s: [float], sr: int) -> float:
+        let size = max(sr / 100, 128)
+        let hop = size / 2
+        let mut prev = 0.0
+        let mut onsets = []
+        let mut pos = 0
+        loop pos + size <= len(s):
+            let mut e = 0.0
+            let mut i = 0
+            loop i < size:
+                e = e + s[pos + i] * s[pos + i]
+                i = i + 1
+            e = e / toFloat(size)
+            onsets = append(onsets, max(e - prev, 0.0))
+            prev = e
+            pos = pos + hop
+        if len(onsets) < 4:
+            return 120.0
+        let fps = toFloat(sr) / toFloat(hop)
+        let minPeriod = floor(fps * 60.0 / 220.0)
+        let maxPeriod = min(floor(fps * 60.0 / 40.0), len(onsets) / 2)
+        if minPeriod >= maxPeriod:
+            return 120.0
+        let mut best = 0.0
+        let mut bestPeriod = minPeriod
+        let mut period = minPeriod
+        loop period < maxPeriod:
+            let mut c = 0.0
+            let mut i = 0
+            loop i < len(onsets) - period:
+                c = c + onsets[i] * onsets[i + period]
+                i = i + 1
+            if period == minPeriod || c > best:
+                best = c
+                bestPeriod = period
+            period = period + 1
+        return clamp(fps * 60.0 / toFloat(bestPeriod), 40.0, 220.0)
+    proc chroma(frames: [[float]], sr: int, window: int) -> [float]:
+        let binHz = toFloat(sr) / toFloat(window)
+        let mut c = zeros(12)
+        let mut f = 0
+        loop f < len(frames):
+            let m = frames[f]
+            let mut i = 0
+            loop i < len(m):
+                let freq = toFloat(i) * binHz
+                if freq >= 27.5 && freq <= 4186.0:
+                    let midi = 12.0 * (ln(freq / 440.0) / ln(2.0)) + 69.0
+                    let pc = ((round(midi) % 12) + 12) % 12
+                    c[pc] = c[pc] + m[i]
+                i = i + 1
+            f = f + 1
+        let sum = total(c)
+        if sum > 0.0:
+            let mut k = 0
+            loop k < 12:
+                c[k] = c[k] / sum
+                k = k + 1
+        return c
+    proc correlate(a: [float], b: [float]) -> float:
+        let ma = total(a) / 12.0
+        let mb = total(b) / 12.0
+        let mut num = 0.0
+        let mut da = 0.0
+        let mut db = 0.0
+        let mut i = 0
+        loop i < 12:
+            num = num + (a[i] - ma) * (b[i] - mb)
+            da = da + (a[i] - ma) * (a[i] - ma)
+            db = db + (b[i] - mb) * (b[i] - mb)
+            i = i + 1
+        if sqrt(da) * sqrt(db) < 0.0000000001:
+            return 0.0
+        return num / (sqrt(da) * sqrt(db))
+    proc rotate(p: [float], n: int) -> [float]:
+        let mut out = []
+        let mut i = 0
+        loop i < 12:
+            out = append(out, p[(i + n) % 12])
+            i = i + 1
+        return out
+    # [key, major (1/0)] by the Krumhansl–Kessler profiles; the first best wins.
+    proc keyMode(c: [float]) -> [int]:
+        let major = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+        let minor = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+        let mut best = 0.0
+        let mut key = 0
+        let mut isMajor = 1
+        let mut root = 0
+        loop root < 12:
+            let ms = correlate(c, rotate(major, root))
+            let ns = correlate(c, rotate(minor, root))
+            if root == 0 || ms > best:
+                best = ms
+                key = root
+                isMajor = 1
+            if ns > best:
+                best = ns
+                key = root
+                isMajor = 0
+            root = root + 1
+        return [key, isMajor]
+
+    # ── fingerprint.rs ──────────────────────────────────────────────────────
+    # The first 30 s as spectral landmarks — per 1024-sample frame (hop 256)
+    # the three strongest local maxima between 50 Hz and 5 kHz above 40% of the
+    # frame's peak, each (frame u32 LE, bin u16 LE, magnitude/peak·255 as u8) —
+    # hashed with SHA-256: the same content the same id across re-uploads.
+    proc landmarks(s: [float], sr: int) -> [int]:
+        let n = min(sr * 30, len(s))
+        let frames = do spectra(slice(s, 0, n), 1024, 256)
+        let binHz = toFloat(sr) / 1024.0
+        let minBin = floor(50.0 / binHz)
+        let maxBin = min(floor(5000.0 / binHz), 512)
+        let mut out = []
+        let mut f = 0
+        loop f < len(frames):
+            let fr = frames[f]
+            let mut top = 0.0
+            let mut i = minBin
+            loop i <= maxBin:
+                if fr[i] > top:
+                    top = fr[i]
+                i = i + 1
+            if top >= 0.000001:
+                let threshold = top * 0.4
+                # the three largest peaks, earlier bins first among equals
+                let mut pb = [-1, -1, -1]
+                let mut pm = [0.0, 0.0, 0.0]
+                let mut b = minBin + 1
+                loop b < maxBin:
+                    let v = fr[b]
+                    if v >= fr[b - 1] && v >= fr[b + 1] && v > threshold:
+                        if pb[0] < 0 || v > pm[0]:
+                            pb[2] = pb[1]
+                            pm[2] = pm[1]
+                            pb[1] = pb[0]
+                            pm[1] = pm[0]
+                            pb[0] = b
+                            pm[0] = v
+                        else:
+                            if pb[1] < 0 || v > pm[1]:
+                                pb[2] = pb[1]
+                                pm[2] = pm[1]
+                                pb[1] = b
+                                pm[1] = v
+                            else:
+                                if pb[2] < 0 || v > pm[2]:
+                                    pb[2] = b
+                                    pm[2] = v
+                    b = b + 1
+                let mut k = 0
+                loop k < 3 && pb[k] >= 0:
+                    out = append(out, f % 256)
+                    out = append(out, (f / 256) % 256)
+                    out = append(out, (f / 65536) % 256)
+                    out = append(out, f / 16777216)
+                    out = append(out, pb[k] % 256)
+                    out = append(out, pb[k] / 256)
+                    out = append(out, min(floor(pm[k] / top * 255.0), 255))
+                    k = k + 1
+            f = f + 1
+        return out
+
+    # ── segmenter.rs ────────────────────────────────────────────────────────
+    # 100 ms RMS frames, smoothed over ±5 frames and scaled to the loudest;
+    # a boundary wherever the mean of the next 10 frames differs from the
+    # previous 10 by more than 0.10 (and 20 frames past the last boundary);
+    # each stretch named by where it sits and how loud it is.
+    proc sectionKind(start: float, end: float, total: float, energy: float) -> text:
+        let rs = start / total
+        let re = end / total
+        if rs < 0.08:
+            return "intro"
+        if re > 0.92:
+            return "outro"
+        if energy > 0.80 && rs > 0.25 && rs < 0.75:
+            return "drop"
+        if energy > 0.60:
+            return "chorus"
+        if rs > 0.55 && (end - start) < 20.0:
+            return "bridge"
+        return "verse"
+    proc sections(s: [float], sr: int) -> [Section]:
+        let size = max(sr / 10, 256)
+        let mut en = []
+        let mut pos = 0
+        loop pos + size <= len(s):
+            let mut e = 0.0
+            let mut i = 0
+            loop i < size:
+                e = e + s[pos + i] * s[pos + i]
+                i = i + 1
+            en = append(en, sqrt(e / toFloat(size)))
+            pos = pos + size
+        let n = len(en)
+        if n == 0:
+            return []
+        let mut sm = []
+        let mut top = 0.0
+        let mut i = 0
+        loop i < n:
+            let lo = max(i - 5, 0)
+            let hi = min(i + 6, n)
+            let mut acc = 0.0
+            let mut j = lo
+            loop j < hi:
+                acc = acc + en[j]
+                j = j + 1
+            let v = acc / toFloat(hi - lo)
+            sm = append(sm, v)
+            if v > top:
+                top = v
+            i = i + 1
+        if top > 0.0000000001:
+            let mut k = 0
+            loop k < n:
+                sm[k] = sm[k] / top
+                k = k + 1
+        let mut bounds = [0]
+        let mut b = 10
+        loop b < n - 10:
+            let mut before = 0.0
+            let mut after = 0.0
+            let mut j = 0
+            loop j < 10:
+                before = before + sm[b - 10 + j]
+                after = after + sm[b + j]
+                j = j + 1
+            if abs(after / 10.0 - before / 10.0) > 0.10 && b - bounds[len(bounds) - 1] > 20:
+                bounds = append(bounds, b)
+            b = b + 1
+        bounds = append(bounds, n)
+        let frameSecs = toFloat(size) / toFloat(sr)
+        let total = toFloat(len(s)) / toFloat(sr)
+        let mut out = []
+        let mut w = 0
+        loop w + 1 < len(bounds):
+            let a = bounds[w]
+            let z = bounds[w + 1]
+            let start = toFloat(a) * frameSecs
+            let end = min(toFloat(z) * frameSecs, total)
+            let mut acc = 0.0
+            let mut j = a
+            loop j < z:
+                acc = acc + sm[j]
+                j = j + 1
+            let energy = acc / toFloat(z - a)
+            out = append(out, Section{kind: sectionKind(start, end, total, energy), start_secs: start, end_secs: end, energy: energy})
+            w = w + 1
+        return out
+    # How soon the first chorus or drop arrives: a proxy for early retention.
+    proc earlyRetention(ss: [Section]) -> float:
+        let mut i = 0
+        loop i < len(ss):
+            if ss[i].kind == "drop" || ss[i].kind == "chorus":
+                if ss[i].start_secs < 30.0:
+                    return 0.85
+                if ss[i].start_secs < 60.0:
+                    return 0.65
+                return 0.45
+            i = i + 1
+        return 0.50
+
+    proc features(pcm: Pcm, secs: float, sr: int, window: int, hop: int) -> Analysis:
+        let s = pcm.samples
+        let r = do rms(s)
+        let p = do peak(s)
+        let mut dr = 0.0
+        if r > 0.000001:
+            dr = min(p / r, 100.0) / 100.0
+        let frames = do spectra(s, window, hop)
+        let fl = do flux(frames)
+        let bs = do bands(frames, sr, window)
+        let bpm = do tempo(s, sr)
+        let k = do keyMode(chroma(frames, sr, window))
+        let lm = do landmarks(s, sr)
+        let brightness = [1.0, 0.4, 0.7, 0.5, 0.8, 0.6, 0.3, 0.9, 0.5, 0.7, 0.4, 0.6]
+        let boost = 0.25 * toFloat(k[1])
+        let secs30 = do sections(s, sr)
+        return Analysis{error: "", sections: secs30, early_retention: earlyRetention(secs30), sample_rate: pcm.rate, channels: pcm.channels, duration_secs: secs, fingerprint: toHex(sha256Bytes(lm)), landmarks: len(lm) / 7, bpm_raw: bpm, bpm: clamp((bpm - 40.0) / 180.0, 0.0, 1.0), key: k[0], is_major: k[1] == 1, tonal_valence: clamp(brightness[k[0]] * 0.7 + boost, 0.0, 1.0), rms_energy: min(r, 1.0), dynamic_range: dr, spectral_centroid: centroid(frames, sr, window), spectral_rolloff: rolloff(frames, sr, window), spectral_flux: fl, bass_energy: bs[0], mid_energy: bs[1], treble_energy: bs[2], vocal_probability: clamp(bs[1] * 0.6 + fl * 0.4, 0.0, 1.0)}
+
+    # ── the analyze endpoint ────────────────────────────────────────────────
+    # handlers.rs: decode, refuse a clip shorter than the minimum, resample to
+    # 22050 Hz and extract with a 2048/512 window. Like the reference, the
+    # extraction is told 22050 Hz even for a source below it (not upsampled).
+    proc refused(why: text) -> Analysis:
+        return Analysis{error: why, sections: [], early_retention: 0.0, sample_rate: 0, channels: 0, duration_secs: 0.0, fingerprint: "", landmarks: 0, bpm_raw: 0.0, bpm: 0.0, key: 0, is_major: false, tonal_valence: 0.0, rms_energy: 0.0, dynamic_range: 0.0, spectral_centroid: 0.0, spectral_rolloff: 0.0, spectral_flux: 0.0, bass_energy: 0.0, mid_energy: 0.0, treble_energy: 0.0, vocal_probability: 0.0}
+    # FLAC (flac.fct) by its "fLaC" marker, else RIFF/WAVE.
+    proc decodeAudio(b: [int]) -> Pcm:
+        if len(b) >= 4 && bytesToText(slice(b, 0, 4)) == "fLaC":
+            let f = do decodeFlac(b)
+            if f.error != "":
+                return Pcm{error: "flac: " + f.error, rate: 0, channels: 0, samples: []}
+            # symphonia's 32-bit left-aligned samples / 2^31, the channels averaged
+            let scale = toFloat(1 << (f.bps - 1))
+            let n = len(f.samples) / f.channels
+            let mut out = []
+            let mut i = 0
+            loop i < n:
+                let mut sum = 0.0
+                let mut c = 0
+                loop c < f.channels:
+                    sum = sum + toFloat(f.samples[i * f.channels + c]) / scale
+                    c = c + 1
+                out = append(out, sum / toFloat(f.channels))
+                i = i + 1
+            return Pcm{error: "", rate: f.rate, channels: f.channels, samples: out}
+        if len(b) >= 4 && bytesToText(slice(b, 0, 4)) != "RIFF":
+            return Pcm{error: "not a WAV or FLAC file (MP3, AAC and Ogg are not decoded)", rate: 0, channels: 0, samples: []}
+        return decodeWav(b)
+    proc analyzeWav(b: [int], minSecs: float) -> Analysis:
+        let pcm = do decodeAudio(b)
+        if pcm.error != "":
+            return refused(pcm.error)
+        let secs = toFloat(len(pcm.samples)) / toFloat(pcm.rate)
+        if secs < minSecs:
+            return refused("audio is shorter than " + minSecs + " seconds")
+        if pcm.rate > 22050:
+            return features(Pcm{error: "", rate: pcm.rate, channels: pcm.channels, samples: downsample(pcm.samples, pcm.rate, 22050)}, secs, 22050, 2048, 512)
+        return features(pcm, secs, 22050, 2048, 512)
+    proc analyze(data: text, minSecs: float) -> Analysis:
+        return analyzeWav(fromBase64UrlRaw(data), minSecs)
+    proc analyzeStored(file: text, minSecs: float) -> Analysis:
+        return analyzeWav(uploadBytes(file), minSecs)
+    action store(owner: text, track: text, f: Analysis) -> int @internal:
+        check f.error == "" "{f.error}" status 422
+        remove a in TrackAnalysis where a.owner == owner && a.track == track
+        let id = add TrackAnalysis { owner: owner, track: track, sample_rate: f.sample_rate, channels: f.channels, duration_secs: f.duration_secs, bpm_raw: f.bpm_raw, bpm: f.bpm, key: f.key, is_major: f.is_major, tonal_valence: f.tonal_valence, rms_energy: f.rms_energy, dynamic_range: f.dynamic_range, spectral_centroid: f.spectral_centroid, spectral_rolloff: f.spectral_rolloff, spectral_flux: f.spectral_flux, bass_energy: f.bass_energy, mid_energy: f.mid_energy, treble_energy: f.treble_energy, vocal_probability: f.vocal_probability, fingerprint: f.fingerprint, landmarks: f.landmarks, created: now() }
+        return id
+    action recordAnalysis(owner: text, track: text, data: text, minSecs: float) -> int @internal:
+        let f = do analyze(data, minSecs)
+        let id = run store(owner, track, f)
+        return id
+    # A WAV (base64url) for a track: 422 for a file that is not a supported
+    # WAV or runs under five seconds (config/default.toml's min_duration_secs).
+    action analyzeTrack(track: text, data: text) -> int:
+        requires member
+        check track != "" "track is required" status 400
+        let id = run recordAnalysis(actor, track, data, 5.0)
+        return id
+    proc keyName(k: int, major: bool) -> text:
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        if major:
+            return names[k] + " major"
+        return names[k] + " minor"

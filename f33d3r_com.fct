@@ -1,0 +1,1609 @@
+# f33d3r.com — the whole site at one origin: the product (api/surface.fct:
+# the native API's entities, actions, /api/v2 routes and contract) and the
+# web pages over the same rows. One entity model — a post is a Work, a person
+# an Account — one session (the web signs up and in through the same
+# signup/createSession actions a native client calls, so an account made
+# either way is the same account everywhere), and one navigation shell.
+#
+#   facet dev facets/f33d3r_com.fct
+import "api/surface.fct"
+import "layout/vocabulary.fct"
+import "navigation/sidebaritem.fct"
+import "social/postcard.fct"
+import "social/composebox.fct"
+import "social/whotofollow.fct"
+import "social/focusedpost.fct"
+import "social/replyrow.fct"
+import "profile/profileheader.fct"
+import "notify/notificationitem.fct"
+import "notify/unreadbadge.fct"
+import "ui/avatar.fct"
+import "ui/userchip.fct"
+import "live/goalbar.fct"
+import "live/agegate.fct"
+import "data/stat.fct"
+import "data/rank.fct"
+import "media/zior.fct"
+import "commerce/wallet.fct"
+import "social/quotecard.fct"
+import "layout/topbar.fct"
+import "ui/icon.fct"
+
+app F33D3R:
+    theme:
+        bg "#15202b"
+        fg "#f7f9f9"
+        muted "#8b98a5"
+        accent "#1d9bf0"
+        border "#38444d"
+        card-border "#38444d"
+        radius "16px"
+        maxwidth "1100px"
+
+    # ── the look ────────────────────────────────────────────────────────────────
+    # The default stylesheet the runtime ships is deliberately plain: it makes every
+    # box a bordered card so that ANY app renders legibly with no design work at all.
+    # That is the right default and the wrong finish — a timeline of bordered cards
+    # floating in a column is not what a social feed looks like. So this is the one
+    # place F33D3R states its own visual language, and every class below is applied
+    # by a facet, not by the runtime.
+    #
+    # Every selector is anchored on `[data-fa-mount]`, the app root, for a reason
+    # that is specificity and not taste. The rule being overridden is
+    # `.fa-box .fa-box` — two classes — so a bare `.x-post` (one class) loses to it
+    # no matter what order the stylesheets are in, and the cards stay. The anchor is
+    # an attribute selector, worth the same as a class, so every rule here is worth
+    # two and the later stylesheet wins. It cannot be `#fa-root`: `#` opens a
+    # comment in this language, and a `#`-anchored rule is silently dropped rather
+    # than rejected — which is exactly how the first version of this block was
+    # written and why every post still had a border.
+    #
+    # Two rules do the heavy lifting:
+    #   * boxes stop being cards. The default nested-box border is turned off and
+    #     re-applied only where something really is a panel.
+    #
+    # What is NOT here: every rule for a class an *atom* applies. Those ship with
+    # the atom, in its own `css:` block, because a facet that renders a grid and
+    # leaves the grid rule in one host app is not distributable — the layered
+    # track (`layered_demo.fct`) composes the same atoms and got `css: null`, so every
+    # one of them rendered unstyled there.
+    #   * the shell is a grid, not three flexed columns. A feed has a fixed readable
+    #     width; the rails do not grow to fill a wide monitor.
+    css:
+        :root { --x-line: #2f3336; --x-panel: #16181c; --x-hover: rgba(239,243,244,.06);
+                --x-live: #00ba7c; --x-warn: #ffd400; }
+        body { margin: 0; max-width: none; padding: 0; background: var(--fa-bg); }
+
+        [data-fa-mount] .fa-box { border: none; border-radius: 0; padding: 0; gap: 0; background: none; }
+        [data-fa-mount] .fa-row { gap: 0; }
+        [data-fa-mount] button { border: none; background: none; color: inherit; padding: 0; border-radius: 9999px; }
+        [data-fa-mount] button:hover { color: inherit; }
+
+        # The three columns are `layout/vocabulary.fct`'s app skeleton — sticky
+        # rails, a 600px hairline-bordered feed, and the collapse below 1100px and
+        # 820px — so this file no longer keeps a private copy of that grid. What
+        # stays is the rail's own furniture: the brand, the Post button and the
+        # sign-out line. A rail row is `SidebarItem`, styled by its own file.
+        [data-fa-mount] .x-brand { font-size: 26px; padding: 12px; }
+        [data-fa-mount] .x-l-app3-nav > .fa-use { display: contents; }
+        [data-fa-mount] .x-side-item { width: fit-content; }
+        [data-fa-mount] .x-post-btn button { background: var(--fa-accent); color: #fff; font-weight: 700;
+                             font-size: 17px; padding: 15px 0; width: 90%; margin: 12px 0;
+                             border-radius: 9999px; }
+        [data-fa-mount] .x-post-btn button:hover { filter: brightness(1.08); }
+        [data-fa-mount] .x-whoami { margin-top: auto; padding: 12px; color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-whoami button { color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-whoami button:hover { color: var(--fa-fg); }
+
+        # Tabs across the top of the feed, full width and equal.
+        [data-fa-mount] .x-tabs .fa-tabstrip { border-bottom: 1px solid var(--x-line); }
+        [data-fa-mount] .x-tabs .fa-tab { flex: 1; padding: 16px 0; font-size: 15px; font-weight: 600; }
+        [data-fa-mount] .x-tabs .fa-tab[aria-selected=true] { border-bottom-width: 4px; }
+
+        # Right rail panels, and a heading that is actually a heading.
+        [data-fa-mount] .x-panel { background: var(--x-panel); border-radius: 16px; margin-bottom: 16px;
+                   overflow: hidden; padding: 12px 16px 16px; }
+        [data-fa-mount] .x-panel-title { font-size: 20px; font-weight: 800; padding: 0 0 12px; }
+        # Section headings and empty states, which belong to the page rather
+        # than to any atom.
+        [data-fa-mount] .x-section { font-size: 20px; font-weight: 800; padding: 16px; }
+        [data-fa-mount] .x-empty { color: var(--fa-muted); padding: 32px 16px; text-align: center; }
+
+        # The live/creator layer: the rail's Go Live ticker, the stories row,
+        # the Studio strip pinned above the feed, and the post-level tip row.
+        [data-fa-mount] .x-stories { display: flex; flex-direction: row; gap: 16px; overflow-x: auto;
+                     padding: 12px 16px; border-bottom: 1px solid var(--x-line); }
+        [data-fa-mount] .x-story { display: flex; flex-direction: column; align-items: center; gap: 4px;
+                     width: 64px; flex: 0 0 auto; }
+        [data-fa-mount] .x-story image { width: 56px; height: 56px; border-radius: 9999px;
+                     border: 2px solid var(--x-live); }
+        [data-fa-mount] .x-story-self image { border-color: var(--x-line); }
+        [data-fa-mount] .x-studiostrip { margin: 12px 16px; padding: 12px 16px; border-radius: 16px;
+                     border: 1px solid var(--x-live); background: rgba(0,186,124,.08); }
+        [data-fa-mount] .x-studiostrip-actions { gap: 8px; margin-top: 8px; }
+        [data-fa-mount] .x-studiostrip-actions button,
+        [data-fa-mount] .x-studiostrip-actions a { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 6px 14px; font-size: 13px; font-weight: 700; }
+        [data-fa-mount] .x-post-extra { padding: 0 16px 8px 52px; gap: 8px; align-items: center; }
+        [data-fa-mount] .x-post-extra button { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 4px 10px; font-size: 13px; font-weight: 700; color: var(--x-warn); }
+        [data-fa-mount] .x-interests { flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+        [data-fa-mount] .x-interest { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 4px 6px 4px 10px; font-size: 13px; align-items: center; gap: 6px; }
+        [data-fa-mount] .x-interest button { color: var(--fa-muted); font-size: 14px; }
+        [data-fa-mount] .x-held-row { padding: 6px 0; border-bottom: 1px solid var(--x-line);
+                     justify-content: space-between; align-items: center; gap: 8px; }
+        [data-fa-mount] .x-held-row button { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 4px 10px; font-size: 12px; }
+        # Visions: the tray's media and the camera's preview.
+        [data-fa-mount] .x-vision-media { width: 100%; height: auto; max-height: 420px; border-radius: 16px; }
+        [data-fa-mount] .x-vision-preview { width: 100%; height: auto; border-radius: 16px; }
+        [data-fa-mount] .x-vision-preview-bar { gap: 8px; align-items: center; flex-wrap: nowrap; padding: 12px 0; }
+        # The stock page's price card (_cashtag_card.html).
+        [data-fa-mount] .x-stock-card-wrap { padding: 12px 0; }
+        [data-fa-mount] .x-cashtag-card { justify-content: space-between; align-items: center; flex-wrap: nowrap;
+                     border: 1px solid var(--x-line); border-radius: 16px; padding: 12px 16px; }
+        [data-fa-mount] .x-cashtag-left { gap: 2px; }
+        [data-fa-mount] .x-cashtag-ticker { font-weight: 800; font-size: 17px; }
+        [data-fa-mount] .x-cashtag-company { color: var(--fa-muted); font-size: 13px; }
+        [data-fa-mount] .x-cashtag-price-row { gap: 8px; align-items: baseline; }
+        [data-fa-mount] .x-cashtag-price { font-size: 20px; font-weight: 700; }
+        [data-fa-mount] .x-cashtag-up-true .x-cashtag-change { color: #22c55e; }
+        [data-fa-mount] .x-cashtag-up-false .x-cashtag-change { color: #ef4444; }
+        [data-fa-mount] .x-cashtag-chart { width: 120px; height: 40px; border-radius: 0; }
+        # Search: the Top/Latest lanes, the offered correction, the tags.
+        [data-fa-mount] .x-search-lanes { gap: 8px; padding: 12px 0; }
+        [data-fa-mount] .x-search-lanes button { border: 1px solid var(--x-line); border-radius: 9999px; padding: 6px 14px; }
+        [data-fa-mount] .x-lane-true button, [data-fa-mount] button.x-lane-true { background: var(--fa-fg); color: var(--fa-bg); }
+        [data-fa-mount] .x-didyoumean { gap: 6px; padding: 8px 0; align-items: baseline; }
+        [data-fa-mount] .x-didyoumean button { color: var(--fa-accent); font-style: italic; }
+        [data-fa-mount] .x-search-tags { gap: 8px; flex-wrap: wrap; padding: 8px 0; }
+        # Messages: the inbox rows, the thread's bubbles (mine on the right in
+        # the accent), and the people page's contact rows.
+        [data-fa-mount] .x-inbox-item { padding: 12px 0; gap: 12px; align-items: center; flex-wrap: nowrap;
+                     border-bottom: 1px solid var(--x-line); }
+        [data-fa-mount] .x-inbox-body { flex: 1; min-width: 0; gap: 2px; }
+        [data-fa-mount] .x-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        [data-fa-mount] .x-msg { align-items: flex-end; gap: 8px; flex-wrap: nowrap; padding: 4px 0; }
+        [data-fa-mount] .x-mine-true { flex-direction: row-reverse; }
+        [data-fa-mount] .x-msg-col { gap: 2px; max-width: 70%; }
+        [data-fa-mount] .x-mine-true .x-msg-col { align-items: flex-end; }
+        [data-fa-mount] .x-bubble { display: inline-block; padding: 8px 14px; border-radius: 18px;
+                     background: var(--x-line); }
+        [data-fa-mount] .x-mine-true .x-bubble { background: var(--fa-accent); color: #fff; }
+        [data-fa-mount] .x-msg-meta { gap: 8px; }
+        [data-fa-mount] .x-composer { padding-top: 12px; border-top: 1px solid var(--x-line); }
+        [data-fa-mount] .x-contact { padding: 12px 0; gap: 12px; align-items: center; flex-wrap: nowrap;
+                     border-bottom: 1px solid var(--x-line); }
+        [data-fa-mount] .x-contact-body { flex: 1; min-width: 0; gap: 2px; }
+        [data-fa-mount] .x-contact-actions { gap: 8px; }
+        [data-fa-mount] .x-contact-actions button { border: 1px solid var(--x-line); border-radius: 9999px;
+                     padding: 6px 14px; font-weight: 700; }
+
+        # Narrow viewports: the vocabulary lays the nav down as a bar above the
+        # feed below 820px; these are the rail's own pieces following it.
+        @media (max-width: 820px) {
+            [data-fa-mount] .x-brand { font-size: 20px; padding: 8px 12px; }
+            [data-fa-mount] .x-post-btn { margin-left: auto; }
+            [data-fa-mount] .x-post-btn button { width: auto; padding: 8px 18px; margin: 0 8px; font-size: 15px; }
+            [data-fa-mount] .x-whoami { margin-top: 0; }
+        }
+
+
+    # ── the web's client cells ──────────────────────────────────────────────
+    state draft: text = "" @client
+    state replyDraft: text = "" @client
+    state chatDraft: text = "" @client
+    state dmDraft: text = "" @client
+    state dmTo: text = "" @client
+    state searchDraft: text = "" @client
+    state visionShot: text = "" @client
+    state visionCaption: text = "" @client
+    state bulkFiles: [text] = [] @client
+    state bulkCaption: text = "" @client
+    # The last search this session ran (webSearch): the query, the works'
+    # ids in rank order and how many matched, whether a misspelling was
+    # tolerated and the correction to offer, the people and the tags.
+    state searchQ: text = ""
+    state searchLatest: bool = false
+    state searchHits: [int] = []
+    state searchTotal: int = 0
+    state searchTypo: bool = false
+    state searchFix: text = ""
+    state searchPeopleHits: [int] = []
+    state searchTagHits: [text] = []
+    state shown: int = 20 @client
+    state feedTab: text = "foryou" @client
+    state goTitle: text = "" @client
+    state goLane: text = "" @client
+    state goMature: bool = false @client
+    state ageOk: bool = false
+    state tipNote: text = "" @client
+    state loginHandle: text = "" @client
+    state loginPassword: text = "" @client
+    state bioDraft: text = "" @client
+    state feedAsOf: int = now() @client
+    state topUpOpen: bool = false @client
+    state transferOpen: bool = false @client
+    state redPacketOpen: bool = false @client
+    state transferTo: text = "" @client
+    state transferNote: text = "" @client
+    state packetTo: text = "" @client
+    state packetNote: text = "" @client
+    state nameDraft: text = "" @client
+    state articleTitle: text = "" @client
+    state articleSubtitle: text = "" @client
+    state articleBody: text = "" @client
+    state listName: text = "" @client
+    state memberHandle: text = "" @client
+    state visionDraft: text = "" @client
+    state onboardTopic: text = "" @client
+    state resetHandle: text = "" @client
+    state resetCode: text = "" @client
+    state resetPassword: text = "" @client
+    state currentPassword: text = "" @client
+    state newPassword: text = "" @client
+    state communityHandle: text = "" @client
+    state communityName: text = "" @client
+    state orgHandle: text = "" @client
+
+    # The signed-in account's row id (0 for a guest).
+    derive myId: int = max(a.id in Account where a.handle == actor)
+    derive handleOf(id: int): text = max(a.handle in Account where a.id == id)
+    derive nameOf(id: int): text = max(a.display_name in Account where a.id == id)
+    derive verifiedOf(id: int): bool = exists(a in Account where a.id == id && a.is_verified)
+    # "September 2026": the month a profile was made, as the reference spells it.
+    derive monthYear(t: int): text = first(slice(split("January,February,March,April,May,June,July,August,September,October,November,December", ","), month(t) - 1, month(t))) + " " + year(t)
+    derive followsId(id: int): bool = exists(f in Follow where f.follower == myId && f.followee == id)
+    derive followsHandle(h: text): bool = exists(a in Account where a.handle == h && followsId(a.id))
+    derive visibleWork(w: Work): bool = !w.deleted && w.parent_cid == 0
+    # What the product's feed shows this viewer (social/visibility.fct,
+    # social/moderation.fct): the same rules /api/v2/feed applies.
+    derive shownTo(w: Work, at: int): bool = visibleWork(w) && !workBlocked(w.id) && feedVisible(w, myId, at)
+    derive liveOf(id: int): int = max(s.id in LiveStream where s.author == id && s.status == "live")
+
+    # ── the web's own actions: thin adapters onto the product's ─────────────
+    # EngagementBar's buttons toggle; the product's actions take the id as
+    # the text the native API sends.
+    action like(id: int):
+        requires member
+        if exists(l in Like where l.work == id && l.account == myId):
+            run unlikeWork("" + id)
+        else:
+            run likeWork("" + id)
+    action repost(id: int):
+        requires member
+        if exists(r in Repost where r.work == id && r.account == myId):
+            run unrepostWork("" + id)
+        else:
+            run repostWork("" + id)
+    action bookmark(id: int):
+        requires member
+        if exists(b in Bookmark where b.work == id && b.account == myId):
+            run unbookmarkWork("" + id)
+        else:
+            run bookmarkWork("" + id)
+    action reply(id: int, body: text):
+        requires member
+        run post(body, false, "", false, false, "", "" + id)
+    # The web's sign-up and sign-in forms: the product's own account and
+    # session actions, so the cookie session is established exactly as a
+    # native client's bearer session is.
+    action webSignup(handle: text, password: text):
+        run signup(handle, password, handle, "", "", "", "", "web", true)
+    action webLogin(handle: text, password: text):
+        run createSession(handle, password, "web")
+    action webLogout:
+        requires member
+        run revokeCurrentSession()
+    action webGoLive(title: text, lane: text?, mature: bool?):
+        requires member
+        check trim(title) != "" "give the stream a title"
+        run goLive(title, "", "", lane, mature)
+    # A tip into a live room: the product's tip, then the note in the room's
+    # chat as a tip line.
+    action webTipStream(id: int, amountAet: text, note: text):
+        requires member
+        check exists(s in LiveStream where s.id == id) "no such stream"
+        run tip(handleOf(LiveStream(id).author), amountAet, "", "" + id)
+        if trim(note) != "":
+            run sendLiveChat(id, note)
+    # A new direct message by handle goes through the recipient's contact
+    # policy: delivered, held as a contact request, or not delivered.
+    action retakeVision:
+        visionShot = ""
+        visionCaption = ""
+    action webShareVision(shot: text, caption: text):
+        requires member
+        check shot != "" "Capture something first."
+        run createVision(take(trim(caption), 280), "image", shot)
+    action clearBulk:
+        bulkFiles = []
+        bulkCaption = ""
+    # Publishes each uploaded file as its own post (the first twenty), the
+    # caption as its words, else the file's name.
+    action webBulkPublish(files: [text], caption: text):
+        requires member
+        check Account(myId).is_creator "Bulk upload is for creators."
+        check len(files) > 0 "Choose at least one file."
+        let batch = slice(files, 0, 20)
+        for f in batch:
+            run webPostMedia(bulkBody(caption, f), f, bulkMediaKind(f))
+    # A search from the bar: the product's ranked search (api/search.fct),
+    # its answer kept for the session so /search draws it.
+    action webSearch(q: text):
+        let raw = searchNormalize(q)
+        let parsed = searchParse(raw)
+        let works = run searchWorksRanked(raw, searchLatest, false, 20, 0)
+        let fix = run searchSuggestion(raw, works.total, len(works.corrected) > 0, 1)
+        searchQ = raw
+        searchHits = works.ids
+        searchTotal = works.total
+        searchTypo = works.typo
+        searchFix = searchDidYouMeanText(parsed, works.corrected, fix)
+        let people = run searchPeople(searchPeopleTermOf(parsed, raw), 5, 0)
+        let tags = run searchTags(searchTagTermOf(parsed), 8)
+        searchPeopleHits = people
+        searchTagHits = webTagNames(tags)
+    action webSearchLane(latest: bool):
+        searchLatest = latest
+        run webSearch(searchQ)
+    action webMessage(to: text, body: text):
+        requires member
+        run messageStart(to, body)
+
+    # ── the shell ───────────────────────────────────────────────────────────
+    layout Shell:
+        row class "x-l-app3":
+            box class "x-l-app3-nav":
+                text "F33D3R" class "x-brand"
+                use SidebarItem("home", "Home", "/")
+                use SidebarItem("search", "Explore", "/search")
+                use SidebarItem("bell", "Notifications", "/notifications"):
+                    use UnreadBadge(count(n in Notification where n.account == myId && !n.is_read))
+                use SidebarItem("mail", "Messages", "/messages")
+                use SidebarItem("users", "People", "/people")
+                use SidebarItem("search", "Explore", "/explore")
+                use SidebarItem("book", "Articles", "/articles")
+                use SidebarItem("music", "Music", "/music")
+                use SidebarItem("users", "Communities", "/communities")
+                use SidebarItem("cart", "Marketplace", "/marketplace")
+                if actor != "guest":
+                    use SidebarItem("star", "Studio", "/create")
+                    use SidebarItem("gear", "Settings", "/settings")
+                use SidebarItem("bookmark", "Bookmarks", "/bookmarks")
+                if liveOf(myId) != 0:
+                    use SidebarItem("bolt", "You're live", "/studio")
+                if liveOf(myId) == 0:
+                    use SidebarItem("bolt", "Live", "/live")
+                use SidebarItem("wallet", "Wallet", "/wallet")
+                if actor != "guest":
+                    use SidebarItemWhen("user", "Profile", "/profile/" + actor, route == "/profile/" + actor)
+                if actor != "guest":
+                    link "Post" -> "/" class "x-pill x-primary x-post-btn"
+                box class "x-whoami":
+                    if actor == "guest":
+                        link "Sign in" -> "/login"
+                    if actor != "guest":
+                        text "signed in as @{actor}"
+                        button "log out" -> webLogout
+            box class "x-l-app3-main":
+                slot
+            box class "x-l-app3-aside":
+                box class "x-panel":
+                    form "Search" -> webSearch(searchDraft):
+                        input bind searchDraft placeholder "Search F33D3R"
+                    if searchQ != "":
+                        link "{commas(searchTotal)} results for “{searchQ}”" -> "/search"
+                    if searchQ == "":
+                        link "Open search" -> "/search"
+                box class "x-panel":
+                    text "Live now" class "x-panel-title"
+                    if !exists(s in LiveStream where s.status == "live"):
+                        text "Nobody is live right now." class "x-muted x-small"
+                    for s in LiveStream where s.status == "live" by viewer_count desc limit 5:
+                        row:
+                            use Avatar(handleOf(s.author))
+                            box:
+                                link "{s.title}" -> "/live/{s.id}" class "x-strong"
+                                text "@{handleOf(s.author)} · {compact(s.viewer_count)} watching" class "x-muted x-small"
+                box class "x-panel":
+                    text "Who to follow" class "x-panel-title"
+                    for a in Account where a.id != myId && !followsId(a.id) && !a.deactivated by created desc limit 3:
+                        use WhoToFollow(a.display_name, a.handle, a.is_verified, false)
+
+    # ── pages ───────────────────────────────────────────────────────────────
+    view Home at "/" in Shell:
+        meta title "Home / F33D3R"
+        meta description "What's happening, newest first."
+        box:
+            use TopBar("Home", "", "/")
+            if actor != "guest":
+                use ComposeBox()
+            tabs bind feedTab class "x-tabs":
+                tab "For you" -> "foryou":
+                    if actor != "guest":
+                        button "Rank for me" -> rankForYou
+                    for fs in FeedScore where fs.viewer == actor by score desc limit shown:
+                        for w in Work where w.id == fs.work && shownTo(w, feedAsOf) limit 1:
+                            use FeedItem(w.id)
+                    if !exists(fs in FeedScore where fs.viewer == actor):
+                        for w in Work where shownTo(w, feedAsOf) by created desc limit shown:
+                            use FeedItem(w.id)
+                tab "Following" -> "following":
+                    for w in Work where shownTo(w, feedAsOf) && (w.author == myId || followsId(w.author) || exists(r in Repost where r.work == w.id && followsId(r.account))) by created desc limit shown:
+                        use FeedItem(w.id)
+                tab "Live · {count(s in LiveStream where s.status == \"live\")}" -> "live":
+                    if !exists(s in LiveStream where s.status == "live"):
+                        text "Nobody is live right now." class "x-empty"
+                    for s in LiveStream where s.status == "live" by viewer_count desc limit shown:
+                        row:
+                            use Avatar(handleOf(s.author))
+                            box:
+                                link "{s.title}" -> "/live/{s.id}" class "x-strong"
+                                text "@{handleOf(s.author)} · {compact(s.viewer_count)} watching" class "x-muted x-small"
+
+    # A profile: its header, its realm, its posts. Served at the clean root
+    # URL /{handle} (the reference's canonical one) and at /profile/{handle},
+    # which the library's links name.
+    component ProfilePage(handle: text):
+        box:
+            for a in Account where a.handle == handle limit 1:
+                use TopBar(a.display_name, count(w in Work where w.author == a.id && w.parent_cid == 0 && !w.deleted) + " posts", "/")
+                use ProfileHeader(a.display_name, a.handle, a.is_verified, a.bio, followsId(a.id), first(list(x.header_url in Account where x.id == a.id && x.header_url != "") + ["https://picsum.photos/seed/" + a.handle + "/1200/400"]), monthYear(a.created), count(f in Follow where f.follower == a.id), count(f in Follow where f.followee == a.id))
+                row class "x-profile-links":
+                    link "Following" -> "/{a.handle}/following" class "x-muted x-small"
+                    link "Followers" -> "/{a.handle}/followers" class "x-muted x-small"
+                text "Realm {a.realm} · {a.xp} XP · {count(e in Achievement where e.account == a.id && e.earned > 0)} achievements" class "x-muted x-small"
+                for w in Work where w.author == a.id && shownTo(w, feedAsOf) by created desc limit shown:
+                    use FeedItem(w.id)
+            if !exists(a in Account where a.handle == handle):
+                text "This account doesn't exist." class "x-empty"
+    view Profile at "/profile/:handle" in Shell:
+        meta title "@{handle} / F33D3R"
+        meta description "Posts by @{handle}."
+        use ProfilePage(handle)
+    view RootProfile at "/:handle" in Shell:
+        meta title "@{handle} / F33D3R"
+        meta description "Posts by @{handle}."
+        use ProfilePage(handle)
+    # Who follows a person, and whom they follow (followersPage/followingPage).
+    view RootFollowers at "/:handle/followers" in Shell:
+        meta title "People following @{handle} / F33D3R"
+        box:
+            for a in Account where a.handle == handle limit 1:
+                use TopBar(a.display_name, "Followers", "/" + a.handle)
+                if !exists(f in Follow where f.followee == a.id):
+                    text "No followers yet." class "x-empty"
+                for f in Follow where f.followee == a.id by id desc limit 100:
+                    for p in Account where p.id == f.follower && !p.deactivated limit 1:
+                        use WhoToFollow(p.display_name, p.handle, p.is_verified, followsId(p.id))
+            if !exists(a in Account where a.handle == handle):
+                text "This account doesn't exist." class "x-empty"
+    view RootFollowing at "/:handle/following" in Shell:
+        meta title "People @{handle} follows / F33D3R"
+        box:
+            for a in Account where a.handle == handle limit 1:
+                use TopBar(a.display_name, "Following", "/" + a.handle)
+                if !exists(f in Follow where f.follower == a.id):
+                    text "Not following anyone yet." class "x-empty"
+                for f in Follow where f.follower == a.id by id desc limit 100:
+                    for p in Account where p.id == f.followee && !p.deactivated limit 1:
+                        use WhoToFollow(p.display_name, p.handle, p.is_verified, followsId(p.id))
+            if !exists(a in Account where a.handle == handle):
+                text "This account doesn't exist." class "x-empty"
+    # /{handle}/work/{id}: a work at its author's clean URL.
+    view RootWork at "/:handle/work/:id" in Shell:
+        meta title "Post / F33D3R"
+        box:
+            if exists(w in Work where w.id == toInt(id) && w.author == max(a.id in Account where a.handle == handle)):
+                use WorkBody(toInt(id))
+            if !exists(w in Work where w.id == toInt(id) && w.author == max(a.id in Account where a.handle == handle)):
+                text "This post doesn't exist." class "x-empty"
+
+    view PostDetail at "/post/:id" in Shell:
+        meta title "Post / F33D3R"
+        box:
+            if exists(w in Work where w.id == toInt(id) && !w.deleted && workBlocked(w.id)):
+                text "This work was removed." class "x-empty"
+            if exists(w in Work where w.id == toInt(id) && !w.deleted && gated(myId, w.author, w.is_nsfw)):
+                if myId == 0:
+                    text "Sign in to view this work." class "x-empty"
+                if myId != 0:
+                    text "This work is not available to you." class "x-empty"
+            for w in Work where w.id == toInt(id) && !w.deleted && !workBlocked(w.id) && reachable(w, myId, feedAsOf) && !gated(myId, w.author, w.is_nsfw) limit 1:
+                use FocusedPost(nameOf(w.author), handleOf(w.author), verifiedOf(w.author), w.kind, w.body, w.media_urls)
+                if actor != "guest":
+                    form "Reply" -> reply(w.id, replyDraft):
+                        input bind replyDraft placeholder "Post your reply"
+                for r in Work where r.parent_cid == w.id && !r.deleted by created asc limit 50:
+                    use ReplyRow(nameOf(r.author), handleOf(r.author), verifiedOf(r.author), r.body)
+            if !exists(w in Work where w.id == toInt(id) && !w.deleted):
+                text "This post doesn't exist." class "x-empty"
+
+    view Tag at "/tag/:tag" in Shell:
+        meta title "#{tag} / F33D3R"
+        box:
+            use TopBar("#" + tag, compact(count(t in WorkTag where t.tag == lower(tag))) + " posts", "/")
+            for w in Work where shownTo(w, feedAsOf) && exists(t in WorkTag where t.work == w.id && t.tag == lower(tag)) by created desc limit shown:
+                use FeedItem(w.id)
+
+    # Search: the query language, ranked works (Top) or newest first
+    # (Latest), the people and the tags it names, a misspelling tolerated
+    # and the correction offered.
+    view Search at "/search" in Shell:
+        meta title "Search / F33D3R"
+        box:
+            form "Search" -> webSearch(searchDraft):
+                input bind searchDraft placeholder "Search posts and people"
+            if searchQ != "":
+                row class "x-search-lanes":
+                    button "Top" -> webSearchLane(false) class "x-pill x-lane-{!searchLatest}"
+                    button "Latest" -> webSearchLane(true) class "x-pill x-lane-{searchLatest}"
+                if searchFix != "":
+                    row class "x-didyoumean":
+                        if searchTypo:
+                            text "Showing results for" class "x-muted"
+                        if !searchTypo:
+                            text "Did you mean" class "x-muted"
+                        button "{searchFix}" -> webSearch(searchFix) class "x-strong"
+                if searchTypo && searchFix == "":
+                    text "Showing close matches for “{searchQ}”" class "x-muted x-small"
+                if len(searchPeopleHits) > 0:
+                    text "People" class "x-section"
+                    for a in Account where a.id in searchPeopleHits by indexOf(searchPeopleHits, a.id, 0):
+                        use WhoToFollow(a.display_name, a.handle, a.is_verified, followsId(a.id))
+                if len(searchTagHits) > 0:
+                    row class "x-search-tags":
+                        for t in searchTagHits:
+                            link "#{t}" -> "/tag/{t}" class "x-pill"
+                text "Posts · {commas(searchTotal)}" class "x-section"
+                if searchTotal == 0:
+                    text "No results for “{searchQ}”." class "x-empty"
+                for w in Work where w.id in searchHits by indexOf(searchHits, w.id, 0):
+                    use FeedItem(w.id)
+
+    view Notifications at "/notifications" in Shell requires member:
+        meta title "Notifications / F33D3R"
+        box:
+            row:
+                text "Notifications" class "x-section"
+                button "Mark all read" -> notifReadAll()
+            if !exists(n in Notification where n.account == myId):
+                text "Nothing yet." class "x-empty"
+            for n in Notification where n.account == myId by created desc limit 50:
+                use NotificationItem(handleOf(n.actor), n.kind, n.preview, !n.is_read)
+
+    view Bookmarks at "/bookmarks" in Shell requires member:
+        meta title "Bookmarks / F33D3R"
+        box:
+            text "Bookmarks" class "x-section"
+            for b in Bookmark where b.account == myId by id desc limit 50:
+                for w in Work where w.id == b.work && !w.deleted limit 1:
+                    use FeedItem(w.id)
+
+    view Messages at "/messages" in Shell requires member:
+        meta title "Messages / F33D3R"
+        box:
+            text "Messages" class "x-section"
+            form "New message" -> webMessage(dmTo, dmDraft):
+                input bind dmTo placeholder "to @handle"
+                input bind dmDraft placeholder "Start a message"
+            for m in ConversationMember where m.account == myId by id desc limit 50:
+                use InboxRow(m.conversation, m.unread)
+
+    view Thread at "/dm/:id" in Shell requires member:
+        meta title "Messages / F33D3R"
+        box:
+            if !exists(m in ConversationMember where m.conversation == toInt(id) && m.account == myId):
+                text "This conversation isn't yours." class "x-empty"
+            if exists(m in ConversationMember where m.conversation == toInt(id) && m.account == myId):
+                for msg in Message where msg.conversation == toInt(id) && !msg.deleted by id asc limit 200:
+                    use DmBubble(msg.id)
+                row class "x-composer":
+                    form "Send" -> sendMessage(toInt(id), dmDraft):
+                        input bind dmDraft placeholder "Message"
+                    button "Mark read" -> markRead(toInt(id))
+
+    # A live room as the browse grid shows it.
+    component StreamCard(id: int):
+        for s in LiveStream where s.id == id limit 1:
+            box class "x-streamcard":
+                link "{s.title}" -> "/live/{s.id}" class "x-strong"
+                text "@{handleOf(s.author)} · {compact(s.viewer_count)} watching" class "x-muted x-small"
+                if s.lane != "":
+                    link "{s.lane}" -> "/browse/{s.lane}" class "x-muted x-small"
+    view Live at "/live" in Shell:
+        meta title "Live / F33D3R"
+        box:
+            text "Live now" class "x-section"
+            if !exists(s in LiveStream where s.status == "live"):
+                text "Nobody is live right now." class "x-empty"
+            box class "x-grid":
+                for s in LiveStream where s.status == "live" by viewer_count desc limit 50:
+                    use StreamCard(s.id)
+
+    view Lane at "/browse/:lane" in Shell:
+        meta title "{lane} / Live / F33D3R"
+        box:
+            text "{lane}" class "x-section"
+            if !exists(s in LiveStream where s.status == "live" && s.lane == lane):
+                text "Nobody is live in {lane}." class "x-empty"
+            for s in LiveStream where s.status == "live" && s.lane == lane by viewer_count desc limit 50:
+                row:
+                    use Avatar(handleOf(s.author))
+                    box:
+                        link "{s.title}" -> "/live/{s.id}" class "x-strong"
+                        text "@{handleOf(s.author)} · {compact(s.viewer_count)} watching" class "x-muted x-small"
+
+    # One conversation in the inbox: who it is with, the last message and its
+    # time, and the reader's unread count.
+    component InboxRow(cid: int, unread: int):
+        for c in Conversation where c.id == cid limit 1:
+            row class "x-inbox-item":
+                if !c.is_group:
+                    use Avatar(handleOf(max(o.account in ConversationMember where o.conversation == c.id && o.account != myId)))
+                box class "x-inbox-body":
+                    row class "x-author":
+                        if c.is_group:
+                            link "{c.title}" -> "/dm/{c.id}" class "x-strong"
+                        if !c.is_group:
+                            link "@{handleOf(max(o.account in ConversationMember where o.conversation == c.id && o.account != myId))}" -> "/dm/{c.id}" class "x-strong"
+                        text "· {ago(c.last_at)}" class "x-muted x-small"
+                    for last in Message where last.conversation == c.id && !last.deleted by id desc limit 1:
+                        text "{last.body}" class "x-muted x-preview"
+                use UnreadBadge(unread)
+
+    # One message: theirs on the left with an avatar, mine on the right, the
+    # time underneath and "Seen" once another member's read marker covers it.
+    component DmBubble(id: int):
+        for msg in Message where msg.id == id limit 1:
+            row class "x-msg x-mine-{msg.sender == myId}":
+                if msg.sender != myId:
+                    use Avatar(handleOf(msg.sender))
+                box class "x-msg-col":
+                    text "{msg.body}" class "x-bubble"
+                    row class "x-msg-meta":
+                        text "{ago(msg.created)}" class "x-muted x-small"
+                        if msg.sender == myId && exists(o in ConversationMember where o.conversation == msg.conversation && o.account != myId && o.last_read >= msg.created):
+                            text "Seen" class "x-muted x-small"
+
+    # A person you follow, with the way to write to them: their thread when
+    # one is open, a first message otherwise.
+    component ContactRow(id: int):
+        for a in Account where a.id == id limit 1:
+            row class "x-contact":
+                use Avatar(a.handle)
+                box class "x-contact-body":
+                    link "{a.display_name}" -> "/profile/{a.handle}" class "x-strong"
+                    text "@{a.handle}" class "x-muted x-small"
+                row class "x-contact-actions":
+                    for c in Conversation where !c.is_group && exists(m in ConversationMember where m.conversation == c.id && m.account == myId) && exists(m in ConversationMember where m.conversation == c.id && m.account == a.id) limit 1:
+                        link "Message" -> "/dm/{c.id}" class "x-pill x-primary"
+                    if !exists(c in Conversation where !c.is_group && exists(m in ConversationMember where m.conversation == c.id && m.account == myId) && exists(m in ConversationMember where m.conversation == c.id && m.account == a.id)):
+                        form "Message" -> webMessage(a.handle, dmDraft):
+                            input bind dmDraft placeholder "Say hi to @{a.handle}"
+
+    view People at "/people" in Shell:
+        meta title "People / F33D3R"
+        box:
+            text "People" class "x-section"
+            if actor != "guest":
+                row class "x-contactpolicy":
+                    text "Who can message you: {Account(myId).contact_policy}" class "x-muted x-small"
+                    button "Anyone" -> setContactPolicy("open")
+                    button "Followers" -> setContactPolicy("followers")
+                    button "Mutuals" -> setContactPolicy("mutuals")
+                    button "Nobody" -> setContactPolicy("closed")
+                if exists(r in ContactRequest where r.account == myId):
+                    text "Requests" class "x-section"
+                for r in ContactRequest where r.account == myId by id desc limit 50:
+                    row class "x-contact x-request":
+                        use Avatar(handleOf(r.requester))
+                        box class "x-contact-body":
+                            text "@{handleOf(r.requester)}" class "x-strong"
+                            text "{r.note} · {ago(r.created)}" class "x-muted x-small"
+                        row class "x-contact-actions":
+                            button "Accept" -> decideContactRequest(r.id, "accept")
+                            button "Decline" -> decideContactRequest(r.id, "decline")
+                if exists(f in Follow where f.follower == myId):
+                    text "Contacts" class "x-section"
+                for f in Follow where f.follower == myId by id desc limit 50:
+                    use ContactRow(f.followee)
+                text "Everyone" class "x-section"
+            for a in Account where !a.deactivated && a.id != myId by created desc limit 50:
+                use WhoToFollow(a.display_name, a.handle, a.is_verified, followsId(a.id))
+
+    # The theater: the stage, the stream's info, the tip goal, the chat with
+    # its pinned line and the recent tips; a mature room is gated for anyone
+    # who has not confirmed their age.
+    view Theater at "/live/:id" in Shell:
+        meta title "Live / F33D3R"
+        box:
+            if exists(x in LiveStream where x.id == toInt(id)):
+                use AgeGate(LiveStream(toInt(id)).is_nsfw && LiveStream(toInt(id)).author != myId, ageOk, confirmAge):
+                    box class "x-media x-aspect x-aspect-16x9 x-stage":
+                        text "{LiveStream(toInt(id)).title}" class "x-strong"
+                        if LiveStream(toInt(id)).status == "live":
+                            badge "LIVE" class "x-media-live"
+                    row class "x-streaminfo":
+                        use Avatar(handleOf(LiveStream(toInt(id)).author))
+                        box:
+                            text "{LiveStream(toInt(id)).title}" class "x-strong"
+                            link "@{handleOf(LiveStream(toInt(id)).author)}" -> "/profile/{handleOf(LiveStream(toInt(id)).author)}"
+                            if LiveStream(toInt(id)).lane != "":
+                                link "{LiveStream(toInt(id)).lane}" -> "/browse/{LiveStream(toInt(id)).lane}"
+                            text "{compact(LiveStream(toInt(id)).viewer_count)} watching" class "x-muted x-small"
+                        if actor != "guest" && LiveStream(toInt(id)).author != myId && LiveStream(toInt(id)).status == "live":
+                            button "Join" -> joinLiveRoom(toInt(id))
+                    if LiveStream(toInt(id)).tip_goal_uaet > 0:
+                        use GoalBar("Tip goal", LiveStream(toInt(id)).tip_total_uaet, LiveStream(toInt(id)).tip_goal_uaet)
+                    box class "x-chat":
+                        row class "x-chat-head":
+                            text "Chat" class "x-strong"
+                        if LiveStream(toInt(id)).pinned_body != "":
+                            row class "x-chat-pinned":
+                                icon "pin"
+                                text "{LiveStream(toInt(id)).pinned_body}"
+                        for c in LiveChatMsg where c.stream == toInt(id) && !c.dropped && (!c.held || c.author == myId || LiveStream(toInt(id)).author == myId) by created asc limit 100:
+                            row class "x-chatline":
+                                text "@{handleOf(c.author)}" class "x-strong x-chat-name"
+                                richtext "{c.body}" class "x-chat-body"
+                        if actor == "guest":
+                            link "Log in to chat." -> "/login" class "x-muted x-chat-gate"
+                        if actor != "guest" && LiveStream(toInt(id)).status == "live":
+                            form "Chat" -> sendLiveChat(toInt(id), chatDraft):
+                                input bind chatDraft placeholder "Say something"
+                    box class "x-tips":
+                        text "Recent tips" class "x-strong"
+                        for c in LiveChatMsg where c.stream == toInt(id) && c.kind == "tip" by created desc limit 10:
+                            text "@{handleOf(c.author)} · {c.body}" class "x-muted x-small"
+                        if actor != "guest" && LiveStream(toInt(id)).author != myId:
+                            form "Tip 1 AET" -> webTipStream(toInt(id), "1", tipNote):
+                                input bind tipNote placeholder "a note"
+            if !exists(x in LiveStream where x.id == toInt(id)):
+                text "This stream doesn't exist." class "x-empty"
+    action confirmAge:
+        ageOk = true
+
+    view Studio at "/studio" in Shell requires member:
+        meta title "Studio / F33D3R"
+        box:
+            if liveOf(myId) == 0:
+                text "Go live" class "x-section"
+                form "Go live" -> webGoLive(goTitle):
+                    input bind goTitle placeholder "Stream title"
+            for s in LiveStream where s.id == liveOf(myId) limit 1:
+                box class "x-console":
+                    text "You're live · {s.title}" class "x-section"
+                    form "Pin a message" -> pinLiveMessage(s.id, chatDraft):
+                        input bind chatDraft placeholder "a message for the top of chat"
+                use StatGroup():
+                    use Stat("Watching", compact(s.viewer_count))
+                    use Stat("Chat", "" + count(c in LiveChatMsg where c.stream == s.id))
+                    use Stat("Held", "" + count(c in LiveChatMsg where c.stream == s.id && c.held && !c.dropped))
+                for c in LiveChatMsg where c.stream == s.id && c.held && !c.dropped by created desc limit 10:
+                    row class "x-held-row":
+                        text "@{handleOf(c.author)}: {c.body}"
+                        button "Release" -> releaseLiveChat(s.id, c.id)
+                        button "Drop" -> dropLiveChat(s.id, c.id)
+                button "End stream" -> endStream(s.id)
+
+    view Wallet at "/wallet" in Shell requires member:
+        meta title "Wallet / F33D3R"
+        box:
+            text "Wallet" class "x-section"
+            # The product's ledger (commerce/ledger.fct over WalletEntry):
+            # AET cents are 10 000 µAET; a top-up is an intent the payment
+            # provider settles.
+            use WalletCard(balanceOf(myId) / 10000):
+                use WalletActions(topUpOpen, transferOpen, redPacketOpen)
+            use TopUpSheet(topUpOpen, closeTopUp)
+            use TransferSheet(transferOpen, transferTo, transferNote, closeTransfer)
+            use RedPacketSheet(redPacketOpen, packetTo, packetNote, closeRedPacket)
+            use WalletHistory():
+                for e in WalletEntry where e.account == myId by id desc limit 50:
+                    use WalletTxRow(e.kind, handleOf(e.counterparty), e.amount_uaet / 10000, "", e.created)
+    action closeTopUp:
+        topUpOpen = false
+    action closeTransfer:
+        transferOpen = false
+    action closeRedPacket:
+        redPacketOpen = false
+
+    view Login at "/login" in Shell:
+        meta title "Sign in / F33D3R"
+        box:
+            text "Sign in or join" class "x-section"
+            form "Sign in" -> webLogin(loginHandle, loginPassword):
+                input bind loginHandle placeholder "handle"
+                input bind loginPassword placeholder "password"
+            form "Create account" -> webSignup(loginHandle, loginPassword):
+                text "Same handle and password create a new account." class "x-muted x-small"
+
+
+    # ── the reference's other pages (feed-engine internal/web) ─────────────
+    # A work as every list shows it: pinned marker, the card, a quoted work
+    # inside it.
+    component FeedItem(id: int):
+        for w in Work where w.id == id limit 1:
+            if w.is_pinned:
+                row class "x-pinned":
+                    icon "pin"
+                    text "Pinned"
+            use PostCard(w.id, nameOf(w.author), handleOf(w.author), verifiedOf(w.author), w.kind, w.body, w.media_urls, w.created, count(l in Like where l.work == w.id), count(r in Work where r.parent_cid == w.id && !r.deleted), count(r in Repost where r.work == w.id), count(v in ViewEvent where v.work == w.id)):
+                if w.quoted != 0:
+                    for q in Work where q.id == w.quoted && !q.deleted limit 1:
+                        use QuoteCard(q.id, nameOf(q.author), handleOf(q.author), verifiedOf(q.author), q.body)
+    component PostList(author: int):
+        for w in Work where w.author == author && shownTo(w, feedAsOf) by created desc limit 20:
+            use FeedItem(w.id)
+    component LegalSection(title: text, body: text):
+        box class "x-legal":
+            if title != "":
+                heading 2 "{title}"
+            text "{body}"
+
+    # Explore (pages_explore.go): what is getting engagement, who to meet,
+    # who is live, and the communities.
+    view Explore at "/explore" in Shell:
+        meta title "Explore / F33D3R"
+        box:
+            text "Trending" class "x-section"
+            for w in Work where shownTo(w, feedAsOf) && count(l in Like where l.work == w.id) + count(r in Repost where r.work == w.id) + count(r in Work where r.parent_cid == w.id) > 0 by count(l in Like where l.work == w.id) + count(r in Repost where r.work == w.id) * 2 + count(r in Work where r.parent_cid == w.id) desc limit 20:
+                use FeedItem(w.id)
+            text "Communities" class "x-section"
+            for c in Community where true by created desc limit 5:
+                link "{c.name} · {count(m in CommunityMember where m.community == c.id)} members" -> "/communities/{c.handle}"
+
+    # Legal (handler/web_legal.go), the reference's own prose.
+    view Terms at "/terms" in Shell:
+        meta title "Terms of Service / F33D3R"
+        box:
+            text "Terms of Service" class "x-section"
+            use LegalSection("1. Acceptance", "By accessing or using F33D3R, you agree to these Terms. If you do not agree, do not use the platform. You must be at least 18 years old to use F33D3R.")
+            use LegalSection("2. Prohibited content", "You must not post: child sexual abuse material (CSAM) — zero tolerance, automatic termination and law enforcement referral; non-consensual intimate images (NCII); content that promotes terrorism or violence; doxxing or harassment campaigns; spam or coordinated inauthentic behaviour; copyright-infringing content; content that impersonates others.")
+            use LegalSection("3. Adult content", "Adult content is permitted only from creators who have completed Verity Tier 2 identity verification (age 18+) and enabled adult creator mode. All depicted persons must be 18+. Creators certify compliance with 18 U.S.C. § 2257. F33D3R files records on creators' behalf. Viewers must complete age verification to access adult content.")
+            use LegalSection("4. Intellectual property", "You retain ownership of content you post. You grant F33D3R a non-exclusive, royalty-free licence to display, distribute, and promote your content on the platform. You warrant that you own or have rights to all content you post. DMCA takedown requests are handled per our DMCA policy at /dmca.")
+            use LegalSection("5. Creator monetisation", "Creators may earn AET tokens through subscriptions, tips, and pay-per-view content. F33D3R retains a 2.5% platform fee. Creators are responsible for their own tax obligations. Payouts require identity verification (Verity Tier 3). F33D3R is not liable for payment processor decisions.")
+            use LegalSection("6. Account termination", "F33D3R may suspend or terminate accounts for violations of these Terms, at our discretion, with or without notice. CSAM violations result in immediate permanent termination and law enforcement referral. You may delete your account at any time from Settings.")
+            use LegalSection("7. Limitation of liability", "F33D3R is provided \"as is\". We are not liable for user-generated content, service interruptions, or data loss beyond what is required by applicable law. Our total liability to you shall not exceed the greater of $100 or amounts paid to us in the past 12 months.")
+            use LegalSection("8. Governing law", "These Terms are governed by the laws of the United States. Disputes shall be resolved by binding arbitration except where prohibited by law. You waive the right to class action proceedings.")
+    view Privacy at "/privacy" in Shell:
+        meta title "Privacy Policy / F33D3R"
+        box:
+            text "Privacy Policy" class "x-section"
+            use LegalSection("1. What we collect", "We collect: account handle and display name, email or phone (for verification tier 1), a SHA-256 hash of your government ID document (never the document image itself), device identifiers, IP addresses at login, session tokens, content you post, messages you send (end-to-end encrypted — we cannot read them), and engagement signals (likes, views, follows). We do NOT sell your data.")
+            use LegalSection("2. How we use it", "Your data is used to: operate the platform, deliver your personalised feed (AethyrRank), comply with legal obligations (18 U.S.C. § 2257, CSAM detection), detect fraud and abuse, and facilitate creator monetisation when you opt in. AethyrRank ranking signals are computed internally and never shared with third parties.")
+            use LegalSection("3. Adult content", "F33D3R hosts adult content created by verified adults. All creators of adult content must complete identity verification (Verity Tier 2+). Age-band confirmation is stored as a cryptographic hash. We maintain records as required by 18 U.S.C. § 2257. CSAM detection runs on every upload. Any detected CSAM is immediately removed, reported to NCMEC, and the account is permanently terminated and reported to law enforcement.")
+            use LegalSection("4. Data sharing", "We share data with: payment processors (for creator payouts — only what they require for KYC/AML compliance), law enforcement when legally compelled, NCMEC for CSAM reports (mandatory). We do not share data with advertisers.")
+            use LegalSection("5. Data retention", "Active account data is retained while your account is active. Deleted posts are removed from feeds within 24 hours and from databases within 30 days. 2257 records are retained for 7 years as required by law. Session tokens expire after 30 days of inactivity. You can request full data export or deletion under GDPR/CCPA — see below.")
+            use LegalSection("6. Your rights (GDPR / CCPA)", "You have the right to: access your data, correct inaccurate data, delete your account and associated data (except legally mandated retention), port your data, and opt out of non-essential processing. Submit requests to privacy@f33d3r.app. We respond within 30 days. Some data (2257 records, CSAM reports, fraud logs) cannot be deleted due to legal obligations.")
+            use LegalSection("7. Security", "All data in transit is encrypted with TLS 1.3. Messages are end-to-end encrypted — we cannot read your messages. Private keys never leave your device. Passwords are bcrypt-hashed. Sessions use cryptographically random tokens. We run regular security audits.")
+            use LegalSection("8. Cookies", "We use a single session cookie (f33d3r_session) for authentication. No advertising cookies, no third-party tracking pixels. LocalStorage is used only for your messaging vault keys (encrypted, never transmitted to us).")
+            use LegalSection("9. Changes to this policy", "Material changes will be notified via in-app notification at least 14 days before taking effect. Continued use after the effective date constitutes acceptance.")
+    view Dmca at "/dmca" in Shell:
+        meta title "DMCA Policy / F33D3R"
+        box:
+            text "DMCA Policy" class "x-section"
+            use LegalSection("", "To report copyright infringement, contact dmca@f33d3r.com. Include the infringing URL, the original work, your contact details, and a good-faith statement. Repeat infringers are removed from the platform.")
+    view Records at "/legal/2257" in Shell:
+        meta title "18 U.S.C. § 2257 Statement / F33D3R"
+        box:
+            text "18 U.S.C. § 2257 Statement" class "x-section"
+            use LegalSection("", "All performers on this site were 18 years of age or older at the time of filming. Records required by 18 U.S.C. § 2257 are maintained by the content custodian.")
+    view Deactivated at "/deactivated" in Shell:
+        meta title "Account Deactivated / F33D3R"
+        box:
+            text "Your account is deactivated" class "x-section"
+            text "Signing in again reactivates it." class "x-muted"
+            link "Sign in" -> "/login"
+
+    # Achievements (pages_achievements.go): realm, XP and the earned set.
+    view Achievements at "/achievements" in Shell requires member:
+        meta title "Achievements / F33D3R"
+        box:
+            text "Achievements" class "x-section"
+            for a in Account where a.id == myId limit 1:
+                text "Realm {a.realm} · {a.xp} XP" class "x-strong"
+            for e in Achievement where e.account == myId && e.earned > 0 by earned desc limit 50:
+                row:
+                    text "{e.icon} {e.name}" class "x-strong"
+                    text "{e.description} · {e.rarity}" class "x-muted x-small"
+            if !exists(e in Achievement where e.account == myId && e.earned > 0):
+                text "Nothing earned yet — post, follow and save to start." class "x-empty"
+
+    # Analytics (pages_analytics.go, astraon): the creator's numbers.
+    view Analytics at "/analytics" in Shell requires member:
+        meta title "Analytics / F33D3R"
+        box:
+            text "Analytics" class "x-section"
+            use StatGroup():
+                use Stat("Posts", "" + count(w in Work where w.author == myId && w.parent_cid == 0 && !w.deleted))
+                use Stat("Impressions", "" + count(v in ViewEvent where exists(w in Work where w.id == v.work && w.author == myId)))
+                use Stat("Likes", "" + count(l in Like where exists(w in Work where w.id == l.work && w.author == myId)))
+                use Stat("Followers", "" + count(f in Follow where f.followee == myId))
+            text "Top posts" class "x-section"
+            for w in Work where w.author == myId && w.parent_cid == 0 && !w.deleted by count(l in Like where l.work == w.id) + count(r in Repost where r.work == w.id) + count(r in Work where r.parent_cid == w.id && !r.deleted) desc limit 10:
+                row:
+                    link "{take(w.body, 60)}" -> "/post/{w.id}"
+                    text "{count(l in Like where l.work == w.id)} likes · {count(r in Repost where r.work == w.id)} reposts" class "x-muted x-small"
+
+    # Articles (pages_articles.go): the list, the reader, the editor.
+    view Articles at "/articles" in Shell:
+        meta title "Articles / F33D3R"
+        box:
+            text "Articles" class "x-section"
+            if actor != "guest":
+                link "Write an article" -> "/articles/new"
+            for a in Article where a.status == "published" by published_at desc limit 50:
+                row:
+                    link "{a.title}" -> "/article/{a.slug}" class "x-strong"
+                    text "@{handleOf(a.author)} · {a.subtitle}" class "x-muted x-small"
+            for a in Article where a.author == myId && a.status != "published" by updated desc limit 20:
+                row:
+                    text "Draft: {a.title}"
+                    link "Edit" -> "/articles/{a.id}/edit"
+    view ArticleReader at "/article/:slug" in Shell:
+        meta title "{slug} / F33D3R"
+        box:
+            for a in Article where a.slug == slug && (a.status == "published" || a.author == myId) limit 1:
+                heading 1 "{a.title}"
+                text "{a.subtitle}" class "x-muted"
+                text "by @{handleOf(a.author)}" class "x-muted x-small"
+                richtext "{a.body}"
+                if a.author == myId:
+                    link "Edit" -> "/articles/{a.id}/edit"
+            if !exists(a in Article where a.slug == slug && (a.status == "published" || a.author == myId)):
+                text "This article doesn't exist." class "x-empty"
+    view ArticleNew at "/articles/new" in Shell requires member:
+        meta title "New article / F33D3R"
+        box:
+            text "New article" class "x-section"
+            form "Publish" -> webArticle(articleTitle, articleSubtitle, articleBody):
+                input bind articleTitle placeholder "Title"
+                input bind articleSubtitle placeholder "Subtitle"
+                textarea bind articleBody placeholder "Write…"
+    view ArticleEdit at "/articles/:id/edit" in Shell requires member:
+        meta title "Edit article / F33D3R"
+        box:
+            for a in Article where a.id == toInt(id) && a.author == myId limit 1:
+                text "Editing: {a.title}" class "x-section"
+                form "Save" -> webArticleUpdate(a.id, articleTitle, articleSubtitle, articleBody):
+                    input bind articleTitle placeholder "{a.title}"
+                    input bind articleSubtitle placeholder "{a.subtitle}"
+                    textarea bind articleBody placeholder "{a.body}"
+                button "Delete" -> deleteArticle(a.id)
+            if !exists(a in Article where a.id == toInt(id) && a.author == myId):
+                text "No article of yours with that id." class "x-empty"
+
+    # Blocked and muted accounts (settings' lists).
+    view Blocked at "/blocked" in Shell requires member:
+        meta title "Blocked / F33D3R"
+        box:
+            text "Blocked accounts" class "x-section"
+            for b in Block where b.account == myId by id desc limit 100:
+                row:
+                    text "@{handleOf(b.target)}"
+                    button "Unblock" -> unblock(handleOf(b.target))
+            if !exists(b in Block where b.account == myId):
+                text "You haven't blocked anyone." class "x-empty"
+    view Muted at "/muted" in Shell requires member:
+        meta title "Muted / F33D3R"
+        box:
+            text "Muted accounts" class "x-section"
+            for m in Mute where m.account == myId by id desc limit 100:
+                row:
+                    text "@{handleOf(m.target)}"
+                    button "Unmute" -> unmute(handleOf(m.target))
+            text "Muted words" class "x-section"
+            for k in MutedKeyword where k.account == myId by id desc limit 100:
+                row:
+                    text "{k.keyword}"
+                    button "Unmute" -> unmuteKeyword(k.keyword)
+            form "Mute a word" -> muteKeyword(searchDraft):
+                input bind searchDraft placeholder "a word or phrase"
+
+    # Creator studio (pages_creator.go): the dashboard and its sections.
+    # Bulk upload (creator_bulk_upload.html): up to twenty files chosen at
+    # once, each sent through the resumable upload as it is picked, then
+    # published as one post each.
+    view BulkUpload at "/create/bulk-upload" in Shell requires member:
+        meta title "Bulk Upload · F33D3R"
+        box:
+            use TopBar("Bulk upload", "Up to 20 files, one post each", "/create")
+            for a in Account where a.id == myId limit 1:
+                if !a.is_creator:
+                    text "Bulk upload is for creators." class "x-empty"
+                    link "Set up creator mode" -> "/create/welcome"
+                if a.is_creator:
+                    box class "x-bulk":
+                        upload bind bulkFiles label "Choose files"
+                        if len(bulkFiles) == 0:
+                            text "Nothing chosen yet." class "x-muted x-small"
+                        for f in bulkFiles:
+                            row class "x-bulk-slot":
+                                text "{f}" class "x-strong"
+                                text "uploaded" class "x-muted x-small"
+                        if len(bulkFiles) > 20:
+                            text "Only the first 20 will be published." class "x-muted x-small"
+                        input bind bulkCaption placeholder "A caption for every post (optional)"
+                        row class "x-bulk-actions":
+                            button "Publish {min(len(bulkFiles), 20)} posts" -> webBulkPublish(bulkFiles, bulkCaption) class "x-pill x-primary"
+                            button "Clear" -> clearBulk class "x-pill"
+    view Create at "/create" in Shell requires member:
+        meta title "Creator studio / F33D3R"
+        box:
+            text "Creator studio" class "x-section"
+            for a in Account where a.id == myId limit 1:
+                if !a.is_creator:
+                    text "You're not a creator yet." class "x-muted"
+                    link "Set up creator mode" -> "/create/welcome"
+                if a.is_creator:
+                    link "Bulk upload" -> "/create/bulk-upload" class "x-pill"
+                    use StatGroup():
+                        use Stat("Subscribers", "" + count(s in ShopSubscription where s.status == "active" && exists(h in Shop where h.id == s.shop && h.owner == myId)))
+                        use Stat("Balance (µAET)", "" + balanceOf(myId))
+                        use Stat("Tracks", "" + count(t in Track where t.author == myId))
+                    row:
+                        link "Content" -> "/create/content"
+                        link "Music" -> "/create/music"
+                        link "Memberships" -> "/create/memberships"
+                        link "Earnings" -> "/create/earnings"
+                        link "Audience" -> "/create/audience"
+                        link "Analytics" -> "/analytics"
+    view CreateSection at "/create/:section" in Shell requires member:
+        meta title "Creator studio / F33D3R"
+        box:
+            text "Studio · {section}" class "x-section"
+            if section == "content":
+                use PostList(myId)
+            if section == "music":
+                for t in Track where t.author == myId by created desc limit 50:
+                    row:
+                        text "{t.title}" class "x-strong"
+                        text "{t.play_count} plays · {t.genre}" class "x-muted x-small"
+            if section == "memberships":
+                for pl in ShopPlan where exists(h in Shop where h.id == pl.shop && h.owner == myId) by id limit 20:
+                    row:
+                        text "{pl.name} · {pl.price_aet} AET" class "x-strong"
+                        button "Delete" -> creatorPlanDelete("" + pl.id)
+            if section == "earnings":
+                for e in WalletEntry where e.account == myId && e.amount_uaet > 0 by id desc limit 50:
+                    row:
+                        text "{e.kind}"
+                        text "+{e.amount_uaet} µAET" class "x-muted x-small"
+            if section == "audience":
+                for f in Follow where f.followee == myId by created desc limit 50:
+                    use WhoToFollow(nameOf(f.follower), handleOf(f.follower), verifiedOf(f.follower), followsId(f.follower))
+    view CreateWelcome at "/create/welcome" in Shell requires member:
+        meta title "Become a creator / F33D3R"
+        box:
+            text "Become a creator" class "x-section"
+            text "Subscriptions, tips and priced works pay out in AET; payouts need identity verification." class "x-muted"
+            link "Set up" -> "/create/setup"
+    view CreateSetup at "/create/setup" in Shell requires member:
+        meta title "Creator setup / F33D3R"
+        box:
+            text "Creator setup" class "x-section"
+            form "Finish setup" -> webCreatorSetup(nameDraft, bioDraft):
+                input bind nameDraft placeholder "display name"
+                input bind bioDraft placeholder "bio"
+
+    # Account recovery (forgot-password): a second-factor or backup code
+    # proves the account, then a new password signs it in.
+    view Forgot at "/forgot-password" in Shell:
+        meta title "Reset your password / F33D3R"
+        box:
+            text "Reset your password" class "x-section"
+            form "Reset" -> webResetPassword(resetHandle, resetCode, resetPassword):
+                input bind resetHandle placeholder "handle"
+                input bind resetCode placeholder "authenticator or backup code"
+                input bind resetPassword placeholder "new password"
+
+    # Identity (pages_kyc.go).
+    view Kyc at "/kyc" in Shell requires member:
+        meta title "Verification / F33D3R"
+        box:
+            text "Identity verification" class "x-section"
+            for a in Account where a.id == myId limit 1:
+                text "Tier {a.identity_tier} · age band {a.age_band} · {a.kyc_status}" class "x-strong"
+            for r in IdentityVerificationRequest where r.account == myId by id desc limit 1:
+                text "Latest submission: {r.status}" class "x-muted"
+            link "Creator statement" -> "/kyc/creator/statement"
+    view CreatorStatement at "/kyc/creator/statement" in Shell requires member:
+        meta title "Creator statement / F33D3R"
+        box:
+            text "Creator statement" class "x-section"
+            text "I confirm that every person depicted in content I publish is an adult who consented to its distribution."
+            button "Accept" -> acceptCreatorStatement()
+
+    # Library (pages_shop.go libraryPage): what the viewer bought.
+    view Library at "/library" in Shell requires member:
+        meta title "Library / F33D3R"
+        box:
+            text "Library" class "x-section"
+            for p in WorkPurchase where p.buyer == myId by id desc limit 50:
+                for w in Work where w.id == p.work limit 1:
+                    use FeedItem(w.id)
+            for p in Purchase where p.buyer == myId by id desc limit 50:
+                row:
+                    text "{max(l.title in Listing where l.id == p.listing)}"
+                    text "{p.status}" class "x-muted x-small"
+            if !exists(p in WorkPurchase where p.buyer == myId) && !exists(p in Purchase where p.buyer == myId):
+                text "Nothing bought yet." class "x-empty"
+
+    # Lists (pages_lists.go).
+    view Lists at "/lists" in Shell requires member:
+        meta title "Lists / F33D3R"
+        box:
+            text "Lists" class "x-section"
+            form "Create list" -> createList(listName):
+                input bind listName placeholder "list name"
+            for l in WorkList where l.owner == myId by id desc limit 50:
+                row:
+                    link "{l.name}" -> "/lists/{l.id}" class "x-strong"
+                    text "{count(m in ListMember where m.list == l.id)} members" class "x-muted x-small"
+                    button "Delete" -> deleteList("" + l.id)
+    view ListDetail at "/lists/:id" in Shell:
+        meta title "List / F33D3R"
+        box:
+            for l in WorkList where l.id == toInt(id) && (l.is_public || l.owner == myId) limit 1:
+                text "{l.name}" class "x-section"
+                if l.owner == myId:
+                    form "Add member" -> listAddMember("" + l.id, memberHandle):
+                        input bind memberHandle placeholder "@handle"
+                for m in ListMember where m.list == l.id limit 50:
+                    row:
+                        text "@{handleOf(m.account)}"
+                        if l.owner == myId:
+                            button "Remove" -> listRemoveMember("" + l.id, handleOf(m.account))
+                for w in Work where shownTo(w, feedAsOf) && exists(m in ListMember where m.list == l.id && m.account == w.author) by created desc limit 50:
+                    use FeedItem(w.id)
+            if !exists(l in WorkList where l.id == toInt(id) && (l.is_public || l.owner == myId)):
+                text "This list doesn't exist." class "x-empty"
+
+    # Marketplace and storefronts (pages_shop.go).
+    view Marketplace at "/marketplace" in Shell:
+        meta title "Marketplace / F33D3R"
+        box:
+            text "Marketplace" class "x-section"
+            for l in Listing where l.is_active && l.visibility != "private" by created desc limit 50:
+                row:
+                    text "{l.title}" class "x-strong"
+                    text "{l.price_sats} sats · @{handleOf(l.seller)}" class "x-muted x-small"
+                    if actor != "guest" && l.seller != myId:
+                        button "Buy" -> marketplacePurchaseInitiate("" + l.id, "btc")
+            if !exists(l in Listing where l.is_active && l.visibility != "private"):
+                text "Nothing for sale yet." class "x-empty"
+    view Shop at "/shop/:handle" in Shell:
+        meta title "@{handle}'s shop / F33D3R"
+        box:
+            for a in Account where a.handle == handle limit 1:
+                text "@{a.handle}'s shop" class "x-section"
+                if !exists(h in Shop where h.owner == a.id && h.is_enabled):
+                    text "This shop is closed." class "x-empty"
+                for h in Shop where h.owner == a.id && h.is_enabled limit 1:
+                    for pl in ShopPlan where pl.shop == h.id && pl.is_active limit 10:
+                        text "{pl.name} · {pl.price_aet} AET / month" class "x-strong"
+                    if actor != "guest" && a.id != myId:
+                        if subscribedTo(myId, a.id, feedAsOf):
+                            text "You're subscribed." class "x-muted"
+                        if !subscribedTo(myId, a.id, feedAsOf):
+                            button "Subscribe" -> marketplaceSubscriptionCreate("" + a.id)
+                    for l in Listing where l.seller == a.id && l.is_active limit 20:
+                        row:
+                            text "{l.title}"
+                            text "{l.price_sats} sats" class "x-muted x-small"
+            if !exists(a in Account where a.handle == handle):
+                text "No such account." class "x-empty"
+
+    # Music (pages_music.go).
+    view Music at "/music" in Shell:
+        meta title "Music / F33D3R"
+        box:
+            text "Music" class "x-section"
+            for t in Track where true by created desc limit 50:
+                row:
+                    text "{t.title}" class "x-strong"
+                    text "@{handleOf(t.author)} · {t.genre} · {t.play_count} plays · {count(k in TrackLike where k.track == t.id)} likes" class "x-muted x-small"
+                    if actor != "guest":
+                        button "Like" -> likeTrack(t.id)
+            if !exists(t in Track where true):
+                text "No tracks yet." class "x-empty"
+
+    # Onboarding (handler/onboard.go): a name, a bio, a first interest, and
+    # the onboarding XP.
+    view Onboard at "/onboard" in Shell requires member:
+        meta title "Welcome / F33D3R"
+        box:
+            text "Welcome to F33D3R" class "x-section"
+            form "Continue" -> webOnboard(nameDraft, bioDraft, onboardTopic):
+                input bind nameDraft placeholder "display name"
+                input bind bioDraft placeholder "a line about you"
+                input bind onboardTopic placeholder "a topic you follow (music, markets…)"
+
+    # Settings (pages_settings.go) and its sections.
+    view Settings at "/settings" in Shell requires member:
+        meta title "Settings / F33D3R"
+        box:
+            text "Settings" class "x-section"
+            link "Profile" -> "/settings/profile"
+            link "Account" -> "/settings/account"
+            link "Privacy" -> "/settings/privacy"
+            link "Security" -> "/settings/security"
+            link "Notifications" -> "/settings/notifications"
+            link "Realm" -> "/settings/realm"
+            link "Verification" -> "/kyc"
+            link "Blocked accounts" -> "/blocked"
+            link "Muted" -> "/muted"
+            link "Danger zone" -> "/settings/danger"
+    view SettingsProfile at "/settings/profile" in Shell requires member:
+        meta title "Edit profile / F33D3R"
+        box:
+            text "Edit profile" class "x-section"
+            for a in Account where a.id == myId limit 1:
+                form "Save" -> profileUpdate(nameDraft, bioDraft):
+                    input bind nameDraft placeholder "{a.display_name}"
+                    input bind bioDraft placeholder "{a.bio}"
+    view SettingsSection at "/settings/:section" in Shell requires member:
+        meta title "Settings / F33D3R"
+        box:
+            text "Settings · {section}" class "x-section"
+            for a in Account where a.id == myId limit 1:
+                if section == "account":
+                    text "@{a.handle} · joined {ago(a.created)}" class "x-muted"
+                    link "Export your data" -> "/api/v2/me/export"
+                if section == "privacy":
+                    text "Private account: {a.is_private} · show sensitive: {a.show_sensitive}" class "x-muted"
+                    button "Make private" -> settingsPrivacyAccountPrivate(true)
+                    button "Make public" -> settingsPrivacyAccountPrivate(false)
+                    button "Show sensitive content" -> settingsPrivacyShowSensitive(true)
+                    button "Hide sensitive content" -> settingsPrivacyShowSensitive(false)
+                if section == "security":
+                    form "Change password" -> passwordChange(currentPassword, newPassword):
+                        input bind currentPassword placeholder "current password"
+                        input bind newPassword placeholder "new password"
+                    text "Sessions" class "x-strong"
+                    for x in Session where x.account == myId by id desc limit 20:
+                        row:
+                            text "{x.device_name} · last seen {ago(x.last_seen)}" class "x-muted x-small"
+                            button "Sign out" -> revokeSession(x.id)
+                    button "Sign out everywhere else" -> revokeOtherSessions()
+                if section == "notifications":
+                    for n in NotificationPrefs where n.account == myId limit 1:
+                        row:
+                            text "Push: {n.push_enabled}"
+                            button "Toggle" -> webNotifToggle("push")
+                        row:
+                            text "Likes: {n.likes_enabled}"
+                            button "Toggle" -> webNotifToggle("likes")
+                        row:
+                            text "Reposts: {n.reposts_enabled}"
+                            button "Toggle" -> webNotifToggle("reposts")
+                        row:
+                            text "Replies: {n.replies_enabled}"
+                            button "Toggle" -> webNotifToggle("replies")
+                        row:
+                            text "Follows: {n.follows_enabled}"
+                            button "Toggle" -> webNotifToggle("follows")
+                        row:
+                            text "Messages: {n.messages_enabled}"
+                            button "Toggle" -> webNotifToggle("messages")
+                if section == "realm":
+                    text "Realm {a.realm} · {a.xp} XP" class "x-strong"
+                    link "Achievements" -> "/achievements"
+                if section == "danger":
+                    button "Deactivate my account" -> webDeactivate
+    view BackupCodes at "/backup-codes/setup" in Shell requires member:
+        meta title "Backup codes / F33D3R"
+        box:
+            text "Backup codes" class "x-section"
+            text "{count(b in BackupCode where b.account == myId && !b.used)} unused codes" class "x-muted"
+            button "Generate new codes" -> backupCodes()
+
+    # Markets (handler/cashtag.go stocksPage, stocks.html): the ticker's
+    # price card — price, the day's change, the five-day sparkline — or why
+    # there is none, then the posts that name $TICKER.
+    view Stock at "/stocks/:ticker" in Shell:
+        meta title "${upper(ticker)} · F33D3R"
+        box:
+            use TopBar("$" + upper(ticker), "", "/search")
+            box class "x-stock-card-wrap":
+                for t in Ticker where t.symbol == upper(ticker) && t.has_quote limit 1:
+                    row class "x-cashtag-card x-cashtag-up-{t.change_pct >= 0.0}":
+                        box class "x-cashtag-left":
+                            text "${t.symbol}" class "x-cashtag-ticker"
+                            if t.company_name != "" && t.company_name != t.symbol:
+                                text "{t.company_name}" class "x-cashtag-company"
+                            row class "x-cashtag-price-row":
+                                text "${t.price_label}" class "x-cashtag-price"
+                                text "{t.change_label}" class "x-cashtag-change"
+                        if t.sparkline != "" && t.change_pct >= 0.0:
+                            image "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40' preserveAspectRatio='none' width='120' height='40'><polyline points='{t.sparkline}' fill='none' stroke='%2322c55e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>" class "x-cashtag-chart"
+                        if t.sparkline != "" && t.change_pct < 0.0:
+                            image "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40' preserveAspectRatio='none' width='120' height='40'><polyline points='{t.sparkline}' fill='none' stroke='%23ef4444' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>" class "x-cashtag-chart"
+                if !exists(t in Ticker where t.symbol == upper(ticker) && t.has_quote):
+                    if exists(m in MarketSource where m.kind == "quotes" && m.enabled):
+                        text "No quote available for ${upper(ticker)}" class "x-muted x-small"
+                    if !exists(m in MarketSource where m.kind == "quotes" && m.enabled):
+                        text "Quotes aren't available right now." class "x-muted x-small"
+            row class "x-tabs x-stock-tabs":
+                text "Posts" class "x-tab x-tab-active"
+            if !exists(w in Work where contains(w.cashtags, " " + upper(ticker) + " ") && shownTo(w, feedAsOf)):
+                box class "x-empty":
+                    text "No posts about ${upper(ticker)} yet" class "x-strong"
+                    text "Be the first to post about this ticker" class "x-muted"
+            for w in Work where contains(w.cashtags, " " + upper(ticker) + " ") && shownTo(w, feedAsOf) by created desc limit 40:
+                use FeedItem(w.id)
+
+    # Visions (pages_visions.go): the stories tray.
+    view Visions at "/visions" in Shell:
+        meta title "Visions / F33D3R"
+        box:
+            text "Visions" class "x-section"
+            if actor != "guest":
+                link "Open the camera" -> "/visions/camera" class "x-pill x-primary"
+                form "Share a Vision" -> createVision(visionDraft):
+                    input bind visionDraft placeholder "What's your vision?"
+            for v in Vision where v.expires > feedAsOf by created desc limit 50:
+                row class "x-vision":
+                    use Avatar(handleOf(v.author))
+                    box:
+                        text "@{handleOf(v.author)}" class "x-strong"
+                        if v.body != "":
+                            text "{v.body}"
+                        if v.media_url != "":
+                            image "{v.media_url}" alt "A Vision by @{handleOf(v.author)}" class "x-vision-media"
+
+    # The capture surface (vision_camera.html): the viewfinder and shutter,
+    # then the still with Retake, a caption and Share — which posts a Vision
+    # through the lane's one writer, createVision.
+    view VisionCamera at "/visions/camera" in Shell requires member:
+        meta title "Visions / F33D3R"
+        box class "x-vision-camera":
+            use TopBar("Visions", "", "/visions")
+            if visionShot == "":
+                camera bind visionShot label "Capture"
+            if visionShot != "":
+                image "{visionShot}" alt "Vision preview" class "x-vision-preview"
+                row class "x-vision-preview-bar":
+                    button "Retake" -> retakeVision class "x-pill"
+                    input bind visionCaption placeholder "Say something…"
+                    button "Share" -> webShareVision(visionShot, visionCaption) class "x-pill x-primary"
+
+    # Communities (the product's communities.fct).
+    view Communities at "/communities" in Shell:
+        meta title "Communities / F33D3R"
+        box:
+            text "Communities" class "x-section"
+            if actor != "guest":
+                form "Create a community" -> communityCreate(communityHandle, communityName):
+                    input bind communityHandle placeholder "handle"
+                    input bind communityName placeholder "name"
+            for c in Community where true by created desc limit 50:
+                row:
+                    link "{c.name}" -> "/communities/{c.handle}" class "x-strong"
+                    text "{count(m in CommunityMember where m.community == c.id)} members · {c.membership_policy}" class "x-muted x-small"
+    view CommunityPage at "/communities/:handle" in Shell:
+        meta title "{handle} / F33D3R"
+        box:
+            for c in Community where c.handle == handle limit 1:
+                text "{c.name}" class "x-section"
+                text "{c.description}" class "x-muted"
+                if actor != "guest" && !exists(m in CommunityMember where m.community == c.id && m.account == myId):
+                    button "Join" -> joinCommunity(c.id)
+                if exists(m in CommunityMember where m.community == c.id && m.account == myId):
+                    button "Leave" -> leaveCommunity(c.id)
+                for m in CommunityMember where m.community == c.id limit 50:
+                    text "@{handleOf(m.account)} · {m.role}" class "x-muted x-small"
+            if !exists(c in Community where c.handle == handle):
+                text "No such community." class "x-empty"
+
+    # The org panel (pages_org.go).
+    view OrgPanel at "/org/panel" in Shell requires member:
+        meta title "Organization / F33D3R"
+        box:
+            text "Organization" class "x-section"
+            form "Invite a member" -> orgInvite(orgHandle):
+                input bind orgHandle placeholder "@handle"
+            for o in OrgMembership where o.org == myId || o.account == myId by id desc limit 50:
+                row:
+                    text "@{handleOf(o.account)} · {o.status}"
+                    if o.org == myId && o.status == "pending":
+                        button "Approve" -> orgApprove("" + o.id)
+                    if o.org == myId && o.status == "active":
+                        button "Revoke" -> orgRevoke("" + o.id)
+
+    # Wallet sections (pages_wallet.go): send and history.
+    view WalletSection at "/wallet/:section" in Shell requires member:
+        meta title "Wallet / F33D3R"
+        box:
+            text "Wallet · {section}" class "x-section"
+            if section == "send":
+                use TransferSheet(transferOpen, transferTo, transferNote, closeTransfer)
+                button "Open" -> openTransfer
+            if section == "history":
+                for e in WalletEntry where e.account == myId by id desc limit 100:
+                    use WalletTxRow(e.kind, handleOf(e.counterparty), e.amount_uaet / 10000, "", e.created)
+
+    # The admin console (pages_admin.go) and its sections.
+    view Admin at "/admin-console" in Shell requires member:
+        meta title "Admin / F33D3R"
+        box:
+            if role != "admin":
+                text "Operators only." class "x-empty"
+            if role == "admin":
+                text "Admin" class "x-section"
+                link "Users" -> "/admin-console/users"
+                link "Moderation" -> "/admin-console/moderation"
+                link "Verification" -> "/admin-console/verification"
+                link "Treasury" -> "/admin-console/treasury"
+    view AdminSection at "/admin-console/:section" in Shell requires member:
+        meta title "Admin / F33D3R"
+        box:
+            if role == "admin":
+                text "Admin · {section}" class "x-section"
+                if section == "users":
+                    for a in Account where true by id desc limit 100:
+                        row:
+                            text "@{a.handle} · realm {a.realm}"
+                            button "Warn" -> applyAction(a.handle, "warn", "", 0)
+                            button "Restrict" -> applyAction(a.handle, "restrict", "", 0)
+                            button "Ban" -> applyAction(a.handle, "ban", "", 0)
+                            button "Unban" -> applyAction(a.handle, "unban", "", 0)
+                if section == "moderation":
+                    for s in ScanState where s.state == "human_review" by id desc limit 100:
+                        row:
+                            text "#{s.work}: {s.reason}"
+                            button "Approve" -> moderate(s.work, "approve")
+                            button "Block" -> moderate(s.work, "block")
+                            button "Age-gate" -> moderate(s.work, "age_gate")
+                    for r in Report where true by id desc limit 50:
+                        row:
+                            text "{r.reason}: work {r.work}"
+                            button "Resolve" -> resolveReports(r.work, "resolved")
+                if section == "verification":
+                    for r in IdentityVerificationRequest where r.status == "pending_review" limit 50:
+                        row:
+                            text "@{handleOf(r.account)} · {r.reason}"
+                            button "Approve" -> identityVerificationApprove("" + r.id)
+                            button "Reject" -> identityVerificationReject("" + r.id)
+                if section == "treasury":
+                    text "Fee pool: {feePool} µAET" class "x-strong"
+                    for i in PaymentIntent where i.status == "pending" limit 50:
+                        row:
+                            text "{i.ref} · ${i.usd_cents / 100}"
+                            button "Confirm" -> confirmIntent(i.ref)
+                            button "Fail" -> failIntent(i.ref)
+
+    # /work/:id, the reference's post path, is the post page.
+    component WorkBody(id: int):
+        for w in Work where w.id == id && !w.deleted && !workBlocked(w.id) && reachable(w, myId, feedAsOf) && !gated(myId, w.author, w.is_nsfw) limit 1:
+            use FocusedPost(nameOf(w.author), handleOf(w.author), verifiedOf(w.author), w.kind, w.body, w.media_urls)
+            link "Open the conversation" -> "/post/{w.id}"
+        if !exists(w in Work where w.id == id && !w.deleted):
+            text "This post doesn't exist." class "x-empty"
+    view WorkPage at "/work/:id" in Shell:
+        meta title "Post / F33D3R"
+        box:
+            use WorkBody(toInt(id))
+
+    # ── the web's adapters for these pages ───────────────────────────────────
+    # The composer's media and quote posts: the product's post, then the
+    # attached media (an upload's URL) and its kind.
+    action webPostMedia(body: text, media: text, kind: text):
+        requires member
+        check kind == "video" || kind == "image" || kind == "audio" "media is a video, an image or audio"
+        let made = run post(body)
+        set Work(toInt(made.work_id)).media_urls = media
+        set Work(toInt(made.work_id)).kind = kind
+    action webQuote(body: text, id: int):
+        requires member
+        run post(body, false, "", false, false, "", "", "" + id)
+    action webArticle(title: text, subtitle: text, body: text):
+        requires member
+        check trim(title) != "" "an article needs a title"
+        run createArticle(title, subtitle, body, "published")
+    action webArticleUpdate(id: int, title: text, subtitle: text, body: text):
+        requires member
+        run updateArticle(id, title, subtitle, body)
+    action webCreatorSetup(name: text, bio: text):
+        requires member
+        run creatorSetupComplete(name, bio)
+    action webOnboard(name: text, bio: text, topic: text):
+        requires member
+        run profileUpdate(name, bio)
+        if trim(topic) != "" && !exists(t in TopicFollow where t.account == myId && t.tag == lower(trim(topic))):
+            add TopicFollow { account: myId, tag: lower(trim(topic)) }
+        if !exists(x in XpEvent where x.account == myId && x.amount == 50):
+            run awardXP(myId, "onboard", "")
+    action webResetPassword(handle: text, code: text, password: text):
+        let t = run requestPasswordReset(handle, code)
+        run redeemPasswordReset(t.reset_token, password, "web")
+    action webDeactivate:
+        requires member
+        run deactivateAccount("")
+    action openTransfer:
+        transferOpen = true
+    # One notification preference flipped, the others kept.
+    action webNotifToggle(kind: text):
+        requires member
+        let p = max(n.id in NotificationPrefs where n.account == myId)
+        check p > 0 "no preferences yet"
+        run patchNotificationPreferences(NotificationPrefs(p).push_enabled != (kind == "push"), NotificationPrefs(p).messages_enabled != (kind == "messages"), NotificationPrefs(p).likes_enabled != (kind == "likes"), NotificationPrefs(p).reposts_enabled != (kind == "reposts"), NotificationPrefs(p).replies_enabled != (kind == "replies"), NotificationPrefs(p).follows_enabled != (kind == "follows"), NotificationPrefs(p).achievements_enabled, NotificationPrefs(p).mentions_enabled, NotificationPrefs(p).frequencies_enabled, NotificationPrefs(p).quiet_hours_enabled, NotificationPrefs(p).quiet_hours_start, NotificationPrefs(p).quiet_hours_end, NotificationPrefs(p).timezone)
+
+    # ── For you: data/rank.fct over the product's rows ──────────────────────
+    entity FeedScore:
+        id: int
+        viewer: text
+        work: int
+        score: int
+    action rankForYou:
+        requires member
+        let t0 = now()
+        let labels = list(t.tag in TopicFollow where t.account == myId)
+        let u = do onesFor(len(labels))
+        remove fs in FeedScore where fs.viewer == actor
+        for w in Work where visibleWork(w) && !workBlocked(w.id) && feedVisible(w, myId, t0) && w.created > t0 - 604800:
+            let c = do tagVector(w.body, labels)
+            let burst = count(o in Work where o.author == w.author && o.created > t0 - 86400)
+            let views = count(v in ViewEvent where v.work == w.id)
+            let a = do aesqTotal(u, c, views, count(v in ViewEvent where Work(v.work).author == w.author), toFloat(count(l in Like where l.work == w.id)), toFloat(count(r in Repost where r.work == w.id)), toFloat(count(r in Work where r.parent_cid == w.id && !r.deleted)), toFloat(count(b in Bookmark where b.work == w.id)), toFloat(sum(v.seconds in ViewEvent where v.work == w.id)), toFloat(views), w.kind, len(w.body), burst, t0 - w.created)
+            # A work whose media is a zior-analysed track reads its emitted
+            # signal: completion and early retention in the neural stage and
+            # velocity in the engine's velocity stage (media/zior.fct).
+            let heard = w.media_urls != "" && exists(s in Signal where s.track == w.media_urls)
+            let completion = max(s.completion_rate in Signal where s.track == w.media_urls)
+            let retention = max(s.early_retention in Signal where s.track == w.media_urls)
+            let n = do neuralScore(u, c, toFloat(count(l in Like where l.work == w.id)), toFloat(count(r in Repost where r.work == w.id)), toFloat(count(r in Work where r.parent_cid == w.id && !r.deleted)), toFloat(count(b in Bookmark where b.work == w.id)), toFloat(views), completion, retention, followAffinityOf(followsId(w.author)), count(v in ViewEvent where v.account == myId && v.work == w.id), count(v in ViewEvent where v.account == myId))
+            let vb = do heardVelocity(heard, max(s.velocity_score in Signal where s.track == w.media_urls), retention, completion)
+            let f = do pipelineScoreV(n, a, vb, followsId(w.author))
+            add FeedScore { viewer: actor, work: w.id, score: micro(f) }
+    proc onesFor(n: int) -> [float]:
+        let mut out = []
+        let mut i = 0
+        loop i < n:
+            out = append(out, 1.0)
+            i = i + 1
+        return out
+    proc tagVector(body: text, labels: [text]) -> [float]:
+        let mut out = []
+        let low = lower(body)
+        let mut i = 0
+        loop i < len(labels):
+            if contains(low, lower(labels[i])):
+                out = append(out, 1.0)
+            else:
+                out = append(out, 0.0)
+            i = i + 1
+        return out
+    proc followAffinityOf(followed: bool) -> float:
+        if followed:
+            return 0.30
+        return 0.0
+    proc heardVelocity(heard: bool, velocity: float, retention: float, completion: float) -> float:
+        if heard:
+            return velocityBoost(velocity, retention, completion, 0.0)
+        return 0.0
+    proc webTagNames(tags: [TagDTO]) -> [text]:
+        let mut out = []
+        let mut i = 0
+        loop i < len(tags):
+            out = append(out, tags[i].tag)
+            i = i + 1
+        return out
+    # An uploaded file's kind by its extension, and a bulk post's words.
+    proc bulkMediaKind(url: text) -> text:
+        let parts = split(lower(url), ".")
+        let ext = parts[len(parts) - 1]
+        if ext == "mp4" || ext == "mov" || ext == "webm" || ext == "m4v":
+            return "video"
+        if ext == "mp3" || ext == "wav" || ext == "flac" || ext == "m4a" || ext == "ogg" || ext == "aac":
+            return "audio"
+        return "image"
+    proc bulkBody(caption: text, url: text) -> text:
+        if trim(caption) != "":
+            return trim(caption)
+        let parts = split(url, "/")
+        return parts[len(parts) - 1]

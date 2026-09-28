@@ -1,0 +1,514 @@
+{
+  "tests": [
+    {
+      "name": "clickbait score parity with abraxas-shield clickbait.rs on fixed texts (micro-units)",
+      "steps": [
+        {
+          "run": "clickbait",
+          "args": [
+            ""
+          ],
+          "returns": 0
+        },
+        {
+          "run": "clickbait",
+          "args": [
+            "a quiet garden morning"
+          ],
+          "returns": 0
+        },
+        {
+          "run": "clickbait",
+          "args": [
+            "YOU WON'T BELIEVE THIS!!! 10 reasons why"
+          ],
+          "returns": 870000
+        },
+        {
+          "run": "clickbait",
+          "args": [
+            "Shocking: 5 tips, one weird trick?? must see!"
+          ],
+          "returns": 622500
+        },
+        {
+          "run": "clickbait",
+          "args": [
+            "10reasons to smile"
+          ],
+          "returns": 150000
+        },
+        {
+          "run": "clickbait",
+          "args": [
+            "the 3 ways"
+          ],
+          "returns": 150000
+        },
+        {
+          "run": "clickbait",
+          "args": [
+            "v2things not a claim"
+          ],
+          "returns": 0
+        },
+        {
+          "run": "clickbait",
+          "args": [
+            "Is it exclusive? Is it banned? really?"
+          ],
+          "returns": 477900
+        }
+      ]
+    },
+    {
+      "name": "the shield's decision order: hate blocks; violence or self-harm reviews; an adult creator is age-gated; explicit text age-gates; high clickbait, a suspected bot, or spam reviews; else clean \u2014 on explicit author facts, then scanWork over the product's Work and Account rows",
+      "steps": [
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "addModTerm",
+          "args": [
+            "hate",
+            "x"
+          ],
+          "fails": "forbidden"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "addModTerm",
+          "args": [
+            "hate",
+            "hateterm"
+          ]
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "addModTerm",
+          "args": [
+            "violence",
+            "i will hurt you"
+          ]
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "addModTerm",
+          "args": [
+            "self_harm",
+            "hurt myself"
+          ]
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "addModTerm",
+          "args": [
+            "other",
+            "x"
+          ],
+          "fails": "category is"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "a HATETERM post",
+            false,
+            999999,
+            1,
+            0,
+            false
+          ],
+          "returns": "auto_block"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "i will hurt you tomorrow",
+            false,
+            999999,
+            1,
+            0,
+            false
+          ],
+          "returns": "human_review"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "i want to hurt myself",
+            false,
+            999999,
+            1,
+            0,
+            false
+          ],
+          "returns": "human_review"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "a quiet morning",
+            true,
+            999999,
+            1,
+            0,
+            false
+          ],
+          "returns": "age_gate"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "nsfw pics",
+            false,
+            999999,
+            1,
+            0,
+            false
+          ],
+          "returns": "age_gate"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "YOU WON'T BELIEVE THIS SHOCKING SECRET!!! 10 reasons??",
+            false,
+            999999,
+            1,
+            0,
+            false
+          ],
+          "returns": "human_review"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "plain words",
+            false,
+            3600,
+            6,
+            0,
+            false
+          ],
+          "returns": "human_review"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "plain words",
+            false,
+            200000,
+            16,
+            0,
+            false
+          ],
+          "returns": "human_review"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "plain words",
+            false,
+            200000,
+            10,
+            0,
+            false
+          ],
+          "returns": "approve"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "plain words",
+            false,
+            999999,
+            1,
+            11,
+            false
+          ],
+          "returns": "human_review"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "plain words",
+            false,
+            999999,
+            1,
+            10,
+            false
+          ],
+          "returns": "approve"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "plain words",
+            false,
+            999999,
+            1,
+            0,
+            true
+          ],
+          "returns": "human_review"
+        },
+        {
+          "run": "recommendFor",
+          "args": [
+            "plain words",
+            false,
+            999999,
+            1,
+            0,
+            false
+          ],
+          "returns": "approve"
+        },
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada",
+                "is_adult_creator": false,
+                "created": 0
+              },
+              {
+                "handle": "cat",
+                "is_adult_creator": true,
+                "created": 0
+              }
+            ],
+            "Work": [
+              {
+                "author": 1,
+                "body": "a HATETERM post",
+                "created": 0,
+                "deleted": false
+              },
+              {
+                "author": 2,
+                "body": "a quiet morning",
+                "created": 0,
+                "deleted": false
+              },
+              {
+                "author": 1,
+                "body": "plain words",
+                "created": 0,
+                "deleted": false
+              }
+            ]
+          }
+        },
+        {
+          "run": "scanWork",
+          "args": [
+            1
+          ],
+          "returns": "auto_block"
+        },
+        {
+          "expect": "workBlocked(1)",
+          "equals": true
+        },
+        {
+          "run": "scanWork",
+          "args": [
+            2
+          ],
+          "returns": "age_gate"
+        },
+        {
+          "expect": "workAgeGated(2)",
+          "equals": true
+        },
+        {
+          "run": "scanWork",
+          "args": [
+            3
+          ],
+          "returns": "approve"
+        },
+        {
+          "expect": "count(s in ScanState where s.work == 3 && s.state == \"clean\")",
+          "equals": 1
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "suppressSignal",
+          "args": [
+            "hate_keyword:hateterm"
+          ]
+        },
+        {
+          "run": "scanWork",
+          "args": [
+            1
+          ],
+          "returns": "approve"
+        }
+      ]
+    },
+    {
+      "name": "reports on the product's rows: an escalating reason (nsfw, hate, ncii, sextortion, scam) holds the work for review, others do not; an admin resolves or dismisses, which clears a report-driven hold; moderator actions set the state and a block resolves the reports",
+      "steps": [
+        {
+          "seed": {
+            "Work": [
+              {
+                "author": 1,
+                "body": "a post",
+                "created": 0,
+                "deleted": false
+              },
+              {
+                "author": 1,
+                "body": "another",
+                "created": 0,
+                "deleted": false
+              }
+            ]
+          }
+        },
+        {
+          "run": "escalateReport",
+          "args": [
+            1,
+            "spam"
+          ]
+        },
+        {
+          "expect": "inReview(1)",
+          "equals": false
+        },
+        {
+          "run": "escalateReport",
+          "args": [
+            1,
+            "scam"
+          ]
+        },
+        {
+          "expect": "inReview(1)",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "bob",
+            "role": "member"
+          },
+          "run": "resolveReports",
+          "args": [
+            1,
+            "dismissed"
+          ],
+          "fails": "forbidden"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "resolveReports",
+          "args": [
+            1,
+            "closed"
+          ],
+          "fails": "invalid request"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "resolveReports",
+          "args": [
+            1,
+            "dismissed"
+          ]
+        },
+        {
+          "expect": "count(r in ReportResolution where r.work == 1 && r.status == \"dismissed\")",
+          "equals": 1
+        },
+        {
+          "expect": "inReview(1)",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "moderate",
+          "args": [
+            2,
+            "delete"
+          ],
+          "fails": "unknown action"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "moderate",
+          "args": [
+            2,
+            "block"
+          ]
+        },
+        {
+          "expect": "workBlocked(2)",
+          "equals": true
+        },
+        {
+          "expect": "count(r in ReportResolution where r.work == 2 && r.status == \"resolved\")",
+          "equals": 1
+        },
+        {
+          "run": "escalateReport",
+          "args": [
+            2,
+            "hate"
+          ]
+        },
+        {
+          "expect": "workBlocked(2)",
+          "equals": true
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "moderate",
+          "args": [
+            2,
+            "approve"
+          ]
+        },
+        {
+          "expect": "workBlocked(2)",
+          "equals": false
+        }
+      ]
+    }
+  ]
+}

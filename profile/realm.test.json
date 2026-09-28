@@ -1,0 +1,477 @@
+{
+  "tests": [
+    {
+      "name": "Effective realm, the reference's grant_test.go table case for case (grant floors, clamping, the founder's floor)",
+      "steps": [
+        {
+          "run": "realmOf",
+          "args": [
+            0,
+            0,
+            false
+          ],
+          "returns": 1
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            2000,
+            0,
+            false
+          ],
+          "returns": 3
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            125,
+            5,
+            false
+          ],
+          "returns": 5
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            195,
+            3,
+            false
+          ],
+          "returns": 3
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            7500,
+            2,
+            false
+          ],
+          "returns": 4
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            20000,
+            2,
+            false
+          ],
+          "returns": 5
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            2000,
+            1,
+            false
+          ],
+          "returns": 3
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            125,
+            0,
+            false
+          ],
+          "returns": 1
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            125,
+            9,
+            false
+          ],
+          "returns": 1
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            125,
+            -3,
+            false
+          ],
+          "returns": 1
+        },
+        {
+          "run": "realmOf",
+          "args": [
+            0,
+            0,
+            true
+          ],
+          "returns": 5
+        }
+      ]
+    },
+    {
+      "name": "ComputeRealm, the reference's index_test.go thresholds",
+      "steps": [
+        {
+          "run": "earnedRealm",
+          "args": [
+            -100
+          ],
+          "returns": 1
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            0
+          ],
+          "returns": 1
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            499
+          ],
+          "returns": 1
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            500
+          ],
+          "returns": 2
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            1999
+          ],
+          "returns": 2
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            2000
+          ],
+          "returns": 3
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            7499
+          ],
+          "returns": 3
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            7500
+          ],
+          "returns": 4
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            19999
+          ],
+          "returns": 4
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            20000
+          ],
+          "returns": 5
+        },
+        {
+          "run": "earnedRealm",
+          "args": [
+            1099511627776
+          ],
+          "returns": 5
+        }
+      ]
+    },
+    {
+      "name": "Progress, RealmName and NextThreshold",
+      "steps": [
+        {
+          "run": "realmProgress",
+          "args": [
+            20000,
+            5
+          ],
+          "returns": 100
+        },
+        {
+          "run": "realmProgress",
+          "args": [
+            1250,
+            2
+          ],
+          "returns": 50
+        },
+        {
+          "run": "realmProgress",
+          "args": [
+            0,
+            1
+          ],
+          "returns": 0
+        },
+        {
+          "run": "realmProgress",
+          "args": [
+            400,
+            1
+          ],
+          "returns": 80
+        },
+        {
+          "run": "realmTitle",
+          "args": [
+            1
+          ],
+          "returns": "Wanderer"
+        },
+        {
+          "run": "realmTitle",
+          "args": [
+            2
+          ],
+          "returns": "Initiate"
+        },
+        {
+          "run": "realmTitle",
+          "args": [
+            5
+          ],
+          "returns": "Guardian"
+        },
+        {
+          "run": "realmTitle",
+          "args": [
+            9
+          ],
+          "returns": "Wanderer"
+        },
+        {
+          "run": "realmNext",
+          "args": [
+            1
+          ],
+          "returns": 500
+        },
+        {
+          "run": "realmNext",
+          "args": [
+            4
+          ],
+          "returns": 20000
+        },
+        {
+          "run": "realmNext",
+          "args": [
+            5
+          ],
+          "returns": 20000
+        }
+      ]
+    },
+    {
+      "name": "XP is awarded only through the @internal actions, onto the product's Account and XpEvent rows: per-action amounts, post and follower milestones once each as Achievement rows, realm achievements at Adept and Guardian; a grant is an operator's floor; the founder role floors at Guardian",
+      "steps": [
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada",
+                "xp": 0,
+                "realm": 1,
+                "platform_role": ""
+              },
+              {
+                "handle": "zed",
+                "xp": 0,
+                "realm": 1,
+                "platform_role": "founder"
+              }
+            ]
+          }
+        },
+        {
+          "run": "awardXP",
+          "args": [
+            1,
+            "post",
+            "w1"
+          ]
+        },
+        {
+          "run": "checkMilestones",
+          "args": [
+            1,
+            1,
+            0
+          ]
+        },
+        {
+          "expect": "Account(1).xp",
+          "equals": 100
+        },
+        {
+          "expect": "xpOf(1)",
+          "equals": 100
+        },
+        {
+          "expect": "hasAchievement(1, \"first_post\")",
+          "equals": true
+        },
+        {
+          "expect": "count(e in Achievement where e.slug == \"first_post\" && e.name == \"First Steps\" && e.rarity == \"bronze\")",
+          "equals": 1
+        },
+        {
+          "run": "awardXP",
+          "args": [
+            1,
+            "post",
+            "w2"
+          ]
+        },
+        {
+          "run": "checkMilestones",
+          "args": [
+            1,
+            2,
+            0
+          ]
+        },
+        {
+          "expect": "count(e in Achievement where e.slug == \"first_post\")",
+          "equals": 1
+        },
+        {
+          "run": "awardXP",
+          "args": [
+            1,
+            "like",
+            "w9"
+          ]
+        },
+        {
+          "run": "awardXP",
+          "args": [
+            1,
+            "reply",
+            "w9"
+          ]
+        },
+        {
+          "run": "checkMilestones",
+          "args": [
+            1,
+            2,
+            1
+          ]
+        },
+        {
+          "expect": "Account(1).xp",
+          "equals": 240
+        },
+        {
+          "expect": "hasAchievement(1, \"first_follower\")",
+          "equals": true
+        },
+        {
+          "run": "checkMilestones",
+          "args": [
+            1,
+            10,
+            10
+          ]
+        },
+        {
+          "expect": "hasAchievement(1, \"post_10\") && hasAchievement(1, \"followers_10\")",
+          "equals": true
+        },
+        {
+          "run": "awardXP",
+          "args": [
+            1,
+            "nonsense",
+            ""
+          ]
+        },
+        {
+          "expect": "Account(1).xp",
+          "equals": 240
+        },
+        {
+          "expect": "count(XpEvent)",
+          "equals": 4
+        },
+        {
+          "as": {
+            "actor": "ada",
+            "role": "member"
+          },
+          "run": "setRealmGrant",
+          "args": [
+            "ada",
+            5
+          ],
+          "fails": "only an operator"
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "setRealmGrant",
+          "args": [
+            "ada",
+            4
+          ]
+        },
+        {
+          "expect": "Account(1).realm",
+          "equals": 4
+        },
+        {
+          "expect": "hasAchievement(1, \"realm_adept\")",
+          "equals": true
+        },
+        {
+          "expect": "hasAchievement(1, \"realm_guardian\")",
+          "equals": false
+        },
+        {
+          "as": {
+            "actor": "root",
+            "role": "admin"
+          },
+          "run": "setRealmGrant",
+          "args": [
+            "ada",
+            0
+          ]
+        },
+        {
+          "expect": "Account(1).realm",
+          "equals": 1
+        },
+        {
+          "run": "awardXP",
+          "args": [
+            2,
+            "like",
+            ""
+          ]
+        },
+        {
+          "expect": "Account(2).realm",
+          "equals": 5
+        },
+        {
+          "expect": "hasAchievement(2, \"realm_guardian\")",
+          "equals": true
+        }
+      ]
+    }
+  ]
+}

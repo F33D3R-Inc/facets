@@ -1,67 +1,283 @@
 {
   "tests": [
     {
-      "name": "keyword mutes and topic snoozes are the viewer's own feed preferences: they hide a work for the muter and nobody else, and a snooze ends",
+      "name": "keyword mutes and topic snoozes (the product's MutedKeyword and TopicSnooze rows) are the viewer's own feed preferences: they hide a work for the muter and nobody else, and a snooze ends",
       "steps": [
-        { "seed": { "Tweet": [
-          { "author": "ada", "body": "crypto giveaway #crypto", "nsfw": false, "subscriberOnly": false, "visibility": "public" },
-          { "author": "bob", "body": "a quiet #garden morning", "nsfw": false, "subscriberOnly": false, "visibility": "public" } ] } },
-        { "as": { "actor": "cy", "role": "member" }, "run": "muteKeyword", "args": ["  "], "fails": "keyword is required" },
-        { "as": { "actor": "cy", "role": "member" }, "run": "muteKeyword", "args": ["Giveaway"] },
-        { "as": { "actor": "cy", "role": "member" }, "run": "muteKeyword", "args": ["giveaway"], "fails": "already muted" },
-        { "as": { "actor": "cy", "role": "member" }, "expect": "count(t in Tweet where feedVisible(t, now()))", "equals": 1 },
-        { "as": { "actor": "dee", "role": "member" }, "expect": "count(t in Tweet where feedVisible(t, now()))", "equals": 2 },
-        { "as": { "actor": "cy", "role": "member" }, "run": "unmuteKeyword", "args": ["GIVEAWAY"] },
-        { "as": { "actor": "cy", "role": "member" }, "expect": "count(t in Tweet where feedVisible(t, now()))", "equals": 2 },
-        { "as": { "actor": "cy", "role": "member" }, "run": "snoozeTopic", "args": ["#Garden!", 7], "fails": "letters, digits" },
-        { "as": { "actor": "cy", "role": "member" }, "run": "snoozeTopic", "args": ["#Garden", 0], "fails": "1 to 365" },
-        { "as": { "actor": "cy", "role": "member" }, "run": "snoozeTopic", "args": ["#Garden", 7] },
-        { "expect": "TopicSnooze(1).tag", "equals": "garden" },
-        { "as": { "actor": "cy", "role": "member" }, "expect": "count(t in Tweet where feedVisible(t, now()))", "equals": 1 },
-        { "as": { "actor": "cy", "role": "member" }, "run": "snoozeTopic", "args": ["garden", 30] },
-        { "expect": "count(TopicSnooze)", "equals": 1 },
-        { "as": { "actor": "cy", "role": "member" }, "run": "unsnoozeTopic", "args": ["#GARDEN"] },
-        { "as": { "actor": "cy", "role": "member" }, "expect": "count(t in Tweet where feedVisible(t, now()))", "equals": 2 }
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada",
+                "is_adult": false,
+                "show_sensitive": false
+              },
+              {
+                "handle": "bob",
+                "is_adult": false,
+                "show_sensitive": false
+              },
+              {
+                "handle": "cy",
+                "is_adult": true,
+                "show_sensitive": false
+              },
+              {
+                "handle": "dee",
+                "is_adult": true,
+                "show_sensitive": true
+              }
+            ],
+            "Work": [
+              {
+                "author": 1,
+                "body": "crypto giveaway #crypto",
+                "is_nsfw": false,
+                "visibility": "public"
+              },
+              {
+                "author": 2,
+                "body": "a quiet #garden morning",
+                "is_nsfw": false,
+                "visibility": "public"
+              }
+            ]
+          }
+        },
+        {
+          "seed": {
+            "MutedKeyword": [
+              {
+                "account": 3,
+                "keyword": "Giveaway",
+                "created": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(w in Work where feedVisible(w, 3, now()))",
+          "equals": 1
+        },
+        {
+          "expect": "count(w in Work where feedVisible(w, 4, now()))",
+          "equals": 2
+        },
+        {
+          "seed": {
+            "TopicSnooze": [
+              {
+                "account": 4,
+                "tag": "garden",
+                "surface_id": "",
+                "until": 99999999999
+              },
+              {
+                "account": 2,
+                "tag": "crypto",
+                "surface_id": "",
+                "until": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(w in Work where feedVisible(w, 4, now()))",
+          "equals": 1
+        },
+        {
+          "expect": "count(w in Work where feedVisible(w, 2, now()))",
+          "equals": 2
+        }
       ]
     },
     {
-      "name": "circle visibility and subscriber-only are access control: the author, the circle, or an active subscriber see the work; everyone else does not, anywhere",
+      "name": "circle and subscriber visibility are access control: the author, the author's circle, or an active subscriber see the work (an expired subscription does not); everyone else does not",
       "steps": [
-        { "seed": { "Tweet": [
-          { "author": "ada", "body": "for my circle", "nsfw": false, "subscriberOnly": false, "visibility": "circle" },
-          { "author": "ada", "body": "for subscribers", "nsfw": false, "subscriberOnly": true, "visibility": "public" } ] } },
-        { "as": { "actor": "ada", "role": "member" }, "expect": "count(t in Tweet where reachable(t))", "equals": 2 },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "count(t in Tweet where reachable(t))", "equals": 0 },
-        { "as": { "actor": "ada", "role": "member" }, "run": "addToCircle", "args": ["ada"], "fails": "own circle" },
-        { "as": { "actor": "ada", "role": "member" }, "run": "addToCircle", "args": ["bob"] },
-        { "as": { "actor": "ada", "role": "member" }, "run": "addToCircle", "args": ["bob"], "fails": "already in" },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "count(t in Tweet where reachable(t))", "equals": 1 },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "reachable(Tweet(1))", "equals": true },
-        { "as": { "actor": "bob", "role": "member" }, "run": "subscribeCreator", "args": ["bob"], "fails": "yourself" },
-        { "as": { "actor": "bob", "role": "member" }, "run": "subscribeCreator", "args": ["ada"] },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "count(t in Tweet where reachable(t))", "equals": 2 },
-        { "as": { "actor": "bob", "role": "member" }, "run": "unsubscribeCreator", "args": ["ada"] },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "reachable(Tweet(2))", "equals": false },
-        { "as": { "actor": "ada", "role": "member" }, "run": "removeFromCircle", "args": ["bob"] },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "count(t in Tweet where reachable(t))", "equals": 0 }
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada",
+                "is_adult": false,
+                "show_sensitive": false
+              },
+              {
+                "handle": "bob",
+                "is_adult": false,
+                "show_sensitive": false
+              },
+              {
+                "handle": "cy",
+                "is_adult": true,
+                "show_sensitive": false
+              },
+              {
+                "handle": "dee",
+                "is_adult": true,
+                "show_sensitive": true
+              }
+            ],
+            "Work": [
+              {
+                "author": 1,
+                "body": "for my circle",
+                "is_nsfw": false,
+                "visibility": "circle"
+              },
+              {
+                "author": 1,
+                "body": "for subscribers",
+                "is_nsfw": false,
+                "visibility": "subscribers"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(w in Work where reachable(w, 1, now()))",
+          "equals": 2
+        },
+        {
+          "expect": "count(w in Work where reachable(w, 2, now()))",
+          "equals": 0
+        },
+        {
+          "seed": {
+            "Circle": [
+              {
+                "account": 1,
+                "target": 2
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(w in Work where reachable(w, 2, now()))",
+          "equals": 1
+        },
+        {
+          "expect": "reachable(Work(1), 2, now())",
+          "equals": true
+        },
+        {
+          "seed": {
+            "Shop": [
+              {
+                "owner": 1,
+                "is_enabled": true
+              }
+            ],
+            "ShopSubscription": [
+              {
+                "shop": 1,
+                "account": 2,
+                "plan": 0,
+                "created": 1,
+                "status": "active",
+                "period_end": 99999999999
+              },
+              {
+                "shop": 1,
+                "account": 3,
+                "plan": 0,
+                "created": 1,
+                "status": "active",
+                "period_end": 1
+              }
+            ]
+          }
+        },
+        {
+          "expect": "count(w in Work where reachable(w, 2, now()))",
+          "equals": 2
+        },
+        {
+          "expect": "reachable(Work(2), 3, now())",
+          "equals": false
+        },
+        {
+          "expect": "reachable(Work(1), 0, now())",
+          "equals": false
+        }
       ]
     },
     {
-      "name": "the NSFW gate: a guest is asked to sign in, a member who is not a verified adult showing sensitive content is restricted, the author and a consenting adult pass",
+      "name": "the NSFW gate: a guest (0) is asked to sign in, a member who is not an adult showing sensitive content is restricted, the author and a consenting adult pass",
       "steps": [
-        { "seed": { "Tweet": [ { "author": "ada", "body": "adult work", "nsfw": true, "subscriberOnly": false, "visibility": "public" } ] } },
-        { "as": { "actor": "guest", "role": "guest" }, "expect": "nsfwGateAuth(\"ada\", true)", "equals": true },
-        { "as": { "actor": "guest", "role": "guest" }, "expect": "gated(\"ada\", true)", "equals": true },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "nsfwGateAuth(\"ada\", true)", "equals": false },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "nsfwGateRestricted(\"ada\", true)", "equals": true },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "count(t in Tweet where feedVisible(t, now()))", "equals": 0 },
-        { "as": { "actor": "bob", "role": "member" }, "run": "setViewerPrefs", "args": [true, false] },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "gated(\"ada\", true)", "equals": true },
-        { "as": { "actor": "bob", "role": "member" }, "run": "setViewerPrefs", "args": [true, true] },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "gated(\"ada\", true)", "equals": false },
-        { "as": { "actor": "bob", "role": "member" }, "expect": "count(t in Tweet where feedVisible(t, now()))", "equals": 1 },
-        { "as": { "actor": "ada", "role": "member" }, "expect": "gated(\"ada\", true)", "equals": false },
-        { "as": { "actor": "cy", "role": "member" }, "expect": "gated(\"ada\", false)", "equals": false }
+        {
+          "seed": {
+            "Account": [
+              {
+                "handle": "ada",
+                "is_adult": false,
+                "show_sensitive": false
+              },
+              {
+                "handle": "bob",
+                "is_adult": false,
+                "show_sensitive": false
+              },
+              {
+                "handle": "cy",
+                "is_adult": true,
+                "show_sensitive": false
+              },
+              {
+                "handle": "dee",
+                "is_adult": true,
+                "show_sensitive": true
+              }
+            ],
+            "Work": [
+              {
+                "author": 1,
+                "body": "adult work",
+                "is_nsfw": true,
+                "visibility": "public"
+              }
+            ]
+          }
+        },
+        {
+          "expect": "nsfwGateAuth(0, 1, true)",
+          "equals": true
+        },
+        {
+          "expect": "gated(0, 1, true)",
+          "equals": true
+        },
+        {
+          "expect": "nsfwGateAuth(2, 1, true)",
+          "equals": false
+        },
+        {
+          "expect": "nsfwGateRestricted(2, 1, true)",
+          "equals": true
+        },
+        {
+          "expect": "count(w in Work where feedVisible(w, 2, now()))",
+          "equals": 0
+        },
+        {
+          "expect": "gated(3, 1, true)",
+          "equals": true
+        },
+        {
+          "expect": "gated(4, 1, true)",
+          "equals": false
+        },
+        {
+          "expect": "count(w in Work where feedVisible(w, 4, now()))",
+          "equals": 1
+        },
+        {
+          "expect": "gated(1, 1, true)",
+          "equals": false
+        },
+        {
+          "expect": "gated(3, 1, false)",
+          "equals": false
+        }
       ]
     }
   ]

@@ -450,6 +450,7 @@ app F33D3RSocialEvents:
         let edition = count(e in WorkEdition where e.work == wid) + 1
         add WorkEdition { work: wid, cid: "sha256:" + sha256Hex("" + wid + "|" + edition + "|" + words), body: words, edition_number: edition, created: now() }
         set Work(wid).body = words
+        run reindexWork(wid)
         set Work(wid).edited = true
         set Work(wid).edited_at = now()
         if given(made_with_ai):
@@ -549,6 +550,7 @@ app F33D3RSocialEvents:
         add WorkEdition { work: wid, cid: cid, body: body, edition_number: 1, created: now() }
         for ht in tags:
             add WorkTag { work: wid, tag: ht, created: now() }
+        run reindexWork(wid)
         if len(options) > 0:
             let pid = add Poll { work: wid, ends_at: fromIso("" + p.poll_ends_at), shuffle: shuffle, created: now() }
             for label in options:
@@ -743,6 +745,7 @@ app F33D3RSocialEvents:
     # nothing new.
     action report(reason: text, post_id: text?, target_handle: text?, detail: text?):
         requires member
+        requires goodStanding
         let me = max(a.id in Account where a.handle == actor)
         check reason == "spam" || reason == "harassment" || reason == "hate" || reason == "nsfw" || reason == "violence" || reason == "illegal" || reason == "other" "reason required" status 400
         let wid = toInt(post_id)
@@ -753,6 +756,12 @@ app F33D3RSocialEvents:
         let target = max(a.id in Account where post_id == "" && lower(a.handle) == handle)
         if !exists(r in Report where r.reporter == me && r.work == wid && r.target == target):
             add Report { reporter: me, reason: reason, work: wid, target: target, detail: seTruncate(seText(detail), 500), created: now() }
+            # zodacare: a report raises the reported account's risk (social/enforcement.fct).
+            if wid > 0:
+                run recordReport(Work(wid).author)
+                run escalateReport(wid, reason)
+            else:
+                run recordReport(target)
 
     # ── Context Notes ──────────────────────────────────────────────────────
     # Notes are written by accounts granted NOTE_AUTHORING, rated by anyone

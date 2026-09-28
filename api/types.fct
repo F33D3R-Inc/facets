@@ -547,7 +547,6 @@ app F33D3RTypes:
         count: int
         tag: text
     type ThemisPurchaseDTO:
-        cek_for_buyer: json
         confirmed_at: datetime or null
         content_hash: text
         content_url: text

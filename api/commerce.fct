@@ -21,7 +21,7 @@ app F33D3RCommerce:
     action library() -> V2PageOfThemisPurchaseDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return V2PageOfThemisPurchaseDTO{items: list(ThemisPurchaseDTO{id: "" + p.id, listing_id: "" + p.listing, listing_title: Listing(p.listing).title, status: p.status, currency: p.currency, expected_sats: p.expected_sats, cek_for_buyer: p.cek_for_buyer, expires_at: iso(p.expires), confirmed_at: iso(p.confirmed), delivered_at: iso(p.delivered), content_hash: Listing(p.listing).content_hash, content_url: Listing(p.listing).content_url} in Purchase where p.buyer == me && p.status == "delivered" by delivered desc), next_cursor: "", server_time: iso(now())}
+        return V2PageOfThemisPurchaseDTO{items: list(ThemisPurchaseDTO{id: "" + p.id, listing_id: "" + p.listing, listing_title: Listing(p.listing).title, status: p.status, currency: p.currency, expected_sats: p.expected_sats, expires_at: iso(p.expires), confirmed_at: iso(p.confirmed), delivered_at: iso(p.delivered), content_hash: Listing(p.listing).content_hash, content_url: Listing(p.listing).content_url} in Purchase where p.buyer == me && p.status == "delivered" by delivered desc), next_cursor: "", server_time: iso(now())}
     # Active listings, newest first, 20 to a page.
     action marketplace(cursor: text?) -> V2PageOfPublicListingDTO:
         requires member

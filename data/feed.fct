@@ -72,13 +72,15 @@ data Feed in feed:
         requires member
         check !exists(b in Bookmark where b.tweet == id && b.user == actor) "already bookmarked"
         add Bookmark { tweet: id, user: actor }
-    action follow(handle: text):
+    action follow(target_handle: text):
         requires member
+        let handle = target_handle
         check handle != actor "you cannot follow yourself"
         check !exists(f in Follow where f.follower == actor && f.followee == handle) "already following"
         add Follow { follower: actor, followee: handle }
-    action unfollow(handle: text):
+    action unfollow(target_handle: text):
         requires member
+        let handle = target_handle
         remove f in Follow where f.follower == actor && f.followee == handle
 
     content:

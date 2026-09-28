@@ -36,8 +36,8 @@ import "../ui/avatar.fct"
 import "../ui/verifiedbadge.fct"
 import "../social/followbutton.fct"
 app FacetProfile:
-    expect action unfollow(handle: text)
-    expect action follow(handle: text)
+    expect action unfollow(target_handle: text)
+    expect action follow(target_handle: text)
     css:
         [data-fa-mount] .x-followlist-head { padding: 12px 16px; border-bottom: 1px solid var(--x-line, #2f3336); }
         [data-fa-mount] .x-followlist-title { font-size: 19px; font-weight: 800; }

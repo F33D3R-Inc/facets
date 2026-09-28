@@ -15,9 +15,11 @@ app F33D3RApi:
                 return false
             i = i + 1
         return true
-    # Top-level path segments owned by real routes (profiles live at /{handle}).
+    # Top-level path segments owned by real routes (profiles live at /{handle}):
+    # the reference's list, and the web's own pages (/live, /dm, /people,
+    # /studio, /blocked, /muted, /browse, /admin-console).
     proc reservedHandle(h: text) -> bool:
-        return contains("|onboard|login|logout|signin|signup|register|auth|oauth|deactivated|forgot-password|backup-codes|kyc|verity|explore|music|create|nsfw|video|visions|works|work|communities|lists|spheres|spaces|marketplace|buyer-library|notifications|messages|bookmarks|profile|settings|search|wallet|post|feed|shop|stocks|events|library|ledger|upload|react-video|tag|org|achievements|analytics|leaderboard|ainsoph|thessalon|api|static|media|facets|partials|_atlas|u|admin|article|articles|sw|robots|sitemap|favicon|assets|app|www|legal|privacy|terms|dmca|about|help|support|home|root|", "|" + lower(h) + "|")
+        return contains("|onboard|login|logout|signin|signup|register|auth|oauth|deactivated|forgot-password|backup-codes|kyc|verity|explore|music|create|nsfw|video|visions|works|work|communities|lists|spheres|spaces|marketplace|buyer-library|notifications|messages|bookmarks|profile|settings|search|wallet|post|feed|shop|stocks|events|library|ledger|upload|react-video|tag|org|achievements|analytics|leaderboard|ainsoph|thessalon|api|static|media|facets|partials|_atlas|u|admin|article|articles|sw|robots|sitemap|favicon|assets|app|www|legal|privacy|terms|dmca|about|help|support|home|root|live|dm|people|studio|blocked|muted|browse|admin-console|", "|" + lower(h) + "|")
     proc charsIn(s: text, alphabet: text) -> bool:
         let mut i = 0
         loop i < len(s):

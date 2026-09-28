@@ -1,6 +1,11 @@
 import "entities.fct"
+import "search.fct"
 import "core.fct"
 import "polls.fct"
+import "../profile/realm.fct"
+import "../social/enforcement.fct"
+import "../social/moderation.fct"
+import "../social/visibility.fct"
 
 # Feed, works, the social graph, notifications, search and tags — the core
 # timeline surface layered on the Work/Follow/Like/Notification rows from
@@ -60,7 +65,7 @@ app F33D3RSocial:
         viewer_follows_author: exists(f in Follow where f.follower == me && f.followee == w.author),
         purchased_by_viewer: exists(p in WorkPurchase where p.work == w.id && p.buyer == me),
         subscriber_only: false,
-        scan_state: "clean",
+        scan_state: scanStateOf(w.id),
         poll: first(list(pollV2(p, me) in Poll where p.work == w.id))
         }
 
@@ -111,7 +116,7 @@ app F33D3RSocial:
         viewer_follows_author: exists(f in Follow where f.follower == me && f.followee == w.author),
         work_purchased_by_viewer: exists(p in WorkPurchase where p.work == w.id && p.buyer == me),
         subscriber_only: false,
-        scan_state: "clean",
+        scan_state: scanStateOf(w.id),
         poll: first(list(pollV1(p, me) in Poll where p.work == w.id))
         }
 
@@ -181,6 +186,7 @@ app F33D3RSocial:
 
     action post(body: text, is_nsfw: bool?, content_class: text?, made_with_ai: bool?, paid_partnership: bool?, comment_gating: text?, parent_cid: text?, quoted_work_id: text?, poll_options: [text]?, poll_ends_at: text?, poll_option_images: [text]?, poll_shuffle: bool?) -> WorkCreatedDTO:
         requires member
+        requires goodStanding
         check body != "" "say something"
         let me = max(a.id in Account where a.handle == actor)
         let parent = toInt(parent_cid)
@@ -190,6 +196,9 @@ app F33D3RSocial:
         let tags = hashtags(body)
         for ht in tags:
             add WorkTag { work: wid, tag: ht, created: now() }
+        run reindexWork(wid)
+        # The content scan (social/moderation.fct): a blocked work leaves the feeds.
+        let scanned = run scanWork(wid)
         # A ballot, when the work carries poll_options: one option per label,
         # index-aligned images (all or none), an optional end time.
         check len(poll_option_images) == 0 || len(poll_option_images) == len(poll_options) "poll_option_images must have one entry per option" status 400
@@ -204,6 +213,12 @@ app F33D3RSocial:
             emit notify NotifyEventDTO{unread: count(n in Notification where n.account == Work(parent).author && !n.is_read)} to Account(Work(parent).author).handle
         for f in Follow where f.followee == me:
             emit new_post NewPostEventDTO{work_id: "" + wid, author_handle: actor, work: workCardDTO(Work(wid), f.follower)} to Account(f.follower).handle
+        # XP and milestones (profile/realm.fct): a reply 30, a post 100.
+        if parent > 0:
+            run awardXP(me, "reply", "" + wid)
+        if parent == 0:
+            run awardXP(me, "post", "" + wid)
+            run checkMilestones(me, count(w in Work where w.author == me && w.parent_cid == 0 && !w.deleted), count(f in Follow where f.followee == me))
         return WorkCreatedDTO{work_id: "" + wid, cid: "" + wid}
     action deleteWork(id: int):
         requires member
@@ -217,6 +232,7 @@ app F33D3RSocial:
         requires ownsWork(id)
         check body != "" "say something"
         set Work(id).body = body
+        run reindexWork(id)
         set Work(id).made_with_ai = made_with_ai
         set Work(id).paid_partnership = paid_partnership
         if exists(d in BrandDeal where d.work == id && (d.status == "live" || d.status == "paid")):
@@ -253,11 +269,13 @@ app F33D3RSocial:
 
     action likeWork(work_id: text):
         requires member
+        requires goodStanding
         let id = toInt(work_id)
         check exists(w in Work where w.id == id) "no such work" status 404
         let me = max(a.id in Account where a.handle == actor)
         if !exists(l in Like where l.work == id && l.account == me):
             add Like { work: id, account: me }
+            run awardXP(me, "like", "" + id)
             if Work(id).author != me:
                 let note5 = add Notification { account: Work(id).author, actor: me, kind: "like", target_type: "work", target_id: id, preview: Work(id).body, amount_uaet: 0, is_read: false, created: now() }
                 emit notification notificationV1(Notification(note5), Work(id).author) to Account(Work(id).author).handle
@@ -280,6 +298,7 @@ app F33D3RSocial:
         remove l in Dislike where l.work == id && l.account == me
     action repostWork(work_id: text):
         requires member
+        requires goodStanding
         let id = toInt(work_id)
         check exists(w in Work where w.id == id) "no such work" status 404
         let me = max(a.id in Account where a.handle == actor)
@@ -296,11 +315,13 @@ app F33D3RSocial:
         remove r in Repost where r.work == id && r.account == me
     action bookmarkWork(work_id: text, folder_id: text?):
         requires member
+        requires goodStanding
         let id = toInt(work_id)
         let me = max(a.id in Account where a.handle == actor)
         let f = toInt(folder_id)
         if !exists(b in Bookmark where b.work == id && b.account == me):
             add Bookmark { work: id, account: me, folder: f }
+            run awardXP(me, "save", "" + id)
     action unbookmarkWork(work_id: text):
         requires member
         let id = toInt(work_id)
@@ -393,12 +414,15 @@ app F33D3RSocial:
 
     action follow(target_handle: text?, target_pial: text?, source: text?):
         requires member
+        requires goodStanding
         let me = max(a.id in Account where a.handle == actor)
         let _h3 = do orText(target_handle, "")
         let target = max(a.id in Account where a.handle == _h3)
         check target > 0 "no such account" status 404
         if !exists(f in Follow where f.follower == me && f.followee == target):
             add Follow { follower: me, followee: target, created: now() }
+            run awardXP(me, "follow", "" + target)
+            run checkMilestones(target, 0, count(f in Follow where f.followee == target))
             let note7 = add Notification { account: target, actor: me, kind: "follow", target_type: "account", target_id: me, preview: "", amount_uaet: 0, is_read: false, created: now() }
             emit notification notificationV1(Notification(note7), target) to Account(target).handle
             emit notify NotifyEventDTO{unread: count(nn in Notification where nn.account == target && !nn.is_read)} to Account(target).handle
@@ -501,7 +525,8 @@ app F33D3RSocial:
             let saved = list(b.work in Bookmark where b.account == id && b.work < start by work desc limit n)
             let savedNext = do nextCursor(saved, n)
             return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in saved && !w.deleted by id desc), next_cursor: savedNext, server_time: iso(now())}
-        let own = list(w.id in Work where w.author == id && !w.deleted && w.id < start && ((t == "works" && w.parent_cid == 0) || (t == "replies" && w.parent_cid > 0) || (t == "media" && w.media_urls != "")) by id desc limit n)
+        let t1 = now()
+        let own = list(w.id in Work where w.author == id && !w.deleted && !workBlocked(w.id) && reachable(w, me, t1) && w.id < start && ((t == "works" && w.parent_cid == 0) || (t == "replies" && w.parent_cid > 0) || (t == "media" && w.media_urls != "")) by id desc limit n)
         let next = do nextCursor(own, n)
         return V2PageOfV2WorkDTO{items: list(workDTO(w, me) in Work where w.id in own by id desc), next_cursor: next, server_time: iso(now())}
     action getBlocks() -> V2PageOfV2AccountDTO:
@@ -518,7 +543,11 @@ app F33D3RSocial:
         let me = max(a.id in Account where a.handle == actor)
         let n = do pageSize(limit, 20, 50)
         let start = do cursorStart(cursor)
-        let ids = list(w.id in Work where w.id < start && !w.deleted by id desc limit n)
+        let t0 = now()
+        # The reference's feed SQL (social/visibility.fct): circle and
+        # subscriber access, the viewer's muted keywords and snoozed topics,
+        # the NSFW gate; and a work the scan blocked (social/moderation.fct).
+        let ids = list(w.id in Work where w.id < start && !w.deleted && !workBlocked(w.id) && feedVisible(w, me, t0) by id desc limit n)
         let _h7 = do nextCursor(ids, n)
         return V2FeedPageDTO{items: list(workDTO(w, me) in Work where w.id in ids by id desc), next_cursor: _h7, server_time: iso(now()), live_count: 0}
     action feedChanges(surface: text?, since: text, limit: int?) -> V2FeedPageDTO:
@@ -526,7 +555,8 @@ app F33D3RSocial:
         let me = max(a.id in Account where a.handle == actor)
         let sinceId = toInt(since)
         let n = do pageSize(limit, 20, 50)
-        return V2FeedPageDTO{items: list(workDTO(w, me) in Work where w.id > sinceId && !w.deleted by id desc limit n), next_cursor: "", server_time: iso(now())}
+        let t0 = now()
+        return V2FeedPageDTO{items: list(workDTO(w, me) in Work where w.id > sinceId && !w.deleted && !workBlocked(w.id) && feedVisible(w, me, t0) by id desc limit n), next_cursor: "", server_time: iso(now())}
 
     action notifications(tab: text?, limit: int?, cursor: text?) -> V2NotificationsPageDTO:
         requires member
@@ -645,10 +675,27 @@ app F33D3RSocial:
         remove t in TopicSnooze where t.account == me && t.until <= at
         return topicSnoozesV1(me, at)
 
+    # GET /api/v2/search (api_v2_search.go): the query language, stemmed and
+    # accent-folded full text ranked by relevance, recency and engagement, a
+    # misspelling tolerated (typo) and did_you_mean offering the correction.
     action search(q: text, type: text?, sort: text?, page: int?) -> V2SearchDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)
-        return V2SearchDTO{works: list(workDTO(w, me) in Work where contains(lower(w.body), lower(q)) && !w.deleted by id desc limit 20), people: list(accountDTO(a, me) in Account where contains(lower(a.handle), lower(q)) by id limit 20), tags: [], articles: [], communities: [], music: [], live: [], total: count(w in Work where contains(lower(w.body), lower(q)) && !w.deleted), did_you_mean: "", typo: false}
+        let raw = searchNormalize(q)
+        if raw == "":
+            return V2SearchDTO{works: [], people: [], tags: [], articles: [], communities: [], music: [], live: [], total: 0, did_you_mean: "", typo: false}
+        let parsed = searchParse(raw)
+        let kind = orText(type, "all")
+        let pg = min(max(page, 1), 200)
+        let offset = (pg - 1) * 20
+        let wantTags = kind == "all" || kind == "tags"
+        let wantWorks = kind == "all" || kind == "works"
+        let wantPeople = kind == "all" || kind == "people"
+        let tags = run searchTags(searchTagTermOf(parsed), searchPickInt(wantTags, 10))
+        let works = run searchWorksRanked(searchPickText(wantWorks, raw), sort == "latest", false, 20, offset)
+        let people = run searchPeople(searchPickText(wantPeople, searchPeopleTermOf(parsed, raw)), 20, offset)
+        let suggestion = run searchSuggestion(searchPickText(wantWorks, raw), works.total, len(works.corrected) > 0, pg)
+        return V2SearchDTO{works: list(workDTO(w, me) in Work where w.id in works.ids by indexOf(works.ids, w.id, 0)), people: list(accountDTO(a, me) in Account where a.id in people by indexOf(people, a.id, 0)), tags: tags, articles: [], communities: [], music: [], live: [], total: works.total, did_you_mean: searchDidYouMeanText(parsed, works.corrected, suggestion), typo: works.typo}
     action searchHistory() -> SearchHistoryDTO:
         requires member
         let me = max(a.id in Account where a.handle == actor)

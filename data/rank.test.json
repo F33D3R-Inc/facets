@@ -541,6 +541,275 @@
           "returns": 576000
         }
       ]
+    },
+    {
+      "name": "parity with the engine's velocity stage (pipeline/velocity.rs, [velocity] 0.70/0.20/0.20): the composite, the boost and its decay penalty, the lifecycle phases, and the pipeline with the boost clamped in before the network boost",
+      "steps": [
+        {
+          "run": "rankVelocity",
+          "args": [
+            0.9,
+            0.8,
+            0.9,
+            1.0
+          ],
+          "returns": 123333
+        },
+        {
+          "run": "rankVelocity",
+          "args": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "returns": 200000
+        },
+        {
+          "run": "rankVelocity",
+          "args": [
+            0.5,
+            0.5,
+            0.5,
+            0.0
+          ],
+          "returns": 0
+        },
+        {
+          "run": "rankVelocity",
+          "args": [
+            0.1,
+            0.1,
+            0.1,
+            0.0
+          ],
+          "returns": -55000
+        },
+        {
+          "run": "rankVelocity",
+          "args": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "returns": -100000
+        },
+        {
+          "run": "rankVelocity",
+          "args": [
+            0.8125502070042588,
+            0.5,
+            0.6,
+            0.0
+          ],
+          "returns": 0
+        },
+        {
+          "run": "rankVelocity",
+          "args": [
+            0.26894142,
+            0.85,
+            0.5,
+            0.0
+          ],
+          "returns": 0
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.9,
+            0.8,
+            0.9,
+            1.0,
+            100
+          ],
+          "returns": "test_cohort"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.9,
+            0.8,
+            0.9,
+            1.0,
+            1000
+          ],
+          "returns": "expanding"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            100
+          ],
+          "returns": "test_cohort"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1000
+          ],
+          "returns": "viral"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.5,
+            0.5,
+            0.5,
+            0.0,
+            100
+          ],
+          "returns": "test_cohort"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.5,
+            0.5,
+            0.5,
+            0.0,
+            1000
+          ],
+          "returns": "stable"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.1,
+            0.1,
+            0.1,
+            0.0,
+            100
+          ],
+          "returns": "test_cohort"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.1,
+            0.1,
+            0.1,
+            0.0,
+            1000
+          ],
+          "returns": "decaying"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            100
+          ],
+          "returns": "test_cohort"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1000
+          ],
+          "returns": "decaying"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.8125502070042588,
+            0.5,
+            0.6,
+            0.0,
+            100
+          ],
+          "returns": "test_cohort"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.8125502070042588,
+            0.5,
+            0.6,
+            0.0,
+            1000
+          ],
+          "returns": "stable"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.26894142,
+            0.85,
+            0.5,
+            0.0,
+            100
+          ],
+          "returns": "test_cohort"
+        },
+        {
+          "run": "rankPhase",
+          "args": [
+            0.26894142,
+            0.85,
+            0.5,
+            0.0,
+            1000
+          ],
+          "returns": "stable"
+        },
+        {
+          "run": "rankPipelineV",
+          "args": [
+            0.6,
+            0.5,
+            0.15,
+            false
+          ],
+          "returns": 630000
+        },
+        {
+          "run": "rankPipelineV",
+          "args": [
+            0.95,
+            0.9,
+            0.2,
+            true
+          ],
+          "returns": 1000000
+        },
+        {
+          "run": "rankPipelineV",
+          "args": [
+            0.3,
+            0.2,
+            -0.1,
+            false
+          ],
+          "returns": 104000
+        },
+        {
+          "run": "rankPipelineV",
+          "args": [
+            0.05,
+            0.1,
+            -0.1,
+            true
+          ],
+          "returns": 80000
+        }
+      ]
     }
   ]
 }

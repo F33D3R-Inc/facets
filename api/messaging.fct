@@ -1,5 +1,6 @@
 import "entities.fct"
 import "core.fct"
+import "../social/enforcement.fct"
 
 app F33D3RMessaging:
     expect event gnosis_message: MessagePushDTO
@@ -44,6 +45,7 @@ app F33D3RMessaging:
         return V2PageOfV2ConversationDTO{items: list(conversationDTO(c, me) in Conversation where c.last_at > sinceT && exists(m in ConversationMember where m.conversation == c.id && m.account == me) by last_at desc), next_cursor: "", server_time: iso(now())}
     action startConversation(handle: text?, body: text, number: text?, pending_id: text?) -> V2ConversationStartDTO:
         requires member
+        requires goodStanding
         check body != "" "Write something to send." status 400 code "body_required"
         let me = max(a.id in Account where a.handle == actor)
         check exists(a in Account where a.handle == handle) "no such user" status 404
@@ -64,6 +66,7 @@ app F33D3RMessaging:
         return V2ThreadDTO{conversation: conversationDTO(Conversation(id), me), members: list(accountDTO(Account(m.account), me) in ConversationMember where m.conversation == id by id), messages: V2PageOfV2MessageDTO{items: list(V2MessageDTO{id: "" + msg.id, conversation_id: "" + id, sender: accountDTO(Account(msg.sender), me), body: msg.body, kind: msg.kind, mode: Conversation(id).mode, created_at: iso(msg.created), is_mine: msg.sender == me, deleted: msg.deleted, reply_to_id: "" + msg.reply_to} in Message where msg.id in ids by id desc), next_cursor: next, server_time: iso(now())}}
     action sendMessage(id: int, body: text, reply_to: text?) -> V2MessageDTO:
         requires member
+        requires goodStanding
         requires inConversation(id)
         check body != "" "Write something to send." status 400 code "body_required"
         let me = max(a.id in Account where a.handle == actor)
@@ -80,6 +83,7 @@ app F33D3RMessaging:
         let me = max(a.id in Account where a.handle == actor)
         for m in ConversationMember where m.conversation == id && m.account == me:
             set ConversationMember(m.id).unread = 0
+            set ConversationMember(m.id).last_read = now()
     action typing(id: int):
         requires member
         requires inConversation(id)

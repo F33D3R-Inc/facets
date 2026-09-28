@@ -1,0 +1,402 @@
+# FLAC decoding in fct — what zior-engine's symphonia (symphonia-bundle-flac
+# 0.5.5) does to a .flac upload, over the file's bytes:
+#
+#   "fLaC", metadata blocks (STREAMINFO read, the rest skipped), then frames:
+#   a byte-aligned sync code, a header (UTF-8-coded frame/sample number,
+#   block size, rate, channel assignment, sample size) checked by CRC-8,
+#   one subframe per channel — CONSTANT, VERBATIM, FIXED (order 0-4) or LPC
+#   (order 1-32, QLP precision + shift), wasted-bits shifted back — with Rice
+#   / Rice2 partitioned residuals (escape partitions as raw signed words),
+#   the stereo decorrelations (left/side, right/side, mid/side), and the
+#   whole frame checked by CRC-16.
+#
+# Samples come out interleaved as integers at the stream's sample size; the
+# analysis scales them by 2^(bps-1), the value symphonia's 32-bit left-aligned
+# buffer divided by 2^31 gives. A frame the reference's parser would drop or
+# resynchronise past (bad CRC, reserved codes) refuses the whole file here.
+app FacetFlac:
+    struct Flac:
+        error: text
+        rate: int
+        channels: int
+        bps: int
+        samples: [int]
+
+    struct Sub:
+        error: text
+        pos: int
+        samples: [int]
+
+    proc flacError(msg: text) -> Flac:
+        return Flac{error: msg, rate: 0, channels: 0, bps: 0, samples: []}
+    proc subError(msg: text) -> Sub:
+        return Sub{error: msg, pos: 0, samples: []}
+
+    # n (0-32) bits, most significant first, starting at bit pos; bytes past
+    # the end read as zero (a frame running off the end fails its CRC).
+    proc bitsAt(b: [int], pos: int, n: int) -> int:
+        if n == 0:
+            return 0
+        let first = pos >> 3
+        let last = (pos + n - 1) >> 3
+        let mut v = 0
+        let mut i = first
+        loop i <= last:
+            if i < len(b):
+                v = (v << 8) | b[i]
+            else:
+                v = v << 8
+            i = i + 1
+        return (v >> (((last + 1) << 3) - pos - n)) & ((1 << n) - 1)
+    proc signed(v: int, n: int) -> int:
+        if n > 0 && v >= (1 << (n - 1)):
+            return v - (1 << n)
+        return v
+    # the zeros before the next 1 bit at pos; -1 when the buffer ends first
+    proc unaryAt(b: [int], pos: int) -> int:
+        let mut p = pos
+        loop (p >> 3) < len(b):
+            let rest = (b[p >> 3] << (p & 7)) & 255
+            if rest == 0:
+                p = (p | 7) + 1
+            else:
+                let mut r = rest
+                loop (r & 128) == 0:
+                    r = r << 1
+                    p = p + 1
+                return p - pos
+        return -1
+
+    proc crcTable(poly: int, width: int) -> [int]:
+        let top = 1 << (width - 1)
+        let mask = (1 << width) - 1
+        let mut t = []
+        let mut i = 0
+        loop i < 256:
+            let mut c = i << (width - 8)
+            let mut k = 0
+            loop k < 8:
+                if (c & top) != 0:
+                    c = ((c << 1) ^ poly) & mask
+                else:
+                    c = (c << 1) & mask
+                k = k + 1
+            t = append(t, c)
+            i = i + 1
+        return t
+    proc crcOf(t: [int], width: int, b: [int], from: int, to: int) -> int:
+        let mask = (1 << width) - 1
+        let mut c = 0
+        let mut i = from
+        loop i < to:
+            c = ((c << 8) & mask) ^ t[((c >> (width - 8)) ^ b[i]) & 255]
+            i = i + 1
+        return c
+
+    # One subframe of n samples at bps bits from bit pos.
+    proc subframe(b: [int], pos: int, frameBps: int, n: int) -> Sub:
+        let mut p = pos
+        if bitsAt(b, p, 1) != 0:
+            return subError("subframe padding is not 0")
+        let kind = bitsAt(b, p + 1, 6)
+        p = p + 7
+        let mut wasted = 0
+        if bitsAt(b, p, 1) == 1:
+            let z = unaryAt(b, p + 1)
+            if z < 0:
+                return subError("truncated frame")
+            wasted = z + 1
+            p = p + 1 + z + 1
+        else:
+            p = p + 1
+        let bps = frameBps - wasted
+        let mut out = []
+        let mut order = 0
+        if kind == 0:
+            let v = signed(bitsAt(b, p, bps), bps)
+            p = p + bps
+            let mut i = 0
+            loop i < n:
+                out = append(out, v << wasted)
+                i = i + 1
+            return Sub{error: "", pos: p, samples: out}
+        if kind == 1:
+            order = n
+        else:
+            if kind >= 8 && kind <= 12:
+                order = kind - 8
+            else:
+                if kind >= 32:
+                    order = kind - 31
+                else:
+                    return subError("subframe type set to reserved value")
+        if order > n:
+            return subError("predictor order exceeds the block")
+        # warm-up (or, VERBATIM, every) sample
+        let mut i = 0
+        loop i < order:
+            out = append(out, signed(bitsAt(b, p, bps), bps))
+            p = p + bps
+            i = i + 1
+        if kind == 1:
+            return Sub{error: "", pos: p, samples: shifted(out, wasted)}
+        let mut coefs = []
+        let mut shift = 0
+        if kind >= 32:
+            let precision = bitsAt(b, p, 4) + 1
+            if precision > 15:
+                return subError("qlp precision set to reserved value")
+            shift = signed(bitsAt(b, p + 4, 5), 5)
+            if shift < 0:
+                return subError("lpc shifts less than 0 are not supported")
+            p = p + 9
+            let mut j = 0
+            loop j < order:
+                coefs = append(coefs, signed(bitsAt(b, p, precision), precision))
+                p = p + precision
+                j = j + 1
+        # the residual: 2^porder partitions, Rice-coded or escaped
+        let method = bitsAt(b, p, 2)
+        if method > 1:
+            return subError("residual method set to reserved value")
+        let pw = 4 + method
+        let porder = bitsAt(b, p + 2, 4)
+        p = p + 6
+        let psz = n >> porder
+        if order > psz:
+            return subError("residual partition too small for given predictor order")
+        if (psz << porder) != n:
+            return subError("block size is not same as encoded residual")
+        let escape = (1 << pw) - 1
+        let mut part = 0
+        loop part < (1 << porder):
+            let param = bitsAt(b, p, pw)
+            p = p + pw
+            let mut count = psz
+            if part == 0:
+                count = psz - order
+            if param < escape:
+                let mut k = 0
+                loop k < count:
+                    let q = unaryAt(b, p)
+                    if q < 0:
+                        return subError("truncated frame")
+                    p = p + q + 1
+                    let u = (q << param) | bitsAt(b, p, param)
+                    p = p + param
+                    out = append(out, (u >> 1) ^ (0 - (u & 1)))
+                    k = k + 1
+            else:
+                let rb = bitsAt(b, p, 5)
+                p = p + 5
+                let mut k = 0
+                loop k < count:
+                    out = append(out, signed(bitsAt(b, p, rb), rb))
+                    p = p + rb
+                    k = k + 1
+            part = part + 1
+        # prediction: residual + the predictor over the previous samples
+        if kind >= 32:
+            let mut t = order
+            loop t < n:
+                let mut acc = 0
+                let mut j = 0
+                loop j < order:
+                    acc = acc + coefs[j] * out[t - 1 - j]
+                    j = j + 1
+                out[t] = out[t] + (acc >> shift)
+                t = t + 1
+        else:
+            let mut t = order
+            loop t < n:
+                if order == 1:
+                    out[t] = out[t] + out[t - 1]
+                if order == 2:
+                    out[t] = out[t] + 2 * out[t - 1] - out[t - 2]
+                if order == 3:
+                    out[t] = out[t] + 3 * out[t - 1] - 3 * out[t - 2] + out[t - 3]
+                if order == 4:
+                    out[t] = out[t] + 4 * out[t - 1] - 6 * out[t - 2] + 4 * out[t - 3] - out[t - 4]
+                t = t + 1
+        return Sub{error: "", pos: p, samples: shifted(out, wasted)}
+    proc shifted(s: [int], by: int) -> [int]:
+        if by == 0:
+            return s
+        let mut out = s
+        let mut i = 0
+        loop i < len(out):
+            out[i] = out[i] << by
+            i = i + 1
+        return out
+
+    proc decodeFlac(b: [int]) -> Flac:
+        if len(b) < 42 || bytesToText(slice(b, 0, 4)) != "fLaC":
+            return flacError("not a FLAC stream")
+        # metadata: STREAMINFO first, the rest skipped
+        let mut p = 4
+        let mut last = false
+        let mut rate = 0
+        let mut channels = 0
+        let mut bps = 0
+        let mut seen = false
+        loop !last:
+            if p + 4 > len(b):
+                return flacError("truncated metadata")
+            last = (b[p] & 128) != 0
+            let size = (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3]
+            if (b[p] & 127) == 0:
+                if size < 34 || p + 4 + size > len(b):
+                    return flacError("truncated STREAMINFO")
+                let at = (p + 4 + 10) * 8
+                rate = bitsAt(b, at, 20)
+                channels = bitsAt(b, at + 20, 3) + 1
+                bps = bitsAt(b, at + 23, 5) + 1
+                seen = true
+            p = p + 4 + size
+        if !seen:
+            return flacError("no STREAMINFO block")
+        let t8 = do crcTable(7, 8)
+        let t16 = do crcTable(32773, 16)
+        let mut out = []
+        loop p + 1 < len(b):
+            # sync: 0b1111_1111_1111_10xx at a byte boundary
+            if b[p] != 255 || (b[p + 1] & 252) != 248:
+                p = p + 1
+            else:
+                let start = p
+                if p + 4 > len(b):
+                    return flacError("truncated frame header")
+                let bsEnc = b[p + 2] >> 4
+                let rateEnc = b[p + 2] & 15
+                let chEnc = b[p + 3] >> 4
+                let bpsEnc = (b[p + 3] >> 1) & 7
+                if (b[p + 3] & 1) != 0:
+                    return flacError("frame header reserved bit is set")
+                let mut q = p + 4
+                let lead = b[q]
+                let mut extra = -1
+                if lead < 128:
+                    extra = 0
+                if lead >= 192 && lead < 224:
+                    extra = 1
+                if lead >= 224 && lead < 240:
+                    extra = 2
+                if lead >= 240 && lead < 248:
+                    extra = 3
+                if lead >= 248 && lead < 252:
+                    extra = 4
+                if lead >= 252 && lead < 254:
+                    extra = 5
+                if lead == 254:
+                    extra = 6
+                if extra < 0:
+                    return flacError("frame number is not valid")
+                q = q + 1 + extra
+                let mut n = 0
+                if bsEnc == 0:
+                    return flacError("block size set to reserved value")
+                if bsEnc == 1:
+                    n = 192
+                if bsEnc >= 2 && bsEnc <= 5:
+                    n = 576 << (bsEnc - 2)
+                if bsEnc == 6:
+                    n = b[q] + 1
+                    q = q + 1
+                if bsEnc == 7:
+                    n = ((b[q] << 8) | b[q + 1]) + 1
+                    q = q + 2
+                if bsEnc >= 8:
+                    n = 256 << (bsEnc - 8)
+                if rateEnc == 12:
+                    q = q + 1
+                if rateEnc == 13 || rateEnc == 14:
+                    q = q + 2
+                if rateEnc == 15:
+                    return flacError("sample rate set to reserved value")
+                let mut fbps = bps
+                if bpsEnc == 1:
+                    fbps = 8
+                if bpsEnc == 2:
+                    fbps = 12
+                if bpsEnc == 4:
+                    fbps = 16
+                if bpsEnc == 5:
+                    fbps = 20
+                if bpsEnc == 6:
+                    fbps = 24
+                if bpsEnc == 3 || bpsEnc == 7:
+                    return flacError("bits per sample set to reserved value")
+                if chEnc > 10:
+                    return flacError("channel assignment set to reserved value")
+                let mut nch = chEnc + 1
+                if chEnc >= 8:
+                    nch = 2
+                if q >= len(b) || crcOf(t8, 8, b, start, q) != b[q]:
+                    return flacError("frame header CRC does not match")
+                q = q + 1
+                # subframes, the side channel one bit wider
+                let mut chans = []
+                let mut pos = q * 8
+                let mut c = 0
+                loop c < nch:
+                    let mut w = fbps
+                    if (chEnc == 8 && c == 1) || (chEnc == 9 && c == 0) || (chEnc == 10 && c == 1):
+                        w = fbps + 1
+                    let s = do subframe(b, pos, w, n)
+                    if s.error != "":
+                        return flacError(s.error)
+                    pos = s.pos
+                    chans = append(chans, s.samples)
+                    c = c + 1
+                let end = (pos + 7) >> 3
+                if end + 2 > len(b) || crcOf(t16, 16, b, start, end) != ((b[end] << 8) | b[end + 1]):
+                    return flacError("frame CRC does not match")
+                p = end + 2
+                # decorrelate and interleave
+                let mut i = 0
+                loop i < n:
+                    if chEnc < 8:
+                        let mut k = 0
+                        loop k < nch:
+                            out = append(out, chans[k][i])
+                            k = k + 1
+                    else:
+                        let a = chans[0][i]
+                        let d = chans[1][i]
+                        if chEnc == 8:
+                            out = append(out, a)
+                            out = append(out, a - d)
+                        if chEnc == 9:
+                            out = append(out, a + d)
+                            out = append(out, d)
+                        if chEnc == 10:
+                            let mid = (a << 1) | (d & 1)
+                            out = append(out, (mid + d) >> 1)
+                            out = append(out, (mid - d) >> 1)
+                    i = i + 1
+        if len(out) == 0:
+            return flacError("decoded audio is empty")
+        return Flac{error: "", rate: rate, channels: channels, bps: bps, samples: out}
+
+    # The decoded samples as i32 little-endian, interleaved: what a parity
+    # check hashes.
+    proc pcmBytes(s: [int]) -> [int]:
+        let mut out = bytes(4 * len(s))
+        let mut i = 0
+        loop i < len(s):
+            let v = s[i] & 4294967295
+            out[4 * i] = v & 255
+            out[4 * i + 1] = (v >> 8) & 255
+            out[4 * i + 2] = (v >> 16) & 255
+            out[4 * i + 3] = v >> 24
+            i = i + 1
+        return out
+    proc flacDigest(data: text) -> text:
+        let f = do decodeFlac(fromBase64UrlRaw(data))
+        if f.error != "":
+            return f.error
+        return "" + f.rate + "/" + f.channels + "/" + f.bps + "/" + (len(f.samples) / f.channels) + "/" + toHex(sha256Bytes(pcmBytes(f.samples)))
+    # parity: rate/channels/bps/frames/sha256 of the samples, or the refusal
+    action flacPcmDigest(data: text) -> text @internal:
+        let d = do flacDigest(data)
+        return d

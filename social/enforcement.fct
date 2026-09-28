@@ -1,0 +1,141 @@
+# Enforcement — actions against accounts, ported from the reference's
+# zodacare (handlers.rs apply_user_action, db.rs risk bookkeeping) and
+# elohim-veni (decision.rs, the deterministic capability ladder). Moderation
+# (social/moderation.fct) acts on works; this acts on the people behind them.
+#
+#   applyAction(user, warn | restrict | ban | unban, reason, until)
+#       status warned | restricted | banned | active; risk +0.1 | +0.2 | +0.4 |
+#       −0.3 (clamped 0–1); every action but unban counts a violation. A
+#       restriction may carry an end; the sweep lifts it then.
+#   recordReport(user)   @internal: a report against the account — report
+#       count +1, risk +0.05 (capped at 1).
+#   policy goodStanding  the product `requires` it on its writing actions
+#       (posting, replying, reacting, following, messaging, live chat, going
+#       live, tips, sends and subscriptions — api/*.fct): a restricted (elohim
+#       SUSPENDED) or banned (REVOKED) account is refused; a warning is only a
+#       warning.
+#
+# The product has no account-standing rows of its own, so these are this
+# facet's, keyed by the product's Account id.
+#   capabilityDecision   elohim-veni's ladder for one action (parity surface).
+app FacetSocial:
+    expect entity Account:
+        id: int
+        handle: text
+    entity AccountStanding:
+        id: int
+        account: int
+        status: text
+        risk: float
+        reports: int
+        violations: int
+        until: int
+    entity EnforcementAction:
+        id: int
+        account: int
+        action: text
+        reason: text
+        by: text
+        until: int
+        at: int
+    policy goodStanding:
+        !exists(s in AccountStanding where (s.status == "restricted" || s.status == "banned") && exists(a in Account where a.id == s.account && a.handle == actor))
+    derive isBanned(who: int): bool = exists(s in AccountStanding where s.account == who && s.status == "banned")
+    derive isRestricted(who: int): bool = exists(s in AccountStanding where s.account == who && s.status == "restricted")
+    derive isWarned(who: int): bool = exists(s in AccountStanding where s.account == who && s.status == "warned")
+    derive riskOfAccount(who: int): float = sum(s.risk in AccountStanding where s.account == who)
+    proc clampRisk(x: float) -> float:
+        if x < 0.0:
+            return 0.0
+        if x > 1.0:
+            return 1.0
+        return x
+    proc statusFor(a: text) -> text:
+        if a == "ban":
+            return "banned"
+        if a == "restrict":
+            return "restricted"
+        if a == "warn":
+            return "warned"
+        return "active"
+    proc riskDelta(a: text) -> float:
+        if a == "ban":
+            return 0.4
+        if a == "restrict":
+            return 0.2
+        if a == "warn":
+            return 0.1
+        if a == "unban":
+            return -0.3
+        return 0.0
+    action ensureStanding(who: int) @internal:
+        if !exists(s in AccountStanding where s.account == who):
+            add AccountStanding { account: who, status: "active", risk: 0.0, reports: 0, violations: 0, until: 0 }
+    action applyAction(handle: text, action0: text, reason: text, until: int):
+        check role == "admin" "forbidden" status 403
+        check action0 == "warn" || action0 == "restrict" || action0 == "ban" || action0 == "unban" "action_type must be warn | restrict | ban | unban" status 400
+        check handle != actor "an operator does not act on their own account" status 400
+        let user = max(a.id in Account where a.handle == handle)
+        check user != 0 "no such account" status 404
+        run ensureStanding(user)
+        let st = do statusFor(action0)
+        let d = do riskDelta(action0)
+        let base = sum(s.risk in AccountStanding where s.account == user)
+        let r = do clampRisk(base + d)
+        set s in AccountStanding where s.account == user:
+            status = st
+            risk = r
+            until = until
+        if action0 != "unban":
+            set s in AccountStanding where s.account == user:
+                violations = s.violations + 1
+        add EnforcementAction { account: user, action: action0, reason: reason, by: actor, until: until, at: now() }
+    action recordReport(user: int) @internal:
+        if user != 0:
+            run ensureStanding(user)
+        let base = sum(s.risk in AccountStanding where s.account == user)
+        let r = do clampRisk(base + 0.05)
+        set s in AccountStanding where s.account == user:
+            reports = s.reports + 1
+            risk = r
+    action liftExpired @internal:
+        let t0 = now()
+        set s in AccountStanding where s.status == "restricted" && s.until > 0 && s.until <= t0:
+            status = "active"
+            until = 0
+    job restrictionExpiry every 300s -> liftExpired
+    # elohim-veni decision.rs evaluate: the answer for one action.
+    proc capabilityDecision(status: text, action0: text, tier: text, hasGrant: bool, grantValid: bool, trust: float, storedAnomaly: float, contentRisk: float, anomaly: float) -> text:
+        if status != "ACTIVE":
+            return "DENY"
+        if hasGrant && !grantValid:
+            return "DENY"
+        let combined = storedAnomaly * 0.4 + anomaly * 0.6
+        if combined > 0.85:
+            return "QUARANTINE"
+        if contentRisk > 0.80:
+            return "QUARANTINE"
+        if trust < 0.20:
+            return "DENY"
+        if action0 == "monetize" || action0 == "adult_content" || action0 == "node_relay":
+            if tier != "PRIVILEGED" && !(hasGrant && grantValid):
+                return "DENY"
+        if contentRisk > 0.50:
+            return "ALLOW_RESTRICTED"
+        if combined > 0.50:
+            return "ALLOW_RESTRICTED"
+        return "ALLOW"
+    # The elohim status an account's standing maps to.
+    proc elohimStatus(banned: bool, restricted: bool) -> text:
+        if banned:
+            return "REVOKED"
+        if restricted:
+            return "SUSPENDED"
+        return "ACTIVE"
+    action decideCapability(status: text, action0: text, tier: text, hasGrant: bool, grantValid: bool, trust: float, storedAnomaly: float, contentRisk: float, anomaly: float) -> text:
+        let d = do capabilityDecision(status, action0, tier, hasGrant, grantValid, trust, storedAnomaly, contentRisk, anomaly)
+        return d
+    action standingDecision(who: int, action0: text) -> text:
+        let st = do elohimStatus(isBanned(who), isRestricted(who))
+        let d = do capabilityDecision(st, action0, "BASIC", false, false, 1.0, 0.0, 0.0, 0.0)
+        return d

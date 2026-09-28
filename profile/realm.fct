@@ -1,0 +1,276 @@
+# Realm — XP, realms and achievements, ported from the reference's
+# feed-engine internal/realm (realm.go: thresholds, Effective, Floor, Clamp,
+# RealmName, NextThreshold, Progress; the XP per action) and
+# db/achievements.go (the post, follower and realm milestones). Its own unit
+# tables (realm/grant_test.go, realm/index_test.go) are this facet's sidecar.
+#
+#   Realm 1 Wanderer 0 XP · 2 Initiate 500 · 3 Seeker 2 000 · 4 Adept 7 500 ·
+#   5 Guardian 20 000. A grant (admin) or the founder role sets a floor; an
+#   out-of-scale grant clamps to the default. XP per action: post 100, reply
+#   30, like 10, follow 20, save 15, onboard 50.
+#
+# Bound to the product's rows by `expect`: an Account carries its xp and
+# realm, every award is an XpEvent, and an achievement is an Achievement row
+# (earned stamped). The product's own actions (api/social.fct: post, reply,
+# like, save, follow) run `awardXP` and `checkMilestones`, so /api/v2 and the
+# web award the same thing. XP is awarded only by those @internal actions: no
+# client can award itself XP. A realm grant (an operator's floor) is this
+# facet's own RealmGrant row; the founder platform role floors at Realm 5.
+# Not ported: streaks. The reference names a 7-day streak achievement but
+# does not implement it ("awarded … when implemented").
+app FacetProfile:
+    expect entity Account:
+        id: int
+        handle: text
+        xp: int
+        realm: int
+        platform_role: text
+    expect entity XpEvent:
+        id: int
+        account: int
+        amount: int
+        created: int
+    expect entity Achievement:
+        id: int
+        account: int
+        slug: text
+        category: text
+        name: text
+        description: text
+        icon: text
+        rarity: text
+        xp_reward: int
+        earned: int
+    # An operator's realm floor for an account (the product has no such row).
+    entity RealmGrant:
+        id: int
+        account: int
+        level: int
+    proc clampRealm(r: int) -> int:
+        if r < 1 || r > 5:
+            return 1
+        return r
+    proc computeRealm(xp: int) -> int:
+        if xp >= 20000:
+            return 5
+        if xp >= 7500:
+            return 4
+        if xp >= 2000:
+            return 3
+        if xp >= 500:
+            return 2
+        return 1
+    proc realmFloor(grant: int, founder: bool) -> int:
+        let mut floor = 1
+        if founder:
+            floor = 5
+        let g = clampRealm(grant)
+        if g > floor:
+            floor = g
+        return floor
+    proc effectiveRealm(xp: int, grant: int, founder: bool) -> int:
+        let earned = computeRealm(xp)
+        let floor = realmFloor(grant, founder)
+        if floor > earned:
+            return floor
+        return earned
+    proc realmName(r: int) -> text:
+        let c = clampRealm(r)
+        if c == 2:
+            return "Initiate"
+        if c == 3:
+            return "Seeker"
+        if c == 4:
+            return "Adept"
+        if c == 5:
+            return "Guardian"
+        return "Wanderer"
+    proc threshold(i: int) -> int:
+        if i <= 0:
+            return 0
+        if i == 1:
+            return 500
+        if i == 2:
+            return 2000
+        if i == 3:
+            return 7500
+        return 20000
+    proc nextThreshold(r: int) -> int:
+        let c = clampRealm(r)
+        if c >= 5:
+            return threshold(4)
+        return threshold(c)
+    proc progress(xp: int, r: int) -> int:
+        let c = clampRealm(r)
+        if c >= 5:
+            return 100
+        let cur = threshold(c - 1)
+        let nxt = threshold(c)
+        if nxt <= cur:
+            return 100
+        let pct = floor(toFloat(xp - cur) / toFloat(nxt - cur) * 100.0)
+        if pct < 0:
+            return 0
+        if pct > 100:
+            return 100
+        return pct
+    proc xpFor(reason: text) -> int:
+        if reason == "post":
+            return 100
+        if reason == "reply":
+            return 30
+        if reason == "like":
+            return 10
+        if reason == "follow":
+            return 20
+        if reason == "save":
+            return 15
+        if reason == "onboard":
+            return 50
+        return 0
+    # db/migrate.go's achievements: name, description, icon, tier.
+    proc achievementName(slug: text) -> text:
+        if slug == "first_post":
+            return "First Steps"
+        if slug == "post_10":
+            return "Content Creator"
+        if slug == "post_100":
+            return "Content Machine"
+        if slug == "first_follower":
+            return "Social Spark"
+        if slug == "followers_10":
+            return "Rising Star"
+        if slug == "followers_50":
+            return "Established"
+        if slug == "followers_100":
+            return "Influencer"
+        if slug == "realm_adept":
+            return "Adept"
+        if slug == "realm_guardian":
+            return "Guardian"
+        return slug
+    proc achievementText(slug: text) -> text:
+        if slug == "first_post":
+            return "Published your first post"
+        if slug == "post_10":
+            return "10 posts published"
+        if slug == "post_100":
+            return "100 posts published"
+        if slug == "first_follower":
+            return "Got your first follower"
+        if slug == "followers_10":
+            return "10 followers"
+        if slug == "followers_50":
+            return "50 followers"
+        if slug == "followers_100":
+            return "100 followers"
+        if slug == "realm_adept":
+            return "Reached Realm 4"
+        if slug == "realm_guardian":
+            return "Reached Realm 5"
+        return ""
+    proc achievementIcon(slug: text) -> text:
+        if slug == "first_post":
+            return "✍️"
+        if slug == "post_10":
+            return "📝"
+        if slug == "post_100":
+            return "🔥"
+        if slug == "first_follower":
+            return "⚡"
+        if slug == "followers_10":
+            return "⭐"
+        if slug == "followers_50":
+            return "🌟"
+        if slug == "followers_100":
+            return "💫"
+        if slug == "realm_adept":
+            return "🔮"
+        if slug == "realm_guardian":
+            return "⚔️"
+        return ""
+    proc achievementTier(slug: text) -> text:
+        if slug == "post_100" || slug == "followers_50":
+            return "silver"
+        if slug == "followers_100" || slug == "realm_adept":
+            return "gold"
+        if slug == "realm_guardian":
+            return "platinum"
+        return "bronze"
+    proc achievementCategory(slug: text) -> text:
+        if slug == "realm_adept" || slug == "realm_guardian":
+            return "realm"
+        if slug == "first_follower" || slug == "followers_10" || slug == "followers_50" || slug == "followers_100":
+            return "social"
+        return "content"
+    derive xpOf(who: int): int = sum(e.amount in XpEvent where e.account == who)
+    derive grantOf(who: int): int = sum(g.level in RealmGrant where g.account == who)
+    derive realmOf(who: int): int = max(a.realm in Account where a.id == who)
+    derive hasAchievement(who: int, slug: text): bool = exists(e in Achievement where e.account == who && e.slug == slug && e.earned > 0)
+    derive isFounder(who: int): bool = exists(a in Account where a.id == who && a.platform_role == "founder")
+    # An achievement once (AwardAchievement's ON CONFLICT DO NOTHING).
+    action award(who: int, slug: text) @internal:
+        if !hasAchievement(who, slug):
+            remove e in Achievement where e.account == who && e.slug == slug
+            add Achievement { account: who, slug: slug, category: achievementCategory(slug), name: achievementName(slug), description: achievementText(slug), icon: achievementIcon(slug), rarity: achievementTier(slug), xp_reward: 0, earned: now() }
+    # The account's realm restated from its XP and floors, with the realm
+    # milestones it completes.
+    action restateRealm(who: int) @internal:
+        let r = do effectiveRealm(xpOf(who), grantOf(who), isFounder(who))
+        set a in Account where a.id == who:
+            realm = r
+        if r >= 4:
+            run award(who, "realm_adept")
+        if r >= 5:
+            run award(who, "realm_guardian")
+    # Award XP for an action the product just performed (realm.AwardXP):
+    # post 100, reply 30, like 10, follow 20, save 15, onboard 50.
+    action awardXP(who: int, reason: text, content: text) @internal:
+        let delta = do xpFor(reason)
+        if delta > 0 && exists(a in Account where a.id == who):
+            add XpEvent { account: who, amount: delta, created: now() }
+            set a in Account where a.id == who:
+                xp = a.xp + delta
+            run restateRealm(who)
+    # The post and follower milestones (TryAwardPostAchievements,
+    # TryAwardFollowerAchievements) for the counts after the action.
+    action checkMilestones(who: int, posts: int, followers: int) @internal:
+        if posts >= 1:
+            run award(who, "first_post")
+        if posts >= 10:
+            run award(who, "post_10")
+        if posts >= 100:
+            run award(who, "post_100")
+        if followers >= 1:
+            run award(who, "first_follower")
+        if followers >= 10:
+            run award(who, "followers_10")
+        if followers >= 50:
+            run award(who, "followers_50")
+        if followers >= 100:
+            run award(who, "followers_100")
+    # An operator places an account on a realm floor (0 clears it).
+    action setRealmGrant(handle: text, level: int):
+        check role == "admin" "only an operator grants a realm" status 403
+        let who = max(a.id in Account where a.handle == handle)
+        check who != 0 "no such account" status 404
+        remove g in RealmGrant where g.account == who
+        if level != 0:
+            add RealmGrant { account: who, level: level }
+        run restateRealm(who)
+    # ── parity surface for the reference's own tables ─────────────────────────
+    action realmOf(xp: int, grant: int, founder: bool) -> int:
+        let r = do effectiveRealm(xp, grant, founder)
+        return r
+    action earnedRealm(xp: int) -> int:
+        let r = do computeRealm(xp)
+        return r
+    action realmProgress(xp: int, r: int) -> int:
+        let p = do progress(xp, r)
+        return p
+    action realmTitle(r: int) -> text:
+        let n = do realmName(r)
+        return n
+    action realmNext(r: int) -> int:
+        let n = do nextThreshold(r)
+        return n

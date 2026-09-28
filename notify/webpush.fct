@@ -1,0 +1,235 @@
+# Web Push — ported from the reference's herald service (src/handlers.rs:
+# notify, the preference gate) with the protocol it relied on a library for
+# written here in .fct over the runtime's primitives:
+#   RFC 8291 message encryption  ECDH P-256 → HKDF-SHA256 (auth, then salt)
+#                                → AES-128-GCM, one aes128gcm record
+#                                (salt ‖ rs=4096 ‖ idlen=65 ‖ keyid ‖ ciphertext,
+#                                plaintext ‖ 0x02)
+#   RFC 8292 VAPID               an ES256 JWT {aud: the endpoint's origin,
+#                                exp, sub} → "Authorization: vapid t=…, k=…"
+# The sidecar holds encryption to RFC 8291 Appendix A byte for byte.
+#
+# Bound to the product's rows by `expect`: the subscriptions are the
+# product's PushSubscription (one per device, registered through its
+# /events push_subscription.* mutations), the gate its NotificationPrefs, and
+# what is pushed its Notification rows — a job walks the new ones, so every
+# notification the product writes, from /api/v2 or the web, reaches the
+# account's devices. herald's rules: push off entirely or per type (like,
+# repost, reply and mention, follow, message, achievement; no preferences row
+# means everything on); herald's JSON payload (title, body, icon, badge, tag
+# "f33d3r-<type>", data.url, vibrate); a 410 Gone removes the device's
+# subscription; every notify is logged with what it delivered. Added beyond
+# herald (which drops a transient failure): a delivery that did not complete,
+# or answered 429 / 5xx, is retried by a job with backoff (1, 5, 30 minutes),
+# then given up. Quiet hours are stored by the product but, as in herald, not
+# applied to delivery.
+#
+# Config: VAPID_PRIVATE_KEY (base64url, 32 bytes), VAPID_SUBJECT (mailto: or
+# https: contact).
+app FacetNotify:
+    expect entity Account:
+        id: int
+        handle: text
+    expect entity PushSubscription:
+        id: int
+        account: int
+        device_id: text
+        endpoint: text
+        p256dh: text
+        auth: text
+    expect entity NotificationPrefs:
+        id: int
+        account: Account
+        push_enabled: bool
+        likes_enabled: bool
+        reposts_enabled: bool
+        replies_enabled: bool
+        follows_enabled: bool
+        messages_enabled: bool
+        achievements_enabled: bool
+    expect entity Notification:
+        id: int
+        account: int
+        actor: int
+        kind: text
+        target_type: text
+        target_id: int
+        preview: text
+        created: int
+    entity PushLog:
+        id: int
+        account: int
+        kind: text
+        title: text
+        sent: int
+        total: int
+        reason: text
+        at: int
+    # Every attempt's outcome, grouped by the notify it belongs to.
+    entity PushAttempt:
+        id: int
+        batch: text
+        sub: int
+        status: int
+        at: int
+    entity PushRetry:
+        id: int
+        sub: int
+        payload: text
+        attempts: int
+        next_at: int
+        status: text
+    # The last Notification the push job has handed on.
+    entity PushCursor:
+        id: int
+        last: int
+    # ── RFC 8291 ─────────────────────────────────────────────────────────────
+    proc hkdf(salt: [int], ikm: [int], info: [int], n: int) -> [int]:
+        let prk = hmacSha256(salt, ikm)
+        return slice(hmacSha256(prk, info + [1]), 0, n)
+    proc u32be(n: int) -> [int]:
+        return [floor(toFloat(n) / 16777216.0) % 256, floor(toFloat(n) / 65536.0) % 256, floor(toFloat(n) / 256.0) % 256, n % 256]
+    # The aes128gcm body for one message, given the sender's ephemeral key and
+    # salt (fixed in the RFC's vectors, fresh for every real message).
+    proc encryptWith(plaintext: [int], uaPub: [int], auth: [int], asPriv: [int], salt: [int]) -> [int]:
+        let asPub = p256PublicKey(asPriv)
+        let secret = p256Ecdh(asPriv, uaPub)
+        let ikm = hkdf(auth, secret, textToBytes("WebPush: info") + [0] + uaPub + asPub, 32)
+        let cek = hkdf(salt, ikm, textToBytes("Content-Encoding: aes128gcm") + [0], 16)
+        let nonce = hkdf(salt, ikm, textToBytes("Content-Encoding: nonce") + [0], 12)
+        let record = aesGcmSeal(cek, nonce, plaintext + [2])
+        return salt + u32be(4096) + [65] + asPub + record
+    proc encrypt(payload: text, p256dh: text, auth: text) -> [int]:
+        return encryptWith(textToBytes(payload), fromBase64UrlRaw(p256dh), fromBase64UrlRaw(auth), p256PrivateKey(), randomBytes(16))
+    # ── RFC 8292 ─────────────────────────────────────────────────────────────
+    proc origin(url: text) -> text:
+        let parts = split(url, "/")
+        if len(parts) < 3:
+            return url
+        return parts[0] + "//" + parts[2]
+    proc vapidHeader(endpoint: text, priv: [int], subject: text, exp: int) -> text:
+        let h = base64UrlRaw(textToBytes("{\"typ\":\"JWT\",\"alg\":\"ES256\"}"))
+        let c = base64UrlRaw(textToBytes("{\"aud\":\"" + origin(endpoint) + "\",\"exp\":" + exp + ",\"sub\":\"" + subject + "\"}"))
+        let sig = es256Sign(priv, textToBytes(h + "." + c))
+        return "vapid t=" + h + "." + c + "." + base64UrlRaw(sig) + ", k=" + base64UrlRaw(p256PublicKey(priv))
+    # One delivery: encrypt, sign, POST. Answers the push service's status
+    # (0 when it never completed).
+    proc deliver(endpoint: text, p256dh: text, auth: text, payload: text, exp: int) -> int uses io.net, io.env:
+        let priv = fromBase64UrlRaw(envVar("VAPID_PRIVATE_KEY"))
+        let subject = envVar("VAPID_SUBJECT")
+        let body = encrypt(payload, p256dh, auth)
+        let headers = ["TTL: 2419200", "Content-Encoding: aes128gcm", "Content-Type: application/octet-stream", "Urgency: normal", "Authorization: " + vapidHeader(endpoint, priv, subject, exp)]
+        return httpSend("POST", endpoint, headers, body)
+    proc vapidPublic() -> text uses io.env:
+        let k = envVar("VAPID_PRIVATE_KEY")
+        if k == "":
+            return ""
+        return base64UrlRaw(p256PublicKey(fromBase64UrlRaw(k)))
+    proc jsonText(s: text) -> text:
+        return "\"" + replace(replace(replace(s, "\\", "\\\\"), "\"", "\\\""), "\n", "\\n") + "\""
+    # herald's payload, as its service worker reads it.
+    proc payloadFor(kind: text, title: text, body: text, url: text) -> text:
+        let u = do orUrl(url)
+        return "{\"title\":" + jsonText(title) + ",\"body\":" + jsonText(body) + ",\"icon\":\"/static/brand/logo.png\",\"badge\":\"/static/brand/favicon.png\",\"tag\":" + jsonText("f33d3r-" + kind) + ",\"data\":{\"url\":" + jsonText(u) + "},\"vibrate\":[200,100,200]}"
+    proc orUrl(u: text) -> text:
+        if u == "":
+            return "/notifications"
+        return u
+    proc delivered(status: int) -> bool:
+        return status >= 200 && status < 300
+    proc transient(status: int) -> bool:
+        return status == 0 || status == 429 || status >= 500
+    proc backoff(attempts: int) -> int:
+        if attempts <= 1:
+            return 60
+        if attempts == 2:
+            return 300
+        return 1800
+    # ── herald ───────────────────────────────────────────────────────────────
+    action vapidPublicKey -> text:
+        let k = do vapidPublic()
+        return k
+    # herald's type gate over the product's preferences.
+    derive pushAllowed(who: int, kind: text): bool = !exists(p in NotificationPrefs where p.account == who && (!p.push_enabled || (kind == "like" && !p.likes_enabled) || (kind == "repost" && !p.reposts_enabled) || ((kind == "reply" || kind == "mention" || kind == "quote") && !p.replies_enabled) || (kind == "follow" && !p.follows_enabled) || ((kind == "dm" || kind == "message") && !p.messages_enabled) || (kind == "achievement" && !p.achievements_enabled)))
+    proc verbFor(kind: text) -> text:
+        if kind == "like":
+            return " liked your post"
+        if kind == "repost":
+            return " reposted your post"
+        if kind == "reply":
+            return " replied to you"
+        if kind == "mention":
+            return " mentioned you"
+        if kind == "quote":
+            return " quoted your post"
+        if kind == "follow":
+            return " followed you"
+        if kind == "dm" || kind == "message":
+            return " sent you a message"
+        if kind == "tip":
+            return " tipped you"
+        return ""
+    proc urlFor(targetType: text, targetId: int, actorHandle: text) -> text:
+        if targetType == "work":
+            return "/post/" + targetId
+        if targetType == "account":
+            return "/profile/" + actorHandle
+        return "/notifications"
+    action notifyPush(who: int, kind: text, title: text, body: text, url: text) -> int @internal:
+        let t0 = now()
+        if !pushAllowed(who, kind):
+            add PushLog { account: who, kind: kind, title: title, sent: 0, total: 0, reason: "type_disabled", at: t0 }
+            return 0
+        if !exists(s in PushSubscription where s.account == who):
+            add PushLog { account: who, kind: kind, title: title, sent: 0, total: 0, reason: "no_subscriptions", at: t0 }
+            return 0
+        let payload = do payloadFor(kind, title, body, url)
+        let batch = randomToken(16)
+        let total = count(s in PushSubscription where s.account == who)
+        for s in PushSubscription where s.account == who:
+            run pushOne(s.id, payload, 0, batch)
+        let sent = count(a in PushAttempt where a.batch == batch && a.status >= 200 && a.status < 300)
+        add PushLog { account: who, kind: kind, title: title, sent: sent, total: total, reason: "", at: t0 }
+        return sent
+    # One subscription, one attempt: delivered, expired (410 → the device's
+    # subscription removed), or transient (queued for a retry with backoff,
+    # three attempts in all).
+    action pushOne(sub: int, payload: text, attempts: int, batch: text) @internal:
+        let t0 = now()
+        let status = do deliver(PushSubscription(sub).endpoint, PushSubscription(sub).p256dh, PushSubscription(sub).auth, payload, t0 + 43200)
+        add PushAttempt { batch: batch, sub: sub, status: status, at: t0 }
+        if status == 410:
+            remove s in PushSubscription where s.id == sub
+        let again = do transient(status)
+        if again && attempts < 2:
+            add PushRetry { sub: sub, payload: payload, attempts: attempts + 1, next_at: t0 + backoff(attempts + 1), status: "queued" }
+        if again && attempts >= 2:
+            add PushRetry { sub: sub, payload: payload, attempts: attempts + 1, next_at: 0, status: "given_up" }
+    action retryPushes @internal:
+        let t0 = now()
+        for r in PushRetry where r.status == "queued" && r.next_at <= t0:
+            set PushRetry(r.id).status = "retried"
+            if exists(s in PushSubscription where s.id == r.sub):
+                run pushOne(r.sub, r.payload, r.attempts, "retry")
+    job pushRetry every 60s -> retryPushes
+    # Every Notification the product wrote since the last pass, pushed to its
+    # account's devices; no user-facing action waits on a push service.
+    action drainPushes @internal:
+        let from = max(c.last in PushCursor where true)
+        let upto = max(n.id in Notification where true)
+        for n in Notification where n.id > from && n.id <= upto by id:
+            run notifyPush(n.account, n.kind, max(a.handle in Account where a.id == n.actor) + verbFor(n.kind), n.preview, urlFor(n.target_type, n.target_id, max(a.handle in Account where a.id == n.actor)))
+        remove c in PushCursor where true
+        add PushCursor { last: max(upto, from) }
+    job pushOutbox every 10s -> drainPushes
+    # ── parity surface (RFC 8291 Appendix A) ─────────────────────────────────
+    proc encryptB64(plaintext: text, uaPub: text, auth: text, asPriv: text, salt: text) -> text:
+        return base64UrlRaw(encryptWith(textToBytes(plaintext), fromBase64UrlRaw(uaPub), fromBase64UrlRaw(auth), fromBase64UrlRaw(asPriv), fromBase64UrlRaw(salt)))
+    proc hkdfB64(salt: text, ikm: text, info: text, n: int) -> text:
+        return base64UrlRaw(hkdf(fromBase64UrlRaw(salt), fromBase64UrlRaw(ikm), textToBytes(info) + [0], n))
+    action rfc8291Encrypt(plaintext: text, uaPub: text, auth: text, asPriv: text, salt: text) -> text:
+        let body = do encryptB64(plaintext, uaPub, auth, asPriv, salt)
+        return body
+    action rfc8291Hkdf(salt: text, ikm: text, info: text, n: int) -> text:
+        let v = do hkdfB64(salt, ikm, info, n)
+        return v
